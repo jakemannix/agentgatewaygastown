@@ -92,6 +92,32 @@ pub rest: serde_json::Value
 ```
 Only fields explicitly operated on are defined; unknown fields pass through.
 
+## Security: Handling Secrets and Environment Variables
+
+**NEVER print environment variable values to the console or context window.**
+
+When checking for environment variables, only check for their *existence*, not their values:
+
+```bash
+# SAFE - only prints variable names
+env | grep -i MODAL | cut -d'=' -f1
+
+# SAFE - check if variable is set (returns 0/1)
+[ -n "$MODAL_TOKEN_ID" ] && echo "MODAL_TOKEN_ID is set"
+
+# DANGEROUS - NEVER DO THIS - prints actual secret values
+env | grep -i MODAL          # BAD!
+echo $MODAL_TOKEN_SECRET     # BAD!
+printenv MODAL_TOKEN_ID      # BAD!
+```
+
+This applies to:
+- `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` - Modal authentication
+- Any `*_API_KEY`, `*_SECRET`, `*_TOKEN`, `*_PASSWORD` variables
+- AWS credentials, GCP service accounts, etc.
+
+If you need to verify credentials work, use the service's CLI to test authentication (e.g., `modal app list`) rather than printing the credentials themselves.
+
 ## Conventions
 
 - Follows Conventional Commits: `feat:`, `fix:`, `docs:`, etc.
