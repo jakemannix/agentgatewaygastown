@@ -1,0 +1,32 @@
+# Example agentgateway configuration for Modal deployment
+# Copy this content to your Modal secret as AGENTGATEWAY_CONFIG
+#
+# Create the secret with:
+#   modal secret create agentgateway-config AGENTGATEWAY_CONFIG="$(cat modal/examples/basic_config.yaml)"
+
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+      backends:
+      - mcp:
+          targets:
+          # Add your MCP targets here
+          # Example with a remote SSE target:
+          # - name: my-mcp-server
+          #   sse:
+          #     uri: https://my-mcp-server.example.com/sse
+          #
+          # Example with HTTP target:
+          # - name: my-http-mcp
+          #   http:
+          #     uri: https://api.example.com/mcp
+          []

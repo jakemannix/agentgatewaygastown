@@ -1,0 +1,4 @@
+# Modal deployment dependencies
+# Install with: pip install -r modal/requirements.txt
+
+modal>=0.64.0
