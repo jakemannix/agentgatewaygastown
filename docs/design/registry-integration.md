@@ -900,6 +900,210 @@ Phase 1 --- Phase 2 --- Phase 3 ------------------------------
 
 ---
 
+# Testing
+
+The registry integration includes comprehensive test coverage at multiple levels:
+
+## Running Tests
+
+### Unit Tests
+
+Run all registry unit tests (36 tests covering core functionality):
+
+```bash
+# Run all registry unit tests
+cargo test --package agentgateway registry
+
+# Run with output for debugging
+cargo test --package agentgateway registry -- --nocapture
+
+# Run a specific test
+cargo test --package agentgateway test_compile_simple_registry
+```
+
+Unit tests are located in:
+- `crates/agentgateway/src/mcp/registry/types.rs` - Type parsing tests
+- `crates/agentgateway/src/mcp/registry/compiled.rs` - Compilation and transformation tests
+- `crates/agentgateway/src/mcp/registry/client.rs` - Client and auth tests
+- `crates/agentgateway/src/mcp/registry/store.rs` - Store and hot-reload tests
+
+### Integration Tests
+
+Run registry integration tests (8 tests covering end-to-end functionality):
+
+```bash
+# Run all registry integration tests
+cargo test --package agentgateway --test integration registry
+
+# Run with output
+cargo test --package agentgateway --test integration registry -- --nocapture
+```
+
+Integration tests are located in:
+- `crates/agentgateway/tests/tests/registry.rs`
+
+### All Tests
+
+Run both unit and integration tests:
+
+```bash
+# Run all registry-related tests
+cargo test --package agentgateway registry
+```
+
+## Manual Testing
+
+### Setup a Test Registry File
+
+1. Create a registry JSON file (`test-registry.json`):
+
+```json
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "get_weather",
+      "source": {
+        "target": "weather-server",
+        "tool": "fetch_weather"
+      },
+      "description": "Get current weather for a city",
+      "defaults": {
+        "units": "metric"
+      },
+      "hideFields": ["debug_mode"],
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "temperature": {
+            "type": "number",
+            "sourceField": "$.data.temp"
+          },
+          "conditions": {
+            "type": "string",
+            "sourceField": "$.data.weather"
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+2. Create a gateway config (`config.yaml`):
+
+```yaml
+registry:
+  source: file:///path/to/test-registry.json
+  refresh_interval: 30s
+
+backends:
+  - mcp:
+      targets:
+        - name: weather-server
+          stdio:
+            cmd: uvx
+            args: ["mcp-server-weather"]
+```
+
+3. Start the gateway:
+
+```bash
+./target/release/agentgateway -f config.yaml
+```
+
+4. Test with an MCP client:
+
+```bash
+# Using curl with StreamableHTTP
+curl -X POST http://localhost:15001/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
+
+### Testing Hot Reload
+
+1. Start gateway with file-based registry
+2. Modify the registry JSON file
+3. Observe logs for reload confirmation:
+   ```
+   INFO Config file changed, reloading...
+   INFO Registry refreshed successfully
+   ```
+4. Re-query tools to verify changes took effect
+
+### Testing HTTP Registry Source
+
+1. Host a registry JSON file on an HTTP server:
+   ```bash
+   python -m http.server 8080
+   ```
+
+2. Configure gateway with HTTP source:
+   ```yaml
+   registry:
+     source: http://localhost:8080/registry.json
+     refresh_interval: 1m
+     auth:
+       bearer: ${REGISTRY_TOKEN}  # Optional
+   ```
+
+3. Verify periodic refresh in logs
+
+### Testing Default Injection
+
+1. Add a tool with defaults using environment variables:
+   ```json
+   {
+     "name": "api_call",
+     "source": {"target": "api-server", "tool": "call"},
+     "defaults": {
+       "api_key": "${API_KEY}",
+       "timeout": 30
+     }
+   }
+   ```
+
+2. Set the environment variable:
+   ```bash
+   export API_KEY="my-secret-key"
+   ```
+
+3. Call the tool without providing `api_key` - verify it's injected
+
+### Testing Output Transformation
+
+1. Configure output schema with JSONPath:
+   ```json
+   {
+     "outputSchema": {
+       "properties": {
+         "result": {
+           "type": "string",
+           "sourceField": "$.deeply.nested.value"
+         }
+       }
+     }
+   }
+   ```
+
+2. Backend returns: `{"deeply": {"nested": {"value": "hello"}}}`
+3. Client receives: `{"result": "hello"}`
+
+## Test Coverage Summary
+
+| Component | Unit Tests | Integration Tests |
+|-----------|------------|-------------------|
+| Types/Parsing | 7 tests | 2 tests |
+| Compilation | 15 tests | 1 test |
+| JSONPath | 6 tests | 1 test |
+| Default Injection | 4 tests | 1 test |
+| Client | 6 tests | 1 test |
+| Store | 4 tests | 1 test |
+| **Total** | **36 tests** | **8 tests** |
+
+---
+
 # Open Questions
 
 1. **Tool Conflict Resolution**: If registry defines `get_weather` but a backend also exposes `get_weather`, which wins?
