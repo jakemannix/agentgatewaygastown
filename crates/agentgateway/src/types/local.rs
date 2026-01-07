@@ -48,6 +48,8 @@ impl NormalizedLocalConfig {
 	}
 }
 
+use crate::mcp::registry::{AuthConfig, RegistryClient, RegistryStore, RegistryStoreRef, parse_duration};
+
 #[derive(Debug, Clone)]
 pub struct NormalizedLocalConfig {
 	pub binds: Vec<Bind>,
@@ -57,6 +59,8 @@ pub struct NormalizedLocalConfig {
 	// for now
 	pub workloads: Vec<LocalWorkload>,
 	pub services: Vec<Service>,
+	/// Registry store for virtual tool definitions (if configured)
+	pub registry: Option<RegistryStoreRef>,
 }
 
 #[apply(schema_de!)]
@@ -81,6 +85,50 @@ pub struct LocalConfig {
 	services: Vec<Service>,
 	#[serde(default)]
 	backends: Vec<FullLocalBackend>,
+	/// Global tool registry configuration for virtual tool mappings.
+	/// The registry defines how tools are exposed to agents, including renaming,
+	/// field hiding, default injection, and output transformation.
+	#[serde(default)]
+	registry: Option<LocalRegistryConfig>,
+}
+
+/// Registry configuration for virtual tool definitions
+#[apply(schema_de!)]
+pub struct LocalRegistryConfig {
+	/// Source URI for the registry. Supports:
+	/// - file:///path/to/registry.json - Load from local file
+	/// - http://host/path or https://host/path - Load from HTTP(S) endpoint
+	pub source: String,
+	/// How often to refresh the registry from the source.
+	/// Supports duration strings like "5m", "30s", "1h", "100ms".
+	/// Default: "5m"
+	#[serde(default = "default_refresh_interval")]
+	pub refresh_interval: String,
+	/// Authentication configuration for HTTP sources (optional)
+	#[serde(default)]
+	pub auth: Option<LocalRegistryAuth>,
+}
+
+fn default_refresh_interval() -> String {
+	"5m".to_string()
+}
+
+/// Authentication configuration for registry HTTP sources
+#[apply(schema_de!)]
+#[serde(untagged)]
+pub enum LocalRegistryAuth {
+	/// Bearer token authentication
+	Bearer {
+		/// Bearer token value (supports ${ENV_VAR} substitution)
+		bearer: String,
+	},
+	/// Basic authentication
+	Basic {
+		/// Username for basic auth
+		username: String,
+		/// Password for basic auth (supports ${ENV_VAR} substitution)
+		password: String,
+	},
 }
 
 #[apply(schema_de!)]
@@ -893,6 +941,7 @@ async fn convert(
 		workloads,
 		services,
 		backends,
+		registry,
 	} = i;
 	let mut all_policies = vec![];
 	let mut all_backends = vec![];
@@ -964,12 +1013,57 @@ async fn convert(
 		})
 	}
 
+	// Convert registry config to RegistryStore
+	let registry_store = match registry {
+		Some(reg_config) => {
+			let refresh_interval = parse_duration(&reg_config.refresh_interval)
+				.map_err(|e| anyhow!("Invalid registry refresh interval: {}", e))?;
+
+			let auth = reg_config.auth.map(|a| match a {
+				LocalRegistryAuth::Bearer { bearer } => AuthConfig::Bearer(bearer),
+				LocalRegistryAuth::Basic { username, password } => {
+					AuthConfig::Basic { username, password }
+				},
+			});
+
+			let registry_client = RegistryClient::from_uri(&reg_config.source, refresh_interval, auth)
+				.map_err(|e| anyhow!("Failed to create registry client: {}", e))?;
+
+			let store = RegistryStore::new().with_client(registry_client);
+
+			// Wrap in RegistryStoreRef for Arc handling
+			let store_ref = RegistryStoreRef::new(store);
+
+			// Perform initial load
+			store_ref
+				.initial_load()
+				.await
+				.map_err(|e| anyhow!("Failed to load registry: {}", e))?;
+
+			// Start refresh loop or file watcher based on source type
+			let is_file_source = store_ref
+				.inner()
+				.client()
+				.map_or(false, |c| c.is_file_source());
+
+			if is_file_source {
+				let _ = Arc::clone(store_ref.inner()).spawn_file_watcher();
+			} else {
+				Arc::clone(store_ref.inner()).spawn_refresh_loop();
+			}
+
+			Some(store_ref)
+		},
+		None => None,
+	};
+
 	Ok(NormalizedLocalConfig {
 		binds: all_binds,
 		policies: all_policies,
 		backends: all_backends.into_iter().collect(),
 		workloads,
 		services,
+		registry: registry_store,
 	})
 }
 

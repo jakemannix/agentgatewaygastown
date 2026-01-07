@@ -22,6 +22,7 @@ use crate::http::Response;
 use crate::http::jwt::Claims;
 use crate::mcp::mergestream::MergeFn;
 use crate::mcp::rbac::{Identity, McpAuthorizationSet};
+use crate::mcp::registry::RegistryStoreRef;
 use crate::mcp::router::McpBackendGroup;
 use crate::mcp::streamablehttp::ServerSseMessage;
 use crate::mcp::upstream::{IncomingRequestContext, UpstreamError};
@@ -31,6 +32,19 @@ use crate::telemetry::log::AsyncLog;
 use crate::telemetry::trc::TraceParent;
 
 const DELIMITER: &str = "_";
+
+/// Result of resolving a tool call, which may be a virtual tool
+#[derive(Debug, Clone)]
+pub struct ResolvedToolCall {
+	/// The target service/backend to route the call to
+	pub target: String,
+	/// The actual tool name on the backend
+	pub tool_name: String,
+	/// The arguments with defaults injected
+	pub args: serde_json::Value,
+	/// If this was a virtual tool, the original virtual name (for output transformation)
+	pub virtual_name: Option<String>,
+}
 
 fn resource_name(default_target_name: Option<&String>, target: &str, name: &str) -> String {
 	if default_target_name.is_none() {
@@ -48,6 +62,8 @@ pub struct Relay {
 	// Else this is empty
 	default_target_name: Option<String>,
 	is_multiplexing: bool,
+	/// Optional tool registry for virtual tool mappings
+	registry: Option<RegistryStoreRef>,
 }
 
 impl Relay {
@@ -70,7 +86,84 @@ impl Relay {
 			policies,
 			default_target_name,
 			is_multiplexing,
+			registry: None,
 		})
+	}
+
+	/// Create a Relay with a registry for virtual tool mappings
+	pub fn with_registry(mut self, registry: RegistryStoreRef) -> Self {
+		self.registry = Some(registry);
+		self
+	}
+
+	/// Get the registry reference
+	pub fn registry(&self) -> Option<&RegistryStoreRef> {
+		self.registry.as_ref()
+	}
+
+	/// Resolve a tool call, handling both virtual and regular tools.
+	///
+	/// Returns (target_service, actual_tool_name, transformed_args, is_virtual)
+	///
+	/// For virtual tools, this will:
+	/// - Map the virtual name to the source target and tool
+	/// - Inject default arguments
+	///
+	/// For regular tools, this delegates to parse_resource_name.
+	pub fn resolve_tool_call(
+		&self,
+		tool_name: &str,
+		args: serde_json::Value,
+	) -> Result<ResolvedToolCall, UpstreamError> {
+		// First, check if this is a virtual tool
+		if let Some(ref reg) = self.registry {
+			let guard = reg.get();
+			if let Some(ref compiled_registry) = **guard {
+				if let Some(virtual_tool) = compiled_registry.get_tool(tool_name) {
+					// This is a virtual tool - resolve to backend
+					let target = virtual_tool.def.source.target.clone();
+					let backend_tool = virtual_tool.def.source.tool.clone();
+
+					// Inject defaults
+					let transformed_args = virtual_tool
+						.inject_defaults(args)
+						.map_err(|e| UpstreamError::InvalidRequest(e.to_string()))?;
+
+					return Ok(ResolvedToolCall {
+						target,
+						tool_name: backend_tool,
+						args: transformed_args,
+						virtual_name: Some(tool_name.to_string()),
+					});
+				}
+			}
+		}
+
+		// Not a virtual tool - parse normally
+		let (service_name, actual_tool) = self.parse_resource_name(tool_name)?;
+		Ok(ResolvedToolCall {
+			target: service_name.to_string(),
+			tool_name: actual_tool.to_string(),
+			args,
+			virtual_name: None,
+		})
+	}
+
+	/// Transform tool output for virtual tools
+	pub fn transform_tool_output(
+		&self,
+		virtual_name: &str,
+		response: serde_json::Value,
+	) -> Result<serde_json::Value, UpstreamError> {
+		if let Some(ref reg) = self.registry {
+			let guard = reg.get();
+			if let Some(ref compiled_registry) = **guard {
+				return compiled_registry
+					.transform_output(virtual_name, response)
+					.map_err(|e| UpstreamError::InvalidRequest(e.to_string()));
+			}
+		}
+		Ok(response)
 	}
 
 	pub fn parse_resource_name<'a, 'b: 'a>(
@@ -100,8 +193,12 @@ impl Relay {
 	pub fn merge_tools(&self, cel: Arc<ContextBuilder>) -> Box<MergeFn> {
 		let policies = self.policies.clone();
 		let default_target_name = self.default_target_name.clone();
+		// Clone registry reference for use in closure
+		let registry = self.registry.clone();
+
 		Box::new(move |streams| {
-			let tools = streams
+			// Collect all tools with their server names
+			let backend_tools: Vec<(String, Tool)> = streams
 				.into_iter()
 				.flat_map(|(server_name, s)| {
 					let tools = match s {
@@ -110,28 +207,46 @@ impl Relay {
 					};
 					tools
 						.into_iter()
-						// Apply authorization policies, filtering tools that are not allowed.
-						.filter(|t| {
-							policies.validate(
-								&rbac::ResourceType::Tool(rbac::ResourceId::new(
-									server_name.to_string(),
-									t.name.to_string(),
-								)),
-								&cel,
-							)
-						})
-						// Rename to handle multiplexing
-						.map(|t| Tool {
-							name: Cow::Owned(resource_name(
-								default_target_name.as_ref(),
-								server_name.as_str(),
-								&t.name,
-							)),
-							..t
-						})
+						.map(|t| (server_name.to_string(), t))
 						.collect_vec()
 				})
 				.collect_vec();
+
+			// Apply registry transformations if configured
+			let transformed_tools = if let Some(ref reg) = registry {
+				let guard = reg.get();
+				if let Some(ref compiled_registry) = **guard {
+					compiled_registry.transform_tools(backend_tools)
+				} else {
+					backend_tools
+				}
+			} else {
+				backend_tools
+			};
+
+			// Apply authorization policies and multiplexing renaming
+			let tools = transformed_tools
+				.into_iter()
+				.filter(|(server_name, t)| {
+					policies.validate(
+						&rbac::ResourceType::Tool(rbac::ResourceId::new(
+							server_name.to_string(),
+							t.name.to_string(),
+						)),
+						&cel,
+					)
+				})
+				// Rename to handle multiplexing
+				.map(|(server_name, t)| Tool {
+					name: Cow::Owned(resource_name(
+						default_target_name.as_ref(),
+						server_name.as_str(),
+						&t.name,
+					)),
+					..t
+				})
+				.collect_vec();
+
 			Ok(
 				ListToolsResult {
 					tools,

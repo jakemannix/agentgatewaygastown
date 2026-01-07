@@ -223,17 +223,28 @@ impl App {
 		// Insert the finalized context (now potentially including verified JWT claims)
 		req.extensions_mut().insert(Arc::new(ctx));
 
+		// Get the registry from stores if configured
+		let registry = self.state.get_registry();
+
 		match (req.uri().path(), req.method(), authn) {
 			("/sse", _, _) => {
 				// Assume this is streamable HTTP otherwise
+				let reg = registry.clone();
 				let sse = LegacySSEService::new(
 					move || {
-						Relay::new(
+						let mut relay = Relay::new(
 							backends.clone(),
 							authorization_policies.clone(),
 							client.clone(),
 						)
-						.map_err(|e| Error::new(e.to_string()))
+						.map_err(|e| Error::new(e.to_string()))?;
+
+						// Apply registry if configured
+						if let Some(r) = reg.clone() {
+							relay = relay.with_registry(r);
+						}
+
+						Ok(relay)
 					},
 					sm,
 				);
@@ -261,14 +272,22 @@ impl App {
 				.into_response(),
 			_ => {
 				// Assume this is streamable HTTP otherwise
+				let reg = registry;
 				let streamable = StreamableHttpService::new(
 					move || {
-						Relay::new(
+						let mut relay = Relay::new(
 							backends.clone(),
 							authorization_policies.clone(),
 							client.clone(),
 						)
-						.map_err(|e| Error::new(e.to_string()))
+						.map_err(|e| Error::new(e.to_string()))?;
+
+						// Apply registry if configured
+						if let Some(r) = reg.clone() {
+							relay = relay.with_registry(r);
+						}
+
+						Ok(relay)
 					},
 					sm,
 					StreamableHttpServerConfig {

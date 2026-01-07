@@ -1,6 +1,7 @@
 mod handler;
 mod mergestream;
 mod rbac;
+pub mod registry;
 mod router;
 mod session;
 mod sse;
