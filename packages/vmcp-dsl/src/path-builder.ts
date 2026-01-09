@@ -55,7 +55,7 @@ export type PathBuilder<T> = T extends object
  * String(namePath)  // "$.user.name"
  */
 export function createPathBuilder<T>(): PathBuilder<T> {
-  return new Proxy({ path: '$' }, pathProxyHandler) as PathBuilder<T>;
+  return new Proxy({ path: '$' }, pathProxyHandler) as unknown as PathBuilder<T>;
 }
 
 /**

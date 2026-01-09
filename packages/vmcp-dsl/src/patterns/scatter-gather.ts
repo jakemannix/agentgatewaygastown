@@ -90,16 +90,16 @@ export class AggregationBuilder {
  * Builder for scatter-gather patterns
  */
 export class ScatterGatherBuilder {
-  private targets: ScatterTarget[] = [];
-  private aggregation: AggregationStrategy = { ops: [] };
-  private timeoutMs?: number;
-  private failFast: boolean = false;
+  private _targets: ScatterTarget[] = [];
+  private _aggregation: AggregationStrategy = { ops: [] };
+  private _timeoutMs?: number;
+  private _failFast: boolean = false;
 
   /**
    * Add a tool target
    */
   target(toolName: string): this {
-    this.targets.push({ tool: toolName });
+    this._targets.push({ tool: toolName });
     return this;
   }
 
@@ -108,7 +108,7 @@ export class ScatterGatherBuilder {
    */
   targets(...toolNames: string[]): this {
     for (const name of toolNames) {
-      this.targets.push({ tool: name });
+      this._targets.push({ tool: name });
     }
     return this;
   }
@@ -117,7 +117,7 @@ export class ScatterGatherBuilder {
    * Add a pattern target
    */
   targetPattern(spec: PatternSpec): this {
-    this.targets.push({ pattern: spec });
+    this._targets.push({ pattern: spec });
     return this;
   }
 
@@ -125,7 +125,7 @@ export class ScatterGatherBuilder {
    * Set aggregation using builder
    */
   aggregate(builder: AggregationBuilder): this {
-    this.aggregation = builder.build();
+    this._aggregation = builder.build();
     return this;
   }
 
@@ -133,7 +133,7 @@ export class ScatterGatherBuilder {
    * Set aggregation strategy directly
    */
   aggregation(strategy: AggregationStrategy): this {
-    this.aggregation = strategy;
+    this._aggregation = strategy;
     return this;
   }
 
@@ -141,7 +141,7 @@ export class ScatterGatherBuilder {
    * Shorthand: flatten results
    */
   flatten(): this {
-    this.aggregation.ops.push({ flatten: true });
+    this._aggregation.ops.push({ flatten: true });
     return this;
   }
 
@@ -149,15 +149,23 @@ export class ScatterGatherBuilder {
    * Set timeout in milliseconds
    */
   timeout(ms: number): this {
-    this.timeoutMs = ms;
+    this._timeoutMs = ms;
     return this;
   }
 
   /**
-   * Fail immediately on first error
+   * Set fail fast behavior
+   */
+  failFast(value: boolean = true): this {
+    this._failFast = value;
+    return this;
+  }
+
+  /**
+   * Fail immediately on first error (alias for failFast)
    */
   failOnError(): this {
-    this.failFast = true;
+    this._failFast = true;
     return this;
   }
 
@@ -167,10 +175,10 @@ export class ScatterGatherBuilder {
   build(): PatternSpec {
     return {
       scatterGather: {
-        targets: this.targets,
-        aggregation: this.aggregation,
-        timeoutMs: this.timeoutMs,
-        failFast: this.failFast,
+        targets: this._targets,
+        aggregation: this._aggregation,
+        timeoutMs: this._timeoutMs,
+        failFast: this._failFast,
       },
     };
   }
@@ -180,10 +188,10 @@ export class ScatterGatherBuilder {
    */
   spec(): ScatterGatherSpec {
     return {
-      targets: this.targets,
-      aggregation: this.aggregation,
-      timeoutMs: this.timeoutMs,
-      failFast: this.failFast,
+      targets: this._targets,
+      aggregation: this._aggregation,
+      timeoutMs: this._timeoutMs,
+      failFast: this._failFast,
     };
   }
 }
