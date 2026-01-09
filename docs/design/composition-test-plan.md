@@ -13,7 +13,7 @@ The composition system adds support for:
 ### Run All Registry Tests
 
 ```bash
-cd /Users/jake/src/open_src/agentgateway
+# From the repository root
 
 # Run all registry tests (including new composition tests)
 cargo test --package agentgateway registry
@@ -79,7 +79,7 @@ cargo bench --package agentgateway -F internal_benches
 
 ## 4. JSON Parsing Test
 
-Create a test file `test-registry.json`:
+Create a test file `test-registry.json`. Note that `defaults` and `hideFields` are nested inside the `source` object:
 
 ```json
 {
@@ -90,10 +90,10 @@ Create a test file `test-registry.json`:
       "description": "Get weather with defaults",
       "source": {
         "target": "weather-backend",
-        "tool": "fetch_weather"
-      },
-      "defaults": {
-        "units": "metric"
+        "tool": "fetch_weather",
+        "defaults": {
+          "units": "metric"
+        }
       }
     },
     {
@@ -209,9 +209,19 @@ npm run build
 npm test
 ```
 
-### Test Definition File
+### Example Usage
 
-Create `test-tools.ts`:
+See `packages/vmcp-dsl/examples/test-tools.ts` for a complete example:
+
+```bash
+# Run the example directly
+npx tsx examples/test-tools.ts
+
+# Or compile to JSON using the CLI
+node dist/bin/vmcp-compile.js examples/test-tools.ts -o registry.json --validate
+```
+
+### DSL API Overview
 
 ```typescript
 import { 
@@ -223,9 +233,9 @@ import {
   schemaMap, 
   mapEach,
   createRegistry 
-} from './dist/index.js';
+} from '@vmcp/dsl';
 
-// Define a virtual tool
+// Define a virtual tool (1:1 mapping)
 const weatherTool = tool('get_weather')
   .description('Get weather information')
   .source('weather-backend', 'fetch_weather')
@@ -258,58 +268,69 @@ const researchPipeline = tool('research_pipeline')
       .step('search', 'multi_search')
       .addStep({
         id: 'filter',
-        operation: filter().field('$.relevance').gt(0.5).build(),
+        operation: { 
+          pattern: filter().field('$.relevance').gt(0.5).build() 
+        },
       })
       .addStep({
         id: 'normalize',
-        operation: mapEach()
-          .pattern(
-            schemaMap()
-              .field('title', '$.name')
-              .coalesce('url', ['$.pdf_url', '$.web_url'])
-              .literal('source', 'research')
-              .build()
-          )
-          .build(),
+        operation: {
+          pattern: mapEach()
+            .pattern(
+              schemaMap()
+                .field('title', '$.name')
+                .coalesce('url', ['$.pdf_url', '$.web_url'])
+                .literal('source', 'research')
+                .build()
+            )
+            .build(),
+        },
       })
       .build()
   )
   .build();
 
-// Build registry
-export const registry = createRegistry()
+// Build and validate registry
+const registry = createRegistry()
   .add(weatherTool)
   .add(multiSearch)
   .add(researchPipeline)
   .build();
 
-// Validate
-const builder = createRegistry().addAll(weatherTool, multiSearch, researchPipeline);
-const result = builder.validate();
-console.log('Valid:', result.valid);
-if (result.warnings.length > 0) {
-  console.log('Warnings:', result.warnings);
-}
+const result = createRegistry()
+  .addAll(weatherTool, multiSearch, researchPipeline)
+  .validate();
 
-// Output JSON
+console.log('Valid:', result.valid);
 console.log(JSON.stringify(registry, null, 2));
 ```
 
-Run it:
+### CLI Compiler
 
 ```bash
-npx tsx test-tools.ts
-```
+# Compile TypeScript definitions to JSON
+node dist/bin/vmcp-compile.js <input.ts> [options]
 
-Or use the CLI:
+Options:
+  -o, --output <file>   Output file (default: stdout)
+  --validate            Validate the registry before output
+  --no-pretty           Output minified JSON
+  -h, --help            Show this help message
 
-```bash
-./dist/bin/vmcp-compile.js test-tools.ts -o output.json --validate
+Examples:
+  node dist/bin/vmcp-compile.js tools.ts -o registry.json
+  node dist/bin/vmcp-compile.js tools.ts --validate
 ```
 
 ## 6. Executor Test
 
-Create a test that exercises the executor with a mock invoker:
+The executor tests are included in the unit test suite. To run them:
+
+```bash
+cargo test --package agentgateway executor
+```
+
+Example of a programmatic executor test with a mock invoker:
 
 ```rust
 use std::sync::Arc;
@@ -372,14 +393,14 @@ async fn test_executor() {
 
 | Component | Test Command | Status |
 |-----------|-------------|--------|
-| Pattern types parsing | `cargo test patterns` | ⬜ |
-| Registry compilation | `cargo test compiled` | ⬜ |
-| Executor patterns | `cargo test executor` | ⬜ |
-| Integration tests | `cargo test --test integration registry` | ⬜ |
-| Benchmarks | `cargo bench -F internal_benches` | ⬜ |
-| TypeScript DSL build | `cd packages/vmcp-dsl && npm run build` | ⬜ |
-| TypeScript DSL tests | `cd packages/vmcp-dsl && npm test` | ⬜ |
-| CLI compiler | `npx vmcp-compile test-tools.ts` | ⬜ |
+| Pattern types parsing | `cargo test --package agentgateway patterns` | ✅ |
+| Registry compilation | `cargo test --package agentgateway compiled` | ✅ |
+| Executor patterns | `cargo test --package agentgateway executor` | ✅ |
+| Integration tests | `cargo test --package agentgateway --test integration registry` | ✅ |
+| Benchmarks | `cargo bench --package agentgateway -F internal_benches` | ⬜ (not yet implemented) |
+| TypeScript DSL build | `cd packages/vmcp-dsl && npm run build` | ✅ |
+| TypeScript DSL tests | `cd packages/vmcp-dsl && npm test` | ✅ (32 pass, 2 skipped) |
+| CLI compiler | `node dist/bin/vmcp-compile.js examples/test-tools.ts` | ✅ |
 
 ## Known Limitations
 
@@ -393,6 +414,8 @@ async fn test_executor() {
 
 5. **Streaming results** from compositions is not yet supported
 
+6. **TypeScript DSL validation** - Missing tool name detection and unresolved tool reference warnings are not yet implemented
+
 ## Next Steps
 
 1. Implement `ToolInvoker` bridge to `UpstreamGroup` for real backend calls
@@ -400,4 +423,4 @@ async fn test_executor() {
 3. Add composition execution tracing/spans
 4. Add streaming support for long-running compositions
 5. Add circuit breaker pattern for resilience
-
+6. Implement full validation in TypeScript DSL (missing names, unresolved references)
