@@ -1,0 +1,63 @@
+# AgentGateway Demo Configuration
+#
+# This config works with the demo UI and loads virtual tool mappings from showcase.json
+#
+# Note: Currently servers are defined both here and in the registry. The registry
+# provides virtual tool mappings (renaming, output projection, etc.), while this
+# config defines the actual MCP targets for routing. A future enhancement will
+# unify these so only the registry is needed.
+#
+# Usage:
+#   cd ~/src/open_src/agentgateway
+#   cargo build --release
+#   ./target/release/agentgateway -f /path/to/this/file.yaml
+#
+# Then start the demo UI:
+#   cd ~/src/open_src/mcp-gateway-prototype/demo/ui
+#   GATEWAY_BACKEND=agentgateway GATEWAY_URL=http://localhost:3000 uv run python main.py
+
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+          - mcp-session-id
+      backends:
+      - mcp:
+          targets:
+          # Local stdio servers (same as showcase.json servers section)
+          - name: fetch-server
+            stdio:
+              cmd: uvx
+              args: ["mcp-server-fetch"]
+          - name: memory-server
+            stdio:
+              cmd: npx
+              args: ["-y", "@modelcontextprotocol/server-memory"]
+          - name: time-server
+            stdio:
+              cmd: uvx
+              args: ["mcp-server-time"]
+          - name: github-server
+            stdio:
+              cmd: npx
+              args: ["-y", "@modelcontextprotocol/server-github"]
+          # Remote servers (non-OAuth)
+          - name: cloudflare-docs
+            mcp:
+              host: docs.mcp.cloudflare.com
+              port: 443
+              path: /mcp
+
+# Registry for virtual tool mappings
+# This provides tool renaming, output projection, defaults, etc.
+registry:
+  source: file://./demo/registries/showcase.json
+  refreshInterval: 30s

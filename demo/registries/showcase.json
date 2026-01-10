@@ -1,0 +1,320 @@
+{
+  "$comment": "MCP Gateway Demo - Full Feature Showcase",
+  "schemaVersion": "1.0",
+
+  "servers": [
+    {
+      "name": "fetch-server",
+      "description": "Web content fetching via mcp-server-fetch",
+      "stdio": {"command": "uvx", "args": ["mcp-server-fetch"]}
+    },
+    {
+      "name": "memory-server",
+      "description": "Knowledge graph storage via server-memory",
+      "stdio": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-memory"]}
+    },
+    {
+      "name": "time-server",
+      "description": "Timezone operations via mcp-server-time",
+      "stdio": {"command": "uvx", "args": ["mcp-server-time"]}
+    },
+    {
+      "name": "github-server",
+      "description": "GitHub API access via server-github",
+      "stdio": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]}
+    },
+    {
+      "name": "cloudflare-docs",
+      "description": "Cloudflare documentation search (public)",
+      "url": "https://docs.mcp.cloudflare.com/mcp",
+      "transport": "streamablehttp"
+    },
+    {
+      "name": "cloudflare-radar",
+      "description": "Cloudflare Radar analytics (requires OAuth)",
+      "url": "https://radar.mcp.cloudflare.com/mcp",
+      "transport": "streamablehttp",
+      "auth": "oauth"
+    }
+  ],
+
+  "schemas": {
+    "FetchInput": {
+      "type": "object",
+      "properties": {
+        "url": {"type": "string", "description": "URL to fetch"}
+      },
+      "required": ["url"]
+    },
+    "EntityInput": {
+      "type": "object",
+      "properties": {
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {"type": "string"},
+              "entityType": {"type": "string"},
+              "observations": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["name", "entityType", "observations"]
+          }
+        }
+      },
+      "required": ["entities"]
+    }
+  },
+
+  "tools": [
+    {
+      "name": "fetch",
+      "server": "fetch-server",
+      "description": "Original fetch tool from mcp-server-fetch",
+      "inputSchema": {"$ref": "#/schemas/FetchInput"},
+      "version": "2.1.0"
+    },
+    {
+      "name": "get_webpage",
+      "source": "fetch",
+      "description": "DEMO: Renamed fetch tool - retrieves content from a URL with semantic naming"
+    },
+    {
+      "name": "read_graph",
+      "server": "memory-server",
+      "description": "Read the entire knowledge graph",
+      "inputSchema": {"type": "object", "properties": {}},
+      "version": "3.0.0"
+    },
+    {
+      "name": "list_entity_names",
+      "source": "read_graph",
+      "description": "DEMO: Projected output - extracts just entity names from knowledge graph",
+      "inputSchema": {"type": "object", "properties": {}},
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "names": {
+            "type": "array",
+            "items": {"type": "string"},
+            "source_field": "$.entities[*].name"
+          }
+        }
+      }
+    },
+    {
+      "name": "get_connections",
+      "source": "read_graph",
+      "description": "DEMO: RDF-style triple projection from knowledge graph relations",
+      "inputSchema": {"type": "object", "properties": {}},
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "connections": {
+            "type": "array",
+            "source_field": "$.relations[*]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subject": {"type": "string", "source_field": "$.from"},
+                "predicate": {"type": "string", "source_field": "$.relationType"},
+                "object": {"type": "string", "source_field": "$.to"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "create_entities",
+      "server": "memory-server",
+      "description": "Create new entities in the knowledge graph",
+      "inputSchema": {"$ref": "#/schemas/EntityInput"},
+      "version": "3.0.0"
+    },
+    {
+      "name": "remember",
+      "source": "create_entities",
+      "description": "DEMO: Simplified alias for storing information in memory"
+    },
+    {
+      "$comment": "=== TIME SERVER - JSON-in-text extraction demos ===",
+      "name": "get_current_time",
+      "server": "time-server",
+      "description": "Get current time - returns JSON embedded in text (no structuredContent)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone (e.g., 'America/New_York', 'Europe/London')"
+          }
+        },
+        "required": ["timezone"]
+      },
+      "version": "0.8.1"
+    },
+    {
+      "name": "get_time_structured",
+      "source": "get_current_time",
+      "description": "DEMO: JSON extraction - auto-extracts JSON from text into structuredContent",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "timezone": {"type": "string"},
+          "datetime": {"type": "string"},
+          "day_of_week": {"type": "string"},
+          "is_dst": {"type": "boolean"}
+        }
+      }
+    },
+    {
+      "name": "what_day_is_it",
+      "source": "get_current_time",
+      "description": "DEMO: JSON extraction + projection - extracts and projects to just day name",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "day": {"type": "string", "source_field": "$.day_of_week"}
+        }
+      }
+    },
+    {
+      "name": "convert_time",
+      "server": "time-server",
+      "description": "Convert time between timezones - returns nested JSON in text",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_timezone": {"type": "string", "description": "Source timezone"},
+          "time": {"type": "string", "description": "Time in HH:MM format"},
+          "target_timezone": {"type": "string", "description": "Target timezone"}
+        },
+        "required": ["source_timezone", "time", "target_timezone"]
+      },
+      "version": "0.8.1"
+    },
+    {
+      "name": "timezone_offset",
+      "source": "convert_time",
+      "description": "DEMO: Nested JSON projection - extracts time_difference from nested structure",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "from_tz": {"type": "string", "source_field": "$.source.timezone"},
+          "to_tz": {"type": "string", "source_field": "$.target.timezone"},
+          "offset": {"type": "string", "source_field": "$.time_difference"}
+        }
+      }
+    },
+    {
+      "$comment": "=== CLOUDFLARE DOCS - Remote MCP server (public, no auth) ===",
+      "name": "search_cloudflare_docs",
+      "server": "cloudflare-docs",
+      "description": "Search Cloudflare documentation - returns XML-like structured results",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"}
+        },
+        "required": ["query"]
+      },
+      "originalName": "search_cloudflare_documentation",
+      "version": "1.2.0"
+    },
+    {
+      "$comment": "=== GITHUB SERVER - JSON extraction from API responses ===",
+      "name": "search_repositories",
+      "server": "github-server",
+      "description": "Search GitHub repositories - returns full JSON response",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"},
+          "perPage": {"type": "number", "description": "Results per page (max 100)"}
+        },
+        "required": ["query"]
+      },
+      "version": "1.5.2"
+    },
+    {
+      "name": "search_repos",
+      "source": "search_repositories",
+      "description": "DEMO: GitHub search with clean output - extracts repo names, descriptions, and URLs",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total": {"type": "integer", "source_field": "$.total_count"},
+          "repos": {
+            "type": "array",
+            "source_field": "$.items[*]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string", "source_field": "$.full_name"},
+                "description": {"type": "string", "source_field": "$.description"},
+                "url": {"type": "string", "source_field": "$.html_url"},
+                "stars": {"type": "integer", "source_field": "$.stargazers_count"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "$comment": "=== CLOUDFLARE RADAR - OAuth-protected remote MCP server ===",
+      "name": "get_trending_domains",
+      "server": "cloudflare-radar",
+      "description": "Get trending domains from Cloudflare Radar (requires OAuth)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {"type": "number", "description": "Number of results (default 10)"},
+          "rankingType": {
+            "type": "string",
+            "enum": ["POPULAR", "TRENDING_RISE", "TRENDING_STEADY"],
+            "description": "Ranking type"
+          }
+        }
+      },
+      "originalName": "get_domains_ranking",
+      "version": "2.0.0"
+    },
+    {
+      "name": "trending_domains",
+      "source": "get_trending_domains",
+      "description": "DEMO: Trending domains with clean output - extracts domain names and rank changes",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "domains": {
+            "type": "array",
+            "source_field": "$.result.top_0[*]",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rank": {"type": "integer", "source_field": "$.rank"},
+                "domain": {"type": "string", "source_field": "$.domain"},
+                "change": {"type": "number", "source_field": "$.pctRankChange"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "get_ip_info",
+      "server": "cloudflare-radar",
+      "description": "Get IP address information from Cloudflare Radar (requires OAuth)",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ip": {"type": "string", "description": "IPv4 or IPv6 address"}
+        },
+        "required": ["ip"]
+      },
+      "originalName": "get_ip_details",
+      "version": "2.0.0"
+    }
+  ]
+}
