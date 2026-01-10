@@ -41,6 +41,9 @@ pub enum RegistryError {
 
 	#[error("compilation error: {0}")]
 	CompilationError(String),
+
+	#[error("source resolution error: {0}")]
+	SourceResolution(String),
 }
 
 impl RegistryError {

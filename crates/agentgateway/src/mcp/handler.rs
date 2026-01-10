@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use agent_core::trcng;
 use futures_core::Stream;
+use futures_util::StreamExt;
 use http::StatusCode;
 use http::request::Parts;
 use itertools::Itertools;
@@ -120,9 +121,9 @@ impl Relay {
 			let guard = reg.get();
 			if let Some(ref compiled_registry) = **guard {
 				if let Some(virtual_tool) = compiled_registry.get_tool(tool_name) {
-					// This is a virtual tool - resolve to backend
-					let target = virtual_tool.def.source.target.clone();
-					let backend_tool = virtual_tool.def.source.tool.clone();
+					// This is a virtual tool - resolve to backend using pre-computed target
+					let target = virtual_tool.target.server.clone();
+					let backend_tool = virtual_tool.target.backend_tool.clone();
 
 					// Inject defaults
 					let transformed_args = virtual_tool
@@ -410,6 +411,36 @@ impl Relay {
 
 		messages_to_response(id, stream)
 	}
+
+	/// Send to a single service with output transformation for virtual tools
+	pub async fn send_single_with_output_transform(
+		&self,
+		r: JsonRpcRequest<ClientRequest>,
+		ctx: IncomingRequestContext,
+		service_name: &str,
+		virtual_name: Option<String>,
+	) -> Result<Response, UpstreamError> {
+		let id = r.id.clone();
+		let Ok(us) = self.upstreams.get(service_name) else {
+			return Err(UpstreamError::InvalidRequest(format!(
+				"unknown service {service_name}"
+			)));
+		};
+		let stream = us.generic_stream(r, &ctx).await?;
+
+		// If we have a virtual name and registry, transform the output
+		if let Some(vname) = virtual_name {
+			if let Some(ref reg) = self.registry {
+				let reg_clone = reg.clone();
+				let stream = stream.map(move |msg| {
+					msg.map(|m| transform_server_message(m, &vname, &reg_clone))
+				});
+				return messages_to_response(id, stream);
+			}
+		}
+
+		messages_to_response(id, stream)
+	}
 	// For some requests, we don't have a sane mapping of incoming requests to a specific
 	// downstream service when multiplexing. Only forward when we have only one backend.
 	pub async fn send_single_without_multiplexing(
@@ -557,4 +588,101 @@ fn accepted_response() -> Response {
 		.status(StatusCode::ACCEPTED)
 		.body(crate::http::Body::empty())
 		.expect("valid response")
+}
+
+/// Transform a server message if it contains a tool call result
+fn transform_server_message(
+	msg: ServerJsonRpcMessage,
+	virtual_name: &str,
+	registry: &RegistryStoreRef,
+) -> ServerJsonRpcMessage {
+	use rmcp::model::{CallToolResult, ServerResult};
+
+	// Only transform response messages
+	let ServerJsonRpcMessage::Response(resp) = msg else {
+		return msg;
+	};
+
+	// Check if it's a CallToolResult
+	let ServerResult::CallToolResult(call_result) = resp.result else {
+		return ServerJsonRpcMessage::Response(resp);
+	};
+
+	// Try to transform the result content
+	let guard = registry.get();
+	let Some(ref compiled) = **guard else {
+		return ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
+			result: ServerResult::CallToolResult(call_result),
+			..resp
+		});
+	};
+
+	// Get the tool to check if it has output transformation
+	let Some(tool) = compiled.get_tool(virtual_name) else {
+		return ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
+			result: ServerResult::CallToolResult(call_result),
+			..resp
+		});
+	};
+
+	// If no output paths defined, pass through
+	if tool.output_paths.is_none() {
+		return ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
+			result: ServerResult::CallToolResult(call_result),
+			..resp
+		});
+	}
+
+	// Try to transform the call result
+	if let Some(transformed) = transform_call_tool_result(&call_result, tool) {
+		return ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
+			result: ServerResult::CallToolResult(transformed),
+			..resp
+		});
+	}
+
+	// Fallback - return original
+	ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
+		result: ServerResult::CallToolResult(call_result),
+		..resp
+	})
+}
+
+/// Transform a CallToolResult using the tool's output schema
+fn transform_call_tool_result(
+	result: &rmcp::model::CallToolResult,
+	tool: &crate::mcp::registry::CompiledVirtualTool,
+) -> Option<rmcp::model::CallToolResult> {
+	use rmcp::model::{Annotated, RawContent, RawTextContent};
+
+	// Find text content to transform
+	let text_content = result.content.iter().find_map(|c| {
+		if let RawContent::Text(t) = &c.raw {
+			Some(t.text.as_str())
+		} else {
+			None
+		}
+	})?;
+
+	// Try to parse as JSON
+	let json_value: serde_json::Value = serde_json::from_str(text_content).ok()?;
+
+	// Transform using the tool's output transformation
+	let transformed = tool.transform_output(json_value).ok()?;
+
+	// Create new result with transformed content
+	let new_content = vec![Annotated {
+		raw: RawContent::Text(RawTextContent {
+			text: serde_json::to_string_pretty(&transformed).unwrap_or_default(),
+			meta: None,
+		}),
+		annotations: None,
+	}];
+
+	Some(rmcp::model::CallToolResult {
+		content: new_content,
+		structured_content: None,
+		is_error: result.is_error,
+		meta: result.meta.clone(),
+	})
 }

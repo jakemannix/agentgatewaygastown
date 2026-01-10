@@ -1058,6 +1058,51 @@ async fn convert(
 				.await
 				.map_err(|e| anyhow!("Failed to load registry: {}", e))?;
 
+			// Extract servers from registry and add as MCP backends
+			{
+				let guard = store_ref.get();
+				if let Some(ref compiled) = **guard {
+					let registry = compiled.registry();
+					let mut mcp_targets: Vec<Arc<McpTarget>> = Vec::new();
+
+					for server in &registry.servers {
+						// Skip OAuth servers for now - they require user authentication
+						if server.requires_oauth() {
+							tracing::info!(
+								"Skipping OAuth-protected server '{}' from registry (requires user auth)",
+								server.name
+							);
+							continue;
+						}
+
+						if let Some(target) = server.to_mcp_target() {
+							tracing::info!(
+								"Adding MCP target '{}' from registry",
+								server.name
+							);
+							mcp_targets.push(Arc::new(target));
+						} else {
+							tracing::warn!(
+								"Failed to convert registry server '{}' to MCP target",
+								server.name
+							);
+						}
+					}
+
+					if !mcp_targets.is_empty() {
+						let mcp_backend = McpBackend {
+							targets: mcp_targets,
+							stateful: true,
+							always_use_prefix: false,
+						};
+						all_backends.push(BackendWithPolicies {
+							backend: Backend::MCP(local_name(strng::literal!("registry")), mcp_backend),
+							inline_policies: vec![],
+						});
+					}
+				}
+			}
+
 			// Start refresh loop or file watcher based on source type
 			let is_file_source = store_ref
 				.inner()

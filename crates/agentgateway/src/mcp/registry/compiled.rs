@@ -1,4 +1,9 @@
 // Compiled registry ready for runtime use
+//
+// The compilation process resolves source chains to determine:
+// - The target server for each tool
+// - The original backend tool name
+// - Merged defaults and hide_fields from the chain
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -8,26 +13,43 @@ use rmcp::model::Tool;
 use serde_json_path::JsonPath;
 
 use super::error::RegistryError;
-use super::types::{OutputSchema, Registry, VirtualToolDef};
+use super::types::{OutputSchema, Registry, ToolDef};
 
 /// Compiled registry ready for runtime use
 #[derive(Debug)]
 pub struct CompiledRegistry {
-	/// Virtual tool name -> compiled tool
+	/// Original registry (for accessing servers)
+	registry: Registry,
+	/// Tool name -> compiled tool (both base and virtual)
 	tools_by_name: HashMap<String, Arc<CompiledVirtualTool>>,
-	/// (target, source_tool) -> virtual tool names (for reverse lookup)
+	/// (server, backend_tool_name) -> tool names (for reverse lookup from backend)
 	tools_by_source: HashMap<(String, String), Vec<String>>,
 }
 
-/// A compiled virtual tool with pre-compiled JSONPath expressions
+/// Resolved information about the backend target for a tool
+#[derive(Debug, Clone)]
+pub struct ResolvedTarget {
+	/// Server name from registry
+	pub server: String,
+	/// Original tool name on the backend (may differ from virtual tool name)
+	pub backend_tool: String,
+}
+
+/// A compiled tool with pre-compiled JSONPath expressions and resolved target
 #[derive(Debug)]
 pub struct CompiledVirtualTool {
 	/// Original definition
-	pub def: VirtualToolDef,
+	pub def: ToolDef,
+	/// Resolved backend target (server + original tool name)
+	pub target: ResolvedTarget,
 	/// Pre-compiled JSONPath expressions for output projection
 	pub output_paths: Option<HashMap<String, CompiledOutputField>>,
 	/// Merged schema (source schema with hideFields applied)
 	pub effective_schema: Option<serde_json::Value>,
+	/// Merged defaults from source chain
+	pub merged_defaults: HashMap<String, serde_json::Value>,
+	/// Merged hide_fields from source chain
+	pub merged_hide_fields: Vec<String>,
 }
 
 /// Compiled output field with pre-compiled JSONPath
@@ -47,12 +69,19 @@ impl CompiledRegistry {
 		let mut tools_by_name = HashMap::new();
 		let mut tools_by_source: HashMap<(String, String), Vec<String>> = HashMap::new();
 
-		for tool_def in registry.tools {
-			let compiled = CompiledVirtualTool::compile(tool_def.clone())?;
+		// Build a map for source chain resolution
+		let tools_map: HashMap<&str, &ToolDef> =
+			registry.tools.iter().map(|t| (t.name.as_str(), t)).collect();
+
+		for tool_def in &registry.tools {
+			let compiled = CompiledVirtualTool::compile(tool_def.clone(), &tools_map)?;
 			let name = tool_def.name.clone();
 
-			// Index by source for reverse lookup
-			let source_key = (tool_def.source.target.clone(), tool_def.source.tool.clone());
+			// Index by resolved target for reverse lookup
+			let source_key = (
+				compiled.target.server.clone(),
+				compiled.target.backend_tool.clone(),
+			);
 			tools_by_source
 				.entry(source_key)
 				.or_default()
@@ -62,6 +91,7 @@ impl CompiledRegistry {
 		}
 
 		Ok(Self {
+			registry,
 			tools_by_name,
 			tools_by_source,
 		})
@@ -70,9 +100,15 @@ impl CompiledRegistry {
 	/// Create an empty compiled registry
 	pub fn empty() -> Self {
 		Self {
+			registry: Registry::new(),
 			tools_by_name: HashMap::new(),
 			tools_by_source: HashMap::new(),
 		}
+	}
+
+	/// Get the original registry (for accessing servers)
+	pub fn registry(&self) -> &Registry {
+		&self.registry
 	}
 
 	/// Look up virtual tool by exposed name
@@ -134,21 +170,21 @@ impl CompiledRegistry {
 
 	/// Prepare arguments for backend call (inject defaults, resolve env vars)
 	///
-	/// Returns (target, tool_name, transformed_args)
+	/// Returns (server, backend_tool_name, transformed_args)
 	pub fn prepare_call_args(
 		&self,
-		virtual_name: &str,
+		tool_name: &str,
 		args: serde_json::Value,
 	) -> Result<(String, String, serde_json::Value), RegistryError> {
 		let tool = self
-			.get_tool(virtual_name)
-			.ok_or_else(|| RegistryError::tool_not_found(virtual_name))?;
+			.get_tool(tool_name)
+			.ok_or_else(|| RegistryError::tool_not_found(tool_name))?;
 
-		let target = tool.def.source.target.clone();
-		let tool_name = tool.def.source.tool.clone();
+		let server = tool.target.server.clone();
+		let backend_tool = tool.target.backend_tool.clone();
 		let transformed_args = tool.inject_defaults(args)?;
 
-		Ok((target, tool_name, transformed_args))
+		Ok((server, backend_tool, transformed_args))
 	}
 
 	/// Transform backend response to virtual response
@@ -181,8 +217,15 @@ impl CompiledRegistry {
 }
 
 impl CompiledVirtualTool {
-	/// Compile a virtual tool definition
-	pub fn compile(def: VirtualToolDef) -> Result<Self, RegistryError> {
+	/// Compile a tool definition, resolving source chains
+	pub fn compile(
+		def: ToolDef,
+		tools_map: &HashMap<&str, &ToolDef>,
+	) -> Result<Self, RegistryError> {
+		// Resolve the source chain to find server and backend tool name
+		let (target, merged_defaults, merged_hide_fields) =
+			Self::resolve_source_chain(&def, tools_map)?;
+
 		let output_paths = if let Some(ref schema) = def.output_schema {
 			Some(Self::compile_output_schema(schema)?)
 		} else {
@@ -191,9 +234,99 @@ impl CompiledVirtualTool {
 
 		Ok(Self {
 			def,
+			target,
 			output_paths,
 			effective_schema: None, // Computed lazily when source schema is known
+			merged_defaults,
+			merged_hide_fields,
 		})
+	}
+
+	/// Resolve the source chain to find the target server and backend tool
+	fn resolve_source_chain(
+		def: &ToolDef,
+		tools_map: &HashMap<&str, &ToolDef>,
+	) -> Result<(ResolvedTarget, HashMap<String, serde_json::Value>, Vec<String>), RegistryError> {
+		let mut merged_defaults = def.defaults.clone();
+		let mut merged_hide_fields = def.hide_fields.clone();
+
+		// If this is a base tool (has server), we're done
+		if let Some(ref server) = def.server {
+			let backend_tool = def.original_name.clone().unwrap_or_else(|| def.name.clone());
+			return Ok((
+				ResolvedTarget {
+					server: server.clone(),
+					backend_tool,
+				},
+				merged_defaults,
+				merged_hide_fields,
+			));
+		}
+
+		// Follow the source chain
+		let Some(ref source_name) = def.source else {
+			return Err(RegistryError::SourceResolution(format!(
+				"Tool '{}' has neither 'server' nor 'source' field",
+				def.name
+			)));
+		};
+
+		let mut current_name = source_name.as_str();
+		let mut visited = std::collections::HashSet::new();
+
+		loop {
+			if visited.contains(current_name) {
+				return Err(RegistryError::SourceResolution(format!(
+					"Circular source reference detected at '{}'",
+					current_name
+				)));
+			}
+			visited.insert(current_name);
+
+			let Some(source_def) = tools_map.get(current_name) else {
+				return Err(RegistryError::SourceResolution(format!(
+					"Tool '{}' references unknown source '{}'",
+					def.name, current_name
+				)));
+			};
+
+			// Merge defaults (source defaults are lower priority, only add if not present)
+			for (key, value) in &source_def.defaults {
+				merged_defaults.entry(key.clone()).or_insert(value.clone());
+			}
+
+			// Merge hide_fields
+			for field in &source_def.hide_fields {
+				if !merged_hide_fields.contains(field) {
+					merged_hide_fields.push(field.clone());
+				}
+			}
+
+			// If source has a server, we found the base
+			if let Some(ref server) = source_def.server {
+				let backend_tool = source_def
+					.original_name
+					.clone()
+					.unwrap_or_else(|| source_def.name.clone());
+				return Ok((
+					ResolvedTarget {
+						server: server.clone(),
+						backend_tool,
+					},
+					merged_defaults,
+					merged_hide_fields,
+				));
+			}
+
+			// Continue following the chain
+			let Some(ref next_source) = source_def.source else {
+				return Err(RegistryError::SourceResolution(format!(
+					"Source '{}' has neither 'server' nor 'source' field",
+					current_name
+				)));
+			};
+			current_name = next_source.as_str();
+		}
 	}
 
 	/// Compile output schema JSONPath expressions
@@ -260,11 +393,11 @@ impl CompiledVirtualTool {
 		let mut schema: serde_json::Map<String, serde_json::Value> =
 			source.input_schema.as_ref().clone();
 
-		// Apply hideFields
-		if !self.def.hide_fields.is_empty() {
+		// Apply merged_hide_fields (from entire source chain)
+		if !self.merged_hide_fields.is_empty() {
 			if let Some(props) = schema.get_mut("properties") {
 				if let Some(obj) = props.as_object_mut() {
-					for field in &self.def.hide_fields {
+					for field in &self.merged_hide_fields {
 						obj.remove(field);
 					}
 				}
@@ -274,7 +407,7 @@ impl CompiledVirtualTool {
 				if let Some(arr) = required.as_array_mut() {
 					arr.retain(|v| {
 						v.as_str()
-							.map(|s| !self.def.hide_fields.contains(&s.to_string()))
+							.map(|s| !self.merged_hide_fields.contains(&s.to_string()))
 							.unwrap_or(true)
 					});
 				}
@@ -284,12 +417,12 @@ impl CompiledVirtualTool {
 		Arc::new(schema)
 	}
 
-	/// Inject default values into arguments
+	/// Inject default values into arguments (uses merged defaults from source chain)
 	pub fn inject_defaults(
 		&self,
 		mut args: serde_json::Value,
 	) -> Result<serde_json::Value, RegistryError> {
-		if self.def.defaults.is_empty() {
+		if self.merged_defaults.is_empty() {
 			return Ok(args);
 		}
 
@@ -297,7 +430,7 @@ impl CompiledVirtualTool {
 			.as_object_mut()
 			.ok_or_else(|| RegistryError::SchemaValidation("arguments must be an object".into()))?;
 
-		for (key, value) in &self.def.defaults {
+		for (key, value) in &self.merged_defaults {
 			// Don't override if already provided
 			if obj.contains_key(key) {
 				continue;
@@ -492,7 +625,7 @@ mod tests {
 	use serde_json::json;
 
 	use super::*;
-	use crate::mcp::registry::types::OutputField;
+	use crate::mcp::registry::types::{OutputField, ServerDef, ToolDef};
 
 	fn create_source_tool(name: &str, description: &str) -> Tool {
 		let schema: serde_json::Map<String, serde_json::Value> = serde_json::from_value(json!({
@@ -518,6 +651,16 @@ mod tests {
 		}
 	}
 
+	fn create_test_registry() -> Registry {
+		let servers = vec![ServerDef::stdio("weather", "weather-cli", vec![])];
+		let tools = vec![
+			ToolDef::base("fetch_weather", "weather"),
+			ToolDef::virtual_tool("get_weather", "fetch_weather")
+				.with_description("Get weather info"),
+		];
+		Registry::with_servers_and_tools(servers, tools)
+	}
+
 	#[test]
 	fn test_compile_empty_registry() {
 		let registry = Registry::new();
@@ -528,21 +671,38 @@ mod tests {
 
 	#[test]
 	fn test_compile_simple_registry() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather");
-		let registry = Registry::with_tools(vec![tool]);
-
+		let registry = create_test_registry();
 		let compiled = CompiledRegistry::compile(registry).unwrap();
-		assert_eq!(compiled.len(), 1);
+
+		// Both base and virtual tools are compiled
+		assert_eq!(compiled.len(), 2);
+		assert!(compiled.get_tool("fetch_weather").is_some());
 		assert!(compiled.get_tool("get_weather").is_some());
 		assert!(compiled.get_tool("nonexistent").is_none());
 	}
 
 	#[test]
-	fn test_is_virtualized() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather");
-		let registry = Registry::with_tools(vec![tool]);
+	fn test_resolved_target() {
+		let registry = create_test_registry();
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
+		// Base tool resolves to itself
+		let base = compiled.get_tool("fetch_weather").unwrap();
+		assert_eq!(base.target.server, "weather");
+		assert_eq!(base.target.backend_tool, "fetch_weather");
+
+		// Virtual tool resolves to base
+		let virtual_tool = compiled.get_tool("get_weather").unwrap();
+		assert_eq!(virtual_tool.target.server, "weather");
+		assert_eq!(virtual_tool.target.backend_tool, "fetch_weather");
+	}
+
+	#[test]
+	fn test_is_virtualized() {
+		let registry = create_test_registry();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Both tools map to (weather, fetch_weather)
 		assert!(compiled.is_virtualized("weather", "fetch_weather"));
 		assert!(!compiled.is_virtualized("weather", "other_tool"));
 		assert!(!compiled.is_virtualized("other_backend", "fetch_weather"));
@@ -550,9 +710,7 @@ mod tests {
 
 	#[test]
 	fn test_transform_tools_replaces_virtualized() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
-			.with_description("Get weather info");
-		let registry = Registry::with_tools(vec![tool]);
+		let registry = create_test_registry();
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
 		let source_tool = create_source_tool("fetch_weather", "Original description");
@@ -560,18 +718,16 @@ mod tests {
 
 		let result = compiled.transform_tools(backend_tools);
 
-		assert_eq!(result.len(), 1);
-		assert_eq!(result[0].1.name.as_ref(), "get_weather");
-		assert_eq!(
-			result[0].1.description.as_deref(),
-			Some("Get weather info")
-		);
+		// Both base and virtual tools should be in the result
+		assert_eq!(result.len(), 2);
+		let names: Vec<_> = result.iter().map(|(_, t)| t.name.as_ref()).collect();
+		assert!(names.contains(&"fetch_weather"));
+		assert!(names.contains(&"get_weather"));
 	}
 
 	#[test]
 	fn test_transform_tools_passthrough_non_virtualized() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather");
-		let registry = Registry::with_tools(vec![tool]);
+		let registry = create_test_registry();
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
 		let source_tool = create_source_tool("fetch_weather", "Weather");
@@ -583,20 +739,28 @@ mod tests {
 
 		let result = compiled.transform_tools(backend_tools);
 
-		assert_eq!(result.len(), 2);
+		// other_tool passes through, plus the virtualized ones
+		assert_eq!(result.len(), 3);
 		let names: Vec<_> = result.iter().map(|(_, t)| t.name.as_ref()).collect();
+		assert!(names.contains(&"fetch_weather"));
 		assert!(names.contains(&"get_weather"));
 		assert!(names.contains(&"other_tool"));
 	}
 
 	#[test]
 	fn test_hide_fields_in_schema() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
-			.with_hidden_fields(vec!["debug_mode".to_string()]);
+		let servers = vec![ServerDef::stdio("weather", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::base("fetch_weather", "weather"),
+			ToolDef::virtual_tool("get_weather", "fetch_weather")
+				.with_hidden_fields(vec!["debug_mode".to_string()]),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
 
-		let compiled = CompiledVirtualTool::compile(tool).unwrap();
+		let tool = compiled.get_tool("get_weather").unwrap();
 		let source = create_source_tool("fetch_weather", "Weather");
-		let virtual_tool = compiled.create_virtual_tool(&source);
+		let virtual_tool = tool.create_virtual_tool(&source);
 
 		let props = virtual_tool.input_schema.get("properties").unwrap();
 		assert!(props.get("city").is_some());
@@ -606,15 +770,19 @@ mod tests {
 
 	#[test]
 	fn test_inject_defaults() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
-			.with_default("units", json!("metric"))
-			.with_default("format", json!("json"));
+		let servers = vec![ServerDef::stdio("weather", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::base("fetch_weather", "weather"),
+			ToolDef::virtual_tool("get_weather", "fetch_weather")
+				.with_default("units", json!("metric"))
+				.with_default("format", json!("json")),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
 
-		let compiled = CompiledVirtualTool::compile(tool).unwrap();
-
-		// Test that defaults are injected
+		let tool = compiled.get_tool("get_weather").unwrap();
 		let args = json!({"city": "Seattle"});
-		let result = compiled.inject_defaults(args).unwrap();
+		let result = tool.inject_defaults(args).unwrap();
 
 		assert_eq!(result["city"], "Seattle");
 		assert_eq!(result["units"], "metric");
@@ -623,14 +791,18 @@ mod tests {
 
 	#[test]
 	fn test_inject_defaults_does_not_override() {
-		let tool =
-			VirtualToolDef::new("get_weather", "weather", "fetch_weather").with_default("units", json!("metric"));
+		let servers = vec![ServerDef::stdio("weather", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::base("fetch_weather", "weather"),
+			ToolDef::virtual_tool("get_weather", "fetch_weather")
+				.with_default("units", json!("metric")),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
 
-		let compiled = CompiledVirtualTool::compile(tool).unwrap();
-
-		// User-provided value should not be overridden
+		let tool = compiled.get_tool("get_weather").unwrap();
 		let args = json!({"city": "Seattle", "units": "imperial"});
-		let result = compiled.inject_defaults(args).unwrap();
+		let result = tool.inject_defaults(args).unwrap();
 
 		assert_eq!(result["units"], "imperial");
 	}
@@ -642,13 +814,16 @@ mod tests {
 			std::env::set_var("TEST_API_KEY", "secret123");
 		}
 
-		let mut tool = VirtualToolDef::new("test", "backend", "tool");
+		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
+		let mut tool = ToolDef::base("tool", "backend");
 		tool.defaults
 			.insert("api_key".to_string(), json!("${TEST_API_KEY}"));
+		let registry = Registry::with_servers_and_tools(servers, vec![tool]);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
 
-		let compiled = CompiledVirtualTool::compile(tool).unwrap();
+		let tool = compiled.get_tool("tool").unwrap();
 		let args = json!({});
-		let result = compiled.inject_defaults(args).unwrap();
+		let result = tool.inject_defaults(args).unwrap();
 
 		assert_eq!(result["api_key"], "secret123");
 
@@ -665,11 +840,14 @@ mod tests {
 		props.insert("city".to_string(), OutputField::new("string", "$.location.city"));
 
 		let output_schema = OutputSchema::new(props);
-		let tool =
-			VirtualToolDef::new("test", "backend", "tool").with_output_schema(output_schema);
+		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::base("tool", "backend").with_output_schema(output_schema),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
 
-		let compiled = CompiledVirtualTool::compile(tool).unwrap();
-
+		let tool = compiled.get_tool("tool").unwrap();
 		let response = json!({
 			"temperature": 72.5,
 			"location": {
@@ -678,7 +856,7 @@ mod tests {
 			}
 		});
 
-		let result = compiled.transform_output(response).unwrap();
+		let result = tool.transform_output(response).unwrap();
 
 		assert_eq!(result["temp"], 72.5);
 		assert_eq!(result["city"], "Seattle");
@@ -697,11 +875,14 @@ mod tests {
 		);
 
 		let output_schema = OutputSchema::new(props);
-		let tool =
-			VirtualToolDef::new("test", "backend", "tool").with_output_schema(output_schema);
+		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::base("tool", "backend").with_output_schema(output_schema),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
 
-		let compiled = CompiledVirtualTool::compile(tool).unwrap();
-
+		let tool = compiled.get_tool("tool").unwrap();
 		let response = json!({
 			"data": {
 				"current": {
@@ -713,7 +894,7 @@ mod tests {
 			}
 		});
 
-		let result = compiled.transform_output(response).unwrap();
+		let result = tool.transform_output(response).unwrap();
 
 		assert_eq!(result["temperature"], 52.3);
 		assert_eq!(result["conditions"], "Cloudy");
@@ -721,11 +902,14 @@ mod tests {
 
 	#[test]
 	fn test_output_transformation_no_schema() {
-		let tool = VirtualToolDef::new("test", "backend", "tool");
-		let compiled = CompiledVirtualTool::compile(tool).unwrap();
+		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
+		let tools = vec![ToolDef::base("tool", "backend")];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
 
+		let tool = compiled.get_tool("tool").unwrap();
 		let response = json!({"original": "data"});
-		let result = compiled.transform_output(response.clone()).unwrap();
+		let result = tool.transform_output(response.clone()).unwrap();
 
 		assert_eq!(result, response);
 	}
@@ -750,16 +934,21 @@ mod tests {
 
 	#[test]
 	fn test_prepare_call_args() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
-			.with_default("units", json!("metric"));
-		let registry = Registry::with_tools(vec![tool]);
+		let servers = vec![ServerDef::stdio("weather", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::base("fetch_weather", "weather"),
+			ToolDef::virtual_tool("get_weather", "fetch_weather")
+				.with_default("units", json!("metric")),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
 		let args = json!({"city": "Seattle"});
-		let (target, tool_name, transformed) = compiled.prepare_call_args("get_weather", args).unwrap();
+		let (server, backend_tool, transformed) =
+			compiled.prepare_call_args("get_weather", args).unwrap();
 
-		assert_eq!(target, "weather");
-		assert_eq!(tool_name, "fetch_weather");
+		assert_eq!(server, "weather");
+		assert_eq!(backend_tool, "fetch_weather");
 		assert_eq!(transformed["city"], "Seattle");
 		assert_eq!(transformed["units"], "metric");
 	}
@@ -775,19 +964,95 @@ mod tests {
 
 	#[test]
 	fn test_multiple_virtual_tools_same_source() {
-		let tool1 = VirtualToolDef::new("weather_metric", "weather", "fetch_weather")
-			.with_default("units", json!("metric"));
-		let tool2 = VirtualToolDef::new("weather_imperial", "weather", "fetch_weather")
-			.with_default("units", json!("imperial"));
-
-		let registry = Registry::with_tools(vec![tool1, tool2]);
+		let servers = vec![ServerDef::stdio("weather", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::base("fetch_weather", "weather"),
+			ToolDef::virtual_tool("weather_metric", "fetch_weather")
+				.with_default("units", json!("metric")),
+			ToolDef::virtual_tool("weather_imperial", "fetch_weather")
+				.with_default("units", json!("imperial")),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
 		let names = compiled
 			.get_virtual_names("weather", "fetch_weather")
 			.unwrap();
-		assert_eq!(names.len(), 2);
+		// Base tool + 2 virtual tools
+		assert_eq!(names.len(), 3);
+		assert!(names.contains(&"fetch_weather".to_string()));
 		assert!(names.contains(&"weather_metric".to_string()));
 		assert!(names.contains(&"weather_imperial".to_string()));
+	}
+
+	#[test]
+	fn test_source_chain_resolution() {
+		// Test multi-level source chain: level2 -> level1 -> base
+		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::base("base_tool", "backend").with_default("a", json!("from_base")),
+			ToolDef::virtual_tool("level1", "base_tool").with_default("b", json!("from_level1")),
+			ToolDef::virtual_tool("level2", "level1").with_default("c", json!("from_level2")),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let tool = compiled.get_tool("level2").unwrap();
+
+		// Should resolve to the base server/tool
+		assert_eq!(tool.target.server, "backend");
+		assert_eq!(tool.target.backend_tool, "base_tool");
+
+		// Merged defaults should include all levels
+		let args = json!({});
+		let result = tool.inject_defaults(args).unwrap();
+		assert_eq!(result["a"], "from_base");
+		assert_eq!(result["b"], "from_level1");
+		assert_eq!(result["c"], "from_level2");
+	}
+
+	#[test]
+	fn test_circular_reference_detection() {
+		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::virtual_tool("tool_a", "tool_b"),
+			ToolDef::virtual_tool("tool_b", "tool_a"),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let result = CompiledRegistry::compile(registry);
+
+		assert!(result.is_err());
+		let err = result.unwrap_err();
+		assert!(err.to_string().contains("Circular"));
+	}
+
+	#[test]
+	fn test_missing_source_detection() {
+		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
+		let tools = vec![ToolDef::virtual_tool("orphan", "nonexistent")];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let result = CompiledRegistry::compile(registry);
+
+		assert!(result.is_err());
+		let err = result.unwrap_err();
+		assert!(err.to_string().contains("nonexistent"));
+	}
+
+	#[test]
+	fn test_original_name_resolution() {
+		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
+		let tools = vec![
+			ToolDef::base("local_name", "backend").with_original_name("backend_name"),
+			ToolDef::virtual_tool("alias", "local_name"),
+		];
+		let registry = Registry::with_servers_and_tools(servers, tools);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Both should resolve to backend_name
+		let base = compiled.get_tool("local_name").unwrap();
+		assert_eq!(base.target.backend_tool, "backend_name");
+
+		let alias = compiled.get_tool("alias").unwrap();
+		assert_eq!(alias.target.backend_tool, "backend_name");
 	}
 }

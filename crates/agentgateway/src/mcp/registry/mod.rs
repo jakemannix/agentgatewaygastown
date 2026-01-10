@@ -16,4 +16,7 @@ pub use client::{parse_duration, AuthConfig, RegistryClient, RegistrySource};
 pub use compiled::{CompiledOutputField, CompiledRegistry, CompiledVirtualTool};
 pub use error::RegistryError;
 pub use store::{RegistryStore, RegistryStoreRef};
-pub use types::{OutputField, OutputSchema, Registry, ToolSource, VirtualToolDef};
+pub use types::{
+	ExtractionPattern, OutputField, OutputSchema, Registry, ServerDef, StdioConfig, TextExtraction,
+	ToolDef,
+};

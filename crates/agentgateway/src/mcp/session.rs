@@ -282,16 +282,23 @@ impl Session {
 					},
 					ClientRequest::CallToolRequest(ctr) => {
 						let name = ctr.params.name.clone();
-						let (service_name, tool) = self.relay.parse_resource_name(&name)?;
+
+						// Resolve virtual tools through registry, or fall back to normal parsing
+						let resolved = self.relay.resolve_tool_call(
+							&name,
+							serde_json::Value::Object(ctr.params.arguments.clone().unwrap_or_default()),
+						)?;
+
 						log.non_atomic_mutate(|l| {
-							l.resource_name = Some(tool.to_string());
-							l.target_name = Some(service_name.to_string());
+							l.resource_name = Some(resolved.tool_name.clone());
+							l.target_name = Some(resolved.target.clone());
 							l.resource = Some(MCPOperation::Tool);
 						});
+
 						if !self.relay.policies.validate(
 							&rbac::ResourceType::Tool(rbac::ResourceId::new(
-								service_name.to_string(),
-								tool.to_string(),
+								resolved.target.clone(),
+								resolved.tool_name.clone(),
 							)),
 							cel.as_ref(),
 						) {
@@ -301,9 +308,20 @@ impl Session {
 							});
 						}
 
-						let tn = tool.to_string();
-						ctr.params.name = tn.into();
-						self.relay.send_single(r, ctx, service_name).await
+						// Update the request with resolved tool name and transformed args
+						ctr.params.name = resolved.tool_name.clone().into();
+						if let serde_json::Value::Object(args_map) = resolved.args {
+							ctr.params.arguments = Some(args_map);
+						}
+
+						// Send to the resolved target with output transformation if virtual
+						let service_name: Strng = resolved.target.into();
+						self.relay.send_single_with_output_transform(
+							r,
+							ctx,
+							&service_name,
+							resolved.virtual_name,
+						).await
 					},
 					ClientRequest::GetPromptRequest(gpr) => {
 						let name = gpr.params.name.clone();

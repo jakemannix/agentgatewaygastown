@@ -286,7 +286,13 @@ impl Default for RegistryStoreRef {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::mcp::registry::types::VirtualToolDef;
+	use crate::mcp::registry::types::{ServerDef, ToolDef};
+
+	fn create_test_registry() -> Registry {
+		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
+		let tools = vec![ToolDef::base("test_tool", "backend")];
+		Registry::with_servers_and_tools(servers, tools)
+	}
 
 	#[test]
 	fn test_empty_store() {
@@ -297,9 +303,7 @@ mod tests {
 	#[test]
 	fn test_update_store() {
 		let store = RegistryStore::new();
-
-		let tool = VirtualToolDef::new("test_tool", "backend", "source_tool");
-		let registry = Registry::with_tools(vec![tool]);
+		let registry = create_test_registry();
 
 		store.update(registry).unwrap();
 		assert!(store.has_registry());
@@ -308,9 +312,7 @@ mod tests {
 	#[test]
 	fn test_clear_store() {
 		let store = RegistryStore::new();
-
-		let tool = VirtualToolDef::new("test_tool", "backend", "source_tool");
-		let registry = Registry::with_tools(vec![tool]);
+		let registry = create_test_registry();
 
 		store.update(registry).unwrap();
 		assert!(store.has_registry());
@@ -324,9 +326,7 @@ mod tests {
 		let store = RegistryStoreRef::default();
 		assert!(!store.has_registry());
 
-		let tool = VirtualToolDef::new("test_tool", "backend", "source_tool");
-		let registry = Registry::with_tools(vec![tool]);
-
+		let registry = create_test_registry();
 		store.update(registry).unwrap();
 		assert!(store.has_registry());
 	}
