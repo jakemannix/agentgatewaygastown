@@ -286,3 +286,54 @@ async fn test_completions_to_messages() {
 		test_request("anthropic", r, request);
 	}
 }
+
+fn apply_test_prompts<R: RequestType + Serialize>(mut r: R) -> Result<Vec<u8>, AIError> {
+	r.prepend_prompts(vec![
+		SimpleChatCompletionMessage {
+			role: strng::new("system"),
+			content: strng::new("prepend system prompt"),
+		},
+		SimpleChatCompletionMessage {
+			role: strng::new("user"),
+			content: strng::new("prepend user message"),
+		},
+		SimpleChatCompletionMessage {
+			role: strng::new("assistant"),
+			content: strng::new("prepend assistant message"),
+		},
+	]);
+	r.append_prompts(vec![
+		SimpleChatCompletionMessage {
+			role: strng::new("user"),
+			content: strng::new("append user message"),
+		},
+		SimpleChatCompletionMessage {
+			role: strng::new("system"),
+			content: strng::new("append system prompt"),
+		},
+		SimpleChatCompletionMessage {
+			role: strng::new("assistant"),
+			content: strng::new("append assistant prompt"),
+		},
+	]);
+	serde_json::to_vec(&r).map_err(AIError::RequestMarshal)
+}
+
+#[test]
+fn test_prompt_enrichment() {
+	test_request::<types::messages::Request>(
+		"anthropic",
+		"request_anthropic_with_system",
+		apply_test_prompts,
+	);
+	test_request::<types::responses::Request>(
+		"openai",
+		"request_openai_with_inputs",
+		apply_test_prompts,
+	);
+	test_request::<types::completions::Request>(
+		"openai",
+		"request_openai_with_messages",
+		apply_test_prompts,
+	);
+}

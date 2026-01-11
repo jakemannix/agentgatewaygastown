@@ -197,9 +197,11 @@ impl Default for PromptCachingConfig {
 }
 
 #[apply(schema!)]
+#[cfg_attr(feature = "schema", schemars(extend("minProperties" = 1)))]
 pub struct PromptEnrichment {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub append: Vec<crate::llm::SimpleChatCompletionMessage>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub prepend: Vec<crate::llm::SimpleChatCompletionMessage>,
 }
 
@@ -277,7 +279,12 @@ impl Policy {
 
 	pub fn apply_prompt_enrichment(&self, chat: &mut dyn RequestType) {
 		if let Some(prompts) = &self.prompts {
-			chat.prepend_prompts(prompts.prepend.clone());
+			if !prompts.prepend.is_empty() {
+				chat.prepend_prompts(prompts.prepend.clone());
+			}
+			if !prompts.append.is_empty() {
+				chat.append_prompts(prompts.append.clone());
+			}
 		}
 	}
 
