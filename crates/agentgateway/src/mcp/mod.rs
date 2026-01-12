@@ -67,4 +67,5 @@ pub struct MCPInfo {
 	pub resource_name: Option<String>,
 	pub target_name: Option<String>,
 	pub resource: Option<MCPOperation>,
+	pub session_id: Option<String>,
 }
