@@ -59,12 +59,12 @@ mod imp {
 				_ = watch_signal(SignalKind::interrupt(), "SIGINT") => {
 						tokio::spawn(async move{
 								watch_signal(SignalKind::interrupt(), "SIGINT").await;
-								info!("Double Ctrl+C, exit immediately");
+								info!(target: "operational", "Double Ctrl+C, exit immediately");
 								process::exit(0);
 						});
 				}
 				_ = watch_signal(SignalKind::terminate(), "SIGTERM") => {}
-				_ = receiver.recv() => { info!("received explicit shutdown signal")}
+				_ = receiver.recv() => { info!(target: "operational", "received explicit shutdown signal")}
 		};
 	}
 
@@ -73,7 +73,7 @@ mod imp {
 			.expect("Failed to register signal handler")
 			.recv()
 			.await;
-		info!("received signal {}, starting shutdown", name);
+		info!(target: "operational", "received signal {}, starting shutdown", name);
 	}
 }
 
@@ -85,7 +85,7 @@ mod imp {
 	pub(super) async fn shutdown(receiver: &mut Receiver<()>) {
 		tokio::select! {
 				_ = watch_signal() => {}
-				_ = receiver.recv() => { info!("received explicit shutdown signal")}
+				_ = receiver.recv() => { info!(target: "operational", "received explicit shutdown signal")}
 		};
 	}
 
@@ -95,6 +95,6 @@ mod imp {
 			.expect("Failed to register signal handler")
 			.recv()
 			.await;
-		info!("received signal, starting shutdown");
+		info!(target: "operational", "received signal, starting shutdown");
 	}
 }

@@ -214,7 +214,15 @@ impl UpstreamGroup {
 			.by_name
 			.get(name)
 			.map(|v| v.as_ref())
-			.ok_or_else(|| anyhow::anyhow!("requested target {name} is not initialized",))
+			.ok_or_else(|| {
+				tracing::warn!(
+					target: "connections",
+					requested = name,
+					available = ?self.by_name.keys().collect::<Vec<_>>(),
+					"target not found in upstream group"
+				);
+				anyhow::anyhow!("requested target {name} is not initialized")
+			})
 	}
 
 	fn setup_upstream(&self, target: &McpTarget) -> Result<upstream::Upstream, anyhow::Error> {
@@ -264,7 +272,13 @@ impl UpstreamGroup {
 				upstream::Upstream::McpStreamable(client)
 			},
 			McpTargetSpec::Stdio { cmd, args, env } => {
-				debug!("starting stdio transport for target: {}", target.name);
+				tracing::info!(
+					target: "connections",
+					target_name = %target.name,
+					cmd = %cmd,
+					args = ?args,
+					"starting stdio transport"
+				);
 				#[cfg(target_os = "windows")]
 				// Command has some weird behavior on Windows where it expects the executable extension to be
 				// .exe. The which create will resolve the actual command for us.

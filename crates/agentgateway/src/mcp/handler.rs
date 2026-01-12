@@ -125,6 +125,14 @@ impl Relay {
 					let target = virtual_tool.target.server.clone();
 					let backend_tool = virtual_tool.target.backend_tool.clone();
 
+					tracing::debug!(
+						target: "virtual_tools",
+						virtual_tool = tool_name,
+						backend_target = %target,
+						backend_tool = %backend_tool,
+						"resolved virtual tool to backend"
+					);
+
 					// Inject defaults
 					let transformed_args = virtual_tool
 						.inject_defaults(args)
@@ -420,8 +428,20 @@ impl Relay {
 		service_name: &str,
 		virtual_name: Option<String>,
 	) -> Result<Response, UpstreamError> {
+		tracing::debug!(
+			target: "virtual_tools",
+			service = service_name,
+			virtual_name = ?virtual_name,
+			"sending tool call to backend"
+		);
+
 		let id = r.id.clone();
 		let Ok(us) = self.upstreams.get(service_name) else {
+			tracing::warn!(
+				target: "virtual_tools",
+				service = service_name,
+				"backend service not found in upstreams"
+			);
 			return Err(UpstreamError::InvalidRequest(format!(
 				"unknown service {service_name}"
 			)));
@@ -608,9 +628,16 @@ fn transform_server_message(
 		return ServerJsonRpcMessage::Response(resp);
 	};
 
+	tracing::debug!(
+		target: "virtual_tools",
+		virtual_name,
+		"processing tool result for output transformation"
+	);
+
 	// Try to transform the result content
 	let guard = registry.get();
 	let Some(ref compiled) = **guard else {
+		tracing::debug!(target: "virtual_tools", "no compiled registry");
 		return ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
 			result: ServerResult::CallToolResult(call_result),
 			..resp
@@ -619,6 +646,7 @@ fn transform_server_message(
 
 	// Get the tool to check if it has output transformation
 	let Some(tool) = compiled.get_tool(virtual_name) else {
+		tracing::debug!(target: "virtual_tools", virtual_name, "tool not found in registry");
 		return ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
 			result: ServerResult::CallToolResult(call_result),
 			..resp
@@ -627,20 +655,30 @@ fn transform_server_message(
 
 	// If no output paths defined, pass through
 	if tool.output_paths.is_none() {
+		tracing::debug!(target: "virtual_tools", virtual_name, "no output_paths defined, passing through");
 		return ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
 			result: ServerResult::CallToolResult(call_result),
 			..resp
 		});
 	}
 
+	tracing::debug!(
+		target: "virtual_tools",
+		virtual_name,
+		output_paths = ?tool.output_paths.as_ref().map(|p| p.keys().collect::<Vec<_>>()),
+		"attempting output transformation"
+	);
+
 	// Try to transform the call result
 	if let Some(transformed) = transform_call_tool_result(&call_result, tool) {
+		tracing::debug!(target: "virtual_tools", virtual_name, "output transformation succeeded");
 		return ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
 			result: ServerResult::CallToolResult(transformed),
 			..resp
 		});
 	}
 
+	tracing::debug!(target: "virtual_tools", virtual_name, "output transformation failed, returning original");
 	// Fallback - return original
 	ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
 		result: ServerResult::CallToolResult(call_result),
@@ -662,15 +700,55 @@ fn transform_call_tool_result(
 		} else {
 			None
 		}
-	})?;
+	});
+
+	let Some(text_content) = text_content else {
+		tracing::debug!(
+			target: "virtual_tools",
+			content_types = ?result.content.iter().map(|c| match &c.raw {
+				RawContent::Text(_) => "text",
+				RawContent::Image(_) => "image",
+				RawContent::Resource(_) => "resource",
+				_ => "other",
+			}).collect::<Vec<_>>(),
+			"no text content found in result"
+		);
+		return None;
+	};
 
 	// Try to parse as JSON
-	let json_value: serde_json::Value = serde_json::from_str(text_content).ok()?;
+	let json_value: serde_json::Value = match serde_json::from_str(text_content) {
+		Ok(v) => v,
+		Err(e) => {
+			tracing::debug!(
+				target: "virtual_tools",
+				error = %e,
+				text_preview = %text_content.chars().take(200).collect::<String>(),
+				"failed to parse result as JSON"
+			);
+			return None;
+		}
+	};
 
 	// Transform using the tool's output transformation
-	let transformed = tool.transform_output(json_value).ok()?;
+	let transformed = match tool.transform_output(json_value) {
+		Ok(v) => v,
+		Err(e) => {
+			tracing::debug!(
+				target: "virtual_tools",
+				error = %e,
+				"output transformation failed"
+			);
+			return None;
+		}
+	};
 
-	// Create new result with transformed content
+	tracing::debug!(
+		target: "virtual_tools",
+		"successfully transformed output"
+	);
+
+	// Create new result with both text content and structuredContent
 	let new_content = vec![Annotated {
 		raw: RawContent::Text(RawTextContent {
 			text: serde_json::to_string_pretty(&transformed).unwrap_or_default(),
@@ -681,7 +759,7 @@ fn transform_call_tool_result(
 
 	Some(rmcp::model::CallToolResult {
 		content: new_content,
-		structured_content: None,
+		structured_content: Some(transformed),
 		is_error: result.is_error,
 		meta: result.meta.clone(),
 	})

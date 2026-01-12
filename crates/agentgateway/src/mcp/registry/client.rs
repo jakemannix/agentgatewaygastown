@@ -101,10 +101,10 @@ impl RegistryClient {
 
 	/// Fetch registry from a local file
 	async fn fetch_from_file(&self, path: &PathBuf) -> Result<Registry, RegistryError> {
-		info!("Loading registry from file: {}", path.display());
+		info!(target: "virtual_tools", "Loading registry from file: {}", path.display());
 		let content = fs_err::tokio::read_to_string(path).await?;
 		let registry: Registry = serde_json::from_str(&content)?;
-		info!("Loaded {} tools from registry file", registry.len());
+		info!(target: "virtual_tools", "Loaded {} tools from registry file", registry.len());
 		Ok(registry)
 	}
 
@@ -115,7 +115,7 @@ impl RegistryClient {
 		url: &http::Uri,
 		auth: Option<&AuthConfig>,
 	) -> Result<Registry, RegistryError> {
-		info!("Fetching registry from HTTP: {}", url);
+		info!(target: "virtual_tools", "Fetching registry from HTTP: {}", url);
 
 		// Build the request
 		let client = reqwest::Client::new();
@@ -145,7 +145,7 @@ impl RegistryClient {
 		})?;
 
 		let registry: Registry = serde_json::from_str(&body)?;
-		info!("Fetched {} tools from registry URL", registry.len());
+		info!(target: "virtual_tools", "Fetched {} tools from registry URL", registry.len());
 		Ok(registry)
 	}
 

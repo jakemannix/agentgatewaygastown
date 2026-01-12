@@ -497,7 +497,7 @@ impl Drop for SessionDropper {
 			return;
 		};
 		let mut sm = self.sm.sessions.write().expect("write lock");
-		debug!("delete session {}", s.id);
+		debug!(target: "connections", "delete session {}", s.id);
 		sm.remove(s.id.as_ref());
 		tokio::task::spawn(async move { s.delete_session(parts).await });
 	}

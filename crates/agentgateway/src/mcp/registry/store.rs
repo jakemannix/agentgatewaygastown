@@ -69,20 +69,20 @@ impl RegistryStore {
 	pub fn update(&self, registry: Registry) -> Result<(), RegistryError> {
 		let compiled = CompiledRegistry::compile(registry)?;
 		self.current.store(Arc::new(Some(compiled)));
-		info!("Registry updated successfully");
+		info!(target: "virtual_tools", "Registry updated successfully");
 		Ok(())
 	}
 
 	/// Update registry with pre-compiled data
 	pub fn update_compiled(&self, compiled: CompiledRegistry) {
 		self.current.store(Arc::new(Some(compiled)));
-		info!("Registry updated with compiled data");
+		info!(target: "virtual_tools", "Registry updated with compiled data");
 	}
 
 	/// Clear the registry
 	pub fn clear(&self) {
 		self.current.store(Arc::new(None));
-		info!("Registry cleared");
+		info!(target: "virtual_tools", "Registry cleared");
 	}
 
 	/// Get the configured client
@@ -115,6 +115,7 @@ impl RegistryStore {
 
 		Some(tokio::spawn(async move {
 			info!(
+				target: "virtual_tools",
 				"Starting registry refresh loop with interval {:?}",
 				interval
 			);
@@ -129,11 +130,11 @@ impl RegistryStore {
 				match client.fetch().await {
 					Ok(registry) => {
 						if let Err(e) = store.update(registry) {
-							warn!("Failed to compile registry: {}", e);
+							warn!(target: "virtual_tools", "Failed to compile registry: {}", e);
 						}
 					},
 					Err(e) => {
-						warn!("Failed to fetch registry: {}", e);
+						warn!(target: "virtual_tools", "Failed to fetch registry: {}", e);
 						// Keep the old registry on fetch failure
 					},
 				}
@@ -156,7 +157,7 @@ impl RegistryStore {
 
 		let handle = tokio::spawn(async move {
 			if let Err(e) = store.watch_file(&path).await {
-				error!("File watcher error: {}", e);
+				error!(target: "virtual_tools", "File watcher error: {}", e);
 			}
 		});
 
@@ -187,7 +188,7 @@ impl RegistryStore {
 			.watch(parent, RecursiveMode::NonRecursive)
 			.map_err(|e| RegistryError::FetchError(format!("Failed to watch file: {}", e)))?;
 
-		info!("Watching registry file: {}", path.display());
+		info!(target: "virtual_tools", "Watching registry file: {}", path.display());
 
 		// Handle file change events
 		while let Some(Ok(events)) = rx.recv().await {
@@ -196,19 +197,19 @@ impl RegistryStore {
 				matches!(e.kind, EventKind::Modify(_) | EventKind::Create(_))
 					&& e.paths.iter().any(|p| p == &abspath)
 			}) {
-				info!("Registry file changed, reloading...");
+				info!(target: "virtual_tools", "Registry file changed, reloading...");
 
 				if let Some(client) = &self.client {
 					match client.fetch().await {
 						Ok(registry) => {
 							if let Err(e) = self.update(registry) {
-								error!("Failed to compile registry: {}", e);
+								error!(target: "virtual_tools", "Failed to compile registry: {}", e);
 							} else {
-								info!("Registry reloaded successfully");
+								info!(target: "virtual_tools", "Registry reloaded successfully");
 							}
 						},
 						Err(e) => {
-							error!("Failed to reload registry: {}", e);
+							error!(target: "virtual_tools", "Failed to reload registry: {}", e);
 						},
 					}
 				}
