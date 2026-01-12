@@ -27,6 +27,8 @@ binds:
           - content-type
           allowOrigins:
           - '*'
+          exposeHeaders:
+          - "Mcp-Session-Id"
         mcpAuthentication:
           issuer: http://localhost:9000
           audiences:
@@ -63,6 +65,8 @@ binds:
           - content-type
           allowOrigins:
           - '*'
+          exposeHeaders:
+          - "Mcp-Session-Id"
         mcpAuthentication:
           issuer: http://localhost:9000
           audiences:
