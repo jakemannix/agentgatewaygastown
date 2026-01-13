@@ -487,6 +487,23 @@ impl CompiledTool {
 
 		transform.apply(&json_response)
 	}
+
+	/// Check if this tool has an output transform defined
+	pub fn has_output_transform(&self) -> bool {
+		match &self.compiled {
+			CompiledImplementation::Source(s) => s.output_transform.is_some(),
+			CompiledImplementation::Composition(c) => c.output_transform.is_some(),
+		}
+	}
+
+	/// Get the output transform field names for logging
+	pub fn output_transform_fields(&self) -> Option<Vec<&str>> {
+		let transform = match &self.compiled {
+			CompiledImplementation::Source(s) => s.output_transform.as_ref(),
+			CompiledImplementation::Composition(c) => c.output_transform.as_ref(),
+		};
+		transform.map(|t| t.fields.keys().map(|s| s.as_str()).collect())
+	}
 }
 
 // =============================================================================

@@ -816,9 +816,9 @@ fn transform_server_message(
 		});
 	};
 
-	// If no output paths defined, pass through
-	if tool.output_paths.is_none() {
-		tracing::debug!(target: "virtual_tools", virtual_name, "no output_paths defined, passing through");
+	// If no output transform defined, pass through
+	if !tool.has_output_transform() {
+		tracing::debug!(target: "virtual_tools", virtual_name, "no output_transform defined, passing through");
 		return ServerJsonRpcMessage::Response(rmcp::model::JsonRpcResponse {
 			result: ServerResult::CallToolResult(call_result),
 			..resp
@@ -828,7 +828,7 @@ fn transform_server_message(
 	tracing::debug!(
 		target: "virtual_tools",
 		virtual_name,
-		output_paths = ?tool.output_paths.as_ref().map(|p| p.keys().collect::<Vec<_>>()),
+		output_fields = ?tool.output_transform_fields(),
 		"attempting output transformation"
 	);
 

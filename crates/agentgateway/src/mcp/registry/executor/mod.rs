@@ -120,83 +120,98 @@ impl CompositionExecutor {
 	}
 
 	/// Execute a pattern
-	pub async fn execute_pattern(
-		&self,
-		spec: &PatternSpec,
+	///
+	/// This function uses Box::pin to handle async recursion when patterns
+	/// contain nested patterns (e.g., pipeline steps with nested patterns).
+	pub fn execute_pattern<'a>(
+		&'a self,
+		spec: &'a PatternSpec,
 		input: Value,
-		ctx: &ExecutionContext,
-	) -> Result<Value, ExecutionError> {
-		match spec {
-			// Stateless patterns (implemented)
-			PatternSpec::Pipeline(p) => PipelineExecutor::execute(p, input, ctx, self).await,
-			PatternSpec::ScatterGather(sg) => ScatterGatherExecutor::execute(sg, input, ctx, self).await,
-			PatternSpec::Filter(f) => FilterExecutor::execute(f, input).await,
-			PatternSpec::SchemaMap(sm) => SchemaMapExecutor::execute(sm, input).await,
-			PatternSpec::MapEach(me) => MapEachExecutor::execute(me, input, ctx, self).await,
+		ctx: &'a ExecutionContext,
+	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, ExecutionError>> + Send + 'a>> {
+		Box::pin(async move {
+			match spec {
+				// Stateless patterns (implemented)
+				PatternSpec::Pipeline(p) => PipelineExecutor::execute(p, input, ctx, self).await,
+				PatternSpec::ScatterGather(sg) => ScatterGatherExecutor::execute(sg, input, ctx, self).await,
+				PatternSpec::Filter(f) => FilterExecutor::execute(f, input).await,
+				PatternSpec::SchemaMap(sm) => SchemaMapExecutor::execute(sm, input).await,
+				PatternSpec::MapEach(me) => MapEachExecutor::execute(me, input, ctx, self).await,
 
-			// Stateful patterns (IR defined, runtime not yet implemented)
-			PatternSpec::Retry(_) => Err(ExecutionError::StatefulPatternNotImplemented {
-				pattern: "retry".to_string(),
-				details: "The retry pattern requires a state store for tracking attempt counts and backoff delays. \
-					Configure a state store backend (e.g., Redis, in-memory) and implement RetryExecutor to enable this pattern."
-					.to_string(),
-			}),
-			PatternSpec::Timeout(_) => Err(ExecutionError::StatefulPatternNotImplemented {
-				pattern: "timeout".to_string(),
-				details: "The timeout pattern requires async cancellation support. \
-					Implement TimeoutExecutor with tokio::time::timeout to enable this pattern."
-					.to_string(),
-			}),
-			PatternSpec::Cache(_) => Err(ExecutionError::StatefulPatternNotImplemented {
-				pattern: "cache".to_string(),
-				details: "The cache pattern requires a cache store backend (e.g., Redis, in-memory LRU). \
-					Configure a cache store and implement CacheExecutor to enable read-through caching."
-					.to_string(),
-			}),
-			PatternSpec::Idempotent(_) => Err(ExecutionError::StatefulPatternNotImplemented {
-				pattern: "idempotent".to_string(),
-				details: "The idempotent pattern requires a store for tracking processed request keys. \
-					Configure a store backend (e.g., Redis, database) and implement IdempotentExecutor to prevent duplicate processing."
-					.to_string(),
-			}),
-			PatternSpec::CircuitBreaker(_) => Err(ExecutionError::StatefulPatternNotImplemented {
-				pattern: "circuit_breaker".to_string(),
-				details: "The circuit breaker pattern requires a store for tracking failure counts and circuit state. \
-					Configure a store backend and implement CircuitBreakerExecutor to enable fail-fast behavior with automatic recovery."
-					.to_string(),
-			}),
-			PatternSpec::DeadLetter(_) => Err(ExecutionError::StatefulPatternNotImplemented {
-				pattern: "dead_letter".to_string(),
-				details: "The dead letter pattern requires a queue or storage backend for capturing failed messages. \
-					Configure a dead letter tool and implement DeadLetterExecutor to enable failure capture for later processing."
-					.to_string(),
-			}),
-			PatternSpec::Saga(_) => Err(ExecutionError::StatefulPatternNotImplemented {
-				pattern: "saga".to_string(),
-				details: "The saga pattern requires a store for tracking saga state and enabling recovery. \
-					Configure a durable store backend and implement SagaExecutor to enable distributed transactions with compensation."
-					.to_string(),
-			}),
-			PatternSpec::ClaimCheck(_) => Err(ExecutionError::StatefulPatternNotImplemented {
-				pattern: "claim_check".to_string(),
-				details: "The claim check pattern requires blob storage tools for externalizing large payloads. \
-					Configure store_tool and retrieve_tool backends and implement ClaimCheckExecutor to enable payload externalization."
-					.to_string(),
-			}),
-		}
+				// Stateful patterns (IR defined, runtime not yet implemented)
+				PatternSpec::Retry(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "retry".to_string(),
+					details: "The retry pattern requires a state store for tracking attempt counts and backoff delays. \
+						Configure a state store backend (e.g., Redis, in-memory) and implement RetryExecutor to enable this pattern."
+						.to_string(),
+				}),
+				PatternSpec::Timeout(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "timeout".to_string(),
+					details: "The timeout pattern requires async cancellation support. \
+						Implement TimeoutExecutor with tokio::time::timeout to enable this pattern."
+						.to_string(),
+				}),
+				PatternSpec::Cache(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "cache".to_string(),
+					details: "The cache pattern requires a cache store backend (e.g., Redis, in-memory LRU). \
+						Configure a cache store and implement CacheExecutor to enable read-through caching."
+						.to_string(),
+				}),
+				PatternSpec::Idempotent(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "idempotent".to_string(),
+					details: "The idempotent pattern requires a store for tracking processed request keys. \
+						Configure a store backend (e.g., Redis, database) and implement IdempotentExecutor to prevent duplicate processing."
+						.to_string(),
+				}),
+				PatternSpec::CircuitBreaker(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "circuit_breaker".to_string(),
+					details: "The circuit breaker pattern requires a store for tracking failure counts and circuit state. \
+						Configure a store backend and implement CircuitBreakerExecutor to enable fail-fast behavior with automatic recovery."
+						.to_string(),
+				}),
+				PatternSpec::DeadLetter(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "dead_letter".to_string(),
+					details: "The dead letter pattern requires a queue or storage backend for capturing failed messages. \
+						Configure a dead letter tool and implement DeadLetterExecutor to enable failure capture for later processing."
+						.to_string(),
+				}),
+				PatternSpec::Saga(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "saga".to_string(),
+					details: "The saga pattern requires a store for tracking saga state and enabling recovery. \
+						Configure a durable store backend and implement SagaExecutor to enable distributed transactions with compensation."
+						.to_string(),
+				}),
+				PatternSpec::ClaimCheck(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "claim_check".to_string(),
+					details: "The claim check pattern requires blob storage tools for externalizing large payloads. \
+						Configure store_tool and retrieve_tool backends and implement ClaimCheckExecutor to enable payload externalization."
+						.to_string(),
+				}),
+			}
+		})
 	}
 
 	/// Execute a tool by name
-	pub async fn execute_tool(&self, name: &str, args: Value, ctx: &ExecutionContext) -> Result<Value, ExecutionError> {
-		// First, check if it's a composition in the registry
-		if let Some(tool) = self.registry.get_tool(name) {
-			if let Some(composition) = tool.composition_info() {
-				return self.execute_composition(tool, composition, args).await;
+	///
+	/// This function uses Box::pin to handle async recursion when compositions
+	/// contain nested tool calls.
+	pub fn execute_tool<'a>(
+		&'a self,
+		name: &'a str,
+		args: Value,
+		ctx: &'a ExecutionContext,
+	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, ExecutionError>> + Send + 'a>> {
+		Box::pin(async move {
+			// First, check if it's a composition in the registry
+			if let Some(tool) = self.registry.get_tool(name) {
+				if let Some(composition) = tool.composition_info() {
+					return self.execute_composition(tool, composition, args).await;
+				}
 			}
-		}
 
-		// Otherwise, invoke via the tool invoker
-		ctx.tool_invoker.invoke(name, args).await
+			// Otherwise, invoke via the tool invoker
+			ctx.tool_invoker.invoke(name, args).await
+		})
 	}
 }
 

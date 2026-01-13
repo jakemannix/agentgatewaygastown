@@ -204,7 +204,7 @@ impl ExecutionGraph {
 	}
 
 	/// Get all tool references in this graph
-	pub fn tool_references(&self) -> Vec<&str> {
+	pub fn tool_references(&self) -> Vec<String> {
 		let mut refs = Vec::new();
 		for node in &self.nodes {
 			Self::collect_tool_refs(&node.operation, &mut refs);
@@ -212,13 +212,13 @@ impl ExecutionGraph {
 		refs
 	}
 
-	fn collect_tool_refs<'a>(op: &'a NodeOperation, refs: &mut Vec<&'a str>) {
+	fn collect_tool_refs(op: &NodeOperation, refs: &mut Vec<String>) {
 		match op {
-			NodeOperation::ToolCall { name } => refs.push(name.as_str()),
+			NodeOperation::ToolCall { name } => refs.push(name.clone()),
 			NodeOperation::Pipeline { steps } => {
 				for step in steps {
 					match &step.operation {
-						StepOperationNode::Tool { name } => refs.push(name.as_str()),
+						StepOperationNode::Tool { name } => refs.push(name.clone()),
 						StepOperationNode::Pattern(p) => {
 							let inner_op = Self::pattern_to_operation(p);
 							Self::collect_tool_refs(&inner_op, refs);
@@ -229,7 +229,7 @@ impl ExecutionGraph {
 			NodeOperation::ScatterGather { targets, .. } => {
 				for target in targets {
 					match target {
-						ScatterTargetNode::Tool(name) => refs.push(name.as_str()),
+						ScatterTargetNode::Tool(name) => refs.push(name.clone()),
 						ScatterTargetNode::Pattern(p) => {
 							let inner_op = Self::pattern_to_operation(p);
 							Self::collect_tool_refs(&inner_op, refs);
@@ -238,7 +238,7 @@ impl ExecutionGraph {
 				}
 			},
 			NodeOperation::MapEach { inner } => match inner {
-				MapEachInner::Tool(name) => refs.push(name.as_str()),
+				MapEachInner::Tool(name) => refs.push(name.clone()),
 				MapEachInner::Pattern(p) => {
 					let inner_op = Self::pattern_to_operation(p);
 					Self::collect_tool_refs(&inner_op, refs);
@@ -282,8 +282,8 @@ mod tests {
 		assert_eq!(graph.exit, 2);
 
 		let refs = graph.tool_references();
-		assert!(refs.contains(&"search"));
-		assert!(refs.contains(&"summarize"));
+		assert!(refs.contains(&"search".to_string()));
+		assert!(refs.contains(&"summarize".to_string()));
 	}
 
 	#[test]
@@ -304,8 +304,8 @@ mod tests {
 
 		let refs = graph.tool_references();
 		assert_eq!(refs.len(), 2);
-		assert!(refs.contains(&"tool_a"));
-		assert!(refs.contains(&"tool_b"));
+		assert!(refs.contains(&"tool_a".to_string()));
+		assert!(refs.contains(&"tool_b".to_string()));
 	}
 
 	#[test]

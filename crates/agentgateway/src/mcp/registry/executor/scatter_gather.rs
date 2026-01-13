@@ -122,10 +122,12 @@ impl ScatterGatherExecutor {
 		let mut items: Vec<_> = arr.iter().cloned().collect();
 
 		items.sort_by(|a, b| {
-			let a_val = jsonpath.query(a).iter().next().cloned();
-			let b_val = jsonpath.query(b).iter().next().cloned();
+			let a_query = jsonpath.query(a);
+			let b_query = jsonpath.query(b);
+			let a_val = a_query.iter().next().copied();
+			let b_val = b_query.iter().next().copied();
 
-			let cmp = compare_values(a_val.as_ref(), b_val.as_ref());
+			let cmp = compare_values(a_val, b_val);
 			if order == "desc" {
 				cmp.reverse()
 			} else {

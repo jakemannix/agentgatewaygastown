@@ -23,9 +23,10 @@ impl FilterExecutor {
 		let mut result = Vec::new();
 
 		for item in arr {
-			let field_value = jsonpath.query(item).iter().next().cloned();
+			let query_result = jsonpath.query(item);
+			let field_value = query_result.iter().next().copied();
 
-			if Self::evaluate_predicate(&spec.predicate.op, field_value.as_ref(), &spec.predicate.value)? {
+			if Self::evaluate_predicate(&spec.predicate.op, field_value, &spec.predicate.value)? {
 				result.push(item.clone());
 			}
 		}

@@ -299,12 +299,27 @@ impl Default for RegistryStoreRef {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::mcp::registry::types::{ServerDef, ToolDef};
+	use crate::mcp::registry::types::{SourceTool, ToolDefinition, ToolImplementation};
 
 	fn create_test_registry() -> Registry {
-		let servers = vec![ServerDef::stdio("backend", "cmd", vec![])];
-		let tools = vec![ToolDef::base("test_tool", "backend")];
-		Registry::with_servers_and_tools(servers, tools)
+		let tool = ToolDefinition {
+			name: "test_tool".to_string(),
+			description: Some("A test tool".to_string()),
+			implementation: ToolImplementation::Source(SourceTool {
+				target: "backend".to_string(),
+				tool: "original_tool".to_string(),
+				defaults: Default::default(),
+				hide_fields: vec![],
+			}),
+			input_schema: None,
+			output_transform: None,
+			version: None,
+			metadata: Default::default(),
+		};
+		Registry {
+			schema_version: "1.0".to_string(),
+			tools: vec![tool],
+		}
 	}
 
 	#[test]
