@@ -109,6 +109,8 @@ pub struct BackendPolicies {
 
 	pub session_persistence: Option<http::sessionpersistence::Policy>,
 
+	pub session_persistence: Option<http::sessionpersistence::Policy>,
+
 	/// Internal-only override for destination endpoint selection.
 	/// Used for stateful MCP routing (session affinity).
 	/// Not exposed through config - set programmatically only.
