@@ -619,6 +619,156 @@ workflow ResearchPipeline(topic) {
                 </section>
             </section>
 
+            <!-- Implementation Architecture -->
+            <section>
+                <section>
+                    <h2 class="highlight-blue">Implementation Architecture</h2>
+                    <h3>TypeScript DSL → JSON IR → Rust Runtime</h3>
+                </section>
+
+                <section>
+                    <h3>Three-Tier Compilation</h3>
+                    <div class="diagram-box">
+                        <pre style="text-align: center; font-size: 0.8em;">
+┌────────────────────────────────────────────┐
+│  <span class="highlight-blue">Layer 1: TypeScript DSL</span>                   │
+│  What developers write                      │
+│  Type-safe, IDE support, familiar syntax    │
+└────────────────────────────────────────────┘
+                      │
+                      │ compile (tsc + vmcp-compiler)
+                      ▼
+┌────────────────────────────────────────────┐
+│  <span class="highlight-orange">Layer 2: JSON IR</span>                          │
+│  Portable, versionable, schematized         │
+│  Can be edited, validated, stored           │
+└────────────────────────────────────────────┘
+                      │
+                      │ load + execute
+                      ▼
+┌────────────────────────────────────────────┐
+│  <span class="highlight-green">Layer 3: Rust Runtime</span>                     │
+│  Fast, safe execution in agentgateway       │
+└────────────────────────────────────────────┘</pre>
+                    </div>
+                </section>
+
+                <section>
+                    <h3>Layer 1: TypeScript DSL</h3>
+                    <pre><code class="language-typescript">import { pipeline, scatterGather, filter, tool } from '@vmcp/dsl';
+
+// Type-safe path builder
+const $ = path&lt;SearchResult&gt;();
+
+// Define a research pipeline
+const research = pipeline([
+    scatterGather({
+        targets: [tool('web_search'), tool('arxiv_search')],
+        aggregate: [flatten(), dedupe($.url), limit(20)]
+    }),
+    filter($.relevance, gt(0.7)),
+    tool('summarize')
+]);
+
+// Compile to JSON IR
+const ir = compile(research);</code></pre>
+                    <p class="smaller-text fragment">
+                        Type-safe • IDE autocomplete • Compile-time validation
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Layer 2: JSON IR (Intermediate Representation)</h3>
+                    <pre><code class="language-json">{
+  "schemaVersion": "1.0",
+  "compositions": [{
+    "name": "research",
+    "pattern": "pipeline",
+    "steps": [
+      {
+        "id": "step_0",
+        "pattern": "scatter_gather",
+        "targets": [{"tool": "web_search"}, {"tool": "arxiv_search"}],
+        "aggregation": {"ops": [{"flatten": true}, {"dedupe": "$.url"}]}
+      },
+      {
+        "id": "step_1",
+        "pattern": "filter",
+        "predicate": {"field": "$.relevance", "op": "gt", "value": 0.7}
+      },
+      {"id": "step_2", "tool": "summarize"}
+    ]
+  }]
+}</code></pre>
+                </section>
+
+                <section>
+                    <h3>Layer 3: Rust Runtime</h3>
+                    <pre><code class="language-rust">// Load and execute compositions
+pub struct CompositionExecutor {
+    registry: Arc&lt;CompiledRegistry&gt;,
+    backends: Arc&lt;BackendPool&gt;,
+}
+
+impl CompositionExecutor {
+    pub async fn execute(
+        &self,
+        composition: &CompositionDef,
+        input: Value,
+    ) -> Result&lt;Value&gt; {
+        match &composition.pattern {
+            Pattern::Pipeline(steps) =>
+                self.execute_pipeline(steps, input).await,
+            Pattern::ScatterGather(config) =>
+                self.execute_scatter_gather(config, input).await,
+            // ...
+        }
+    }
+}</code></pre>
+                </section>
+
+                <section>
+                    <h3>Why Three Tiers?</h3>
+                    <table style="font-size: 0.65em;">
+                        <thead>
+                            <tr><th>Tier</th><th>Benefits</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="highlight-blue">TypeScript DSL</td>
+                                <td>Type safety, IDE support, familiar to developers</td>
+                            </tr>
+                            <tr>
+                                <td class="highlight-orange">JSON IR</td>
+                                <td>Portable, versionable, editable, language-agnostic</td>
+                            </tr>
+                            <tr>
+                                <td class="highlight-green">Rust Runtime</td>
+                                <td>Fast execution, memory safety, production-grade</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p class="fragment small-text" style="margin-top: 1em;">
+                        JSON IR is the <span class="highlight-orange">source of truth</span>—<br>
+                        can be generated by DSL, edited by hand, or created by other tools
+                    </p>
+                </section>
+
+                <section>
+                    <h3>JSON Schema Validation</h3>
+                    <p>The JSON IR has a formal schema:</p>
+                    <ul class="small-text">
+                        <li class="fragment">Validates composition structure at load time</li>
+                        <li class="fragment">Catches errors before runtime</li>
+                        <li class="fragment">Enables tooling: editors, linters, generators</li>
+                        <li class="fragment">Documents the IR format precisely</li>
+                    </ul>
+                    <p class="fragment smaller-text" style="margin-top: 1em;">
+                        Schema at: <code>schema/composition-ir.json</code>
+                    </p>
+                </section>
+            </section>
+
             <!-- MCP-Specific Patterns -->
             <section>
                 <section>
