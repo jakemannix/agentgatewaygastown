@@ -69,6 +69,7 @@ async fn local_ratelimit() {
 			name: "route".into(),
 			namespace: "".into(),
 			rule_name: None,
+			kind: None,
 		}),
 		policy: TrafficPolicy::LocalRateLimit(vec![
 			http::localratelimit::RateLimitSpec {
@@ -197,6 +198,7 @@ async fn direct_response() {
 			name: "route2".into(),
 			namespace: Default::default(),
 			rule_name: None,
+			kind: None,
 		},
 		hostnames: Default::default(),
 		matches: vec![RouteMatch {
@@ -498,6 +500,7 @@ async fn header_manipulation() {
 			name: "route2".into(),
 			namespace: Default::default(),
 			rule_name: None,
+			kind: None,
 		},
 		hostnames: Default::default(),
 		matches: vec![RouteMatch {
@@ -562,6 +565,7 @@ async fn inline_backend_policies() {
 				name: "route2".into(),
 				namespace: Default::default(),
 				rule_name: None,
+				kind: None,
 			},
 			hostnames: Default::default(),
 			matches: vec![RouteMatch {
@@ -649,6 +653,7 @@ async fn api_key() {
 				name: "route".into(),
 				namespace: "".into(),
 				rule_name: None,
+				kind: None,
 			}),
 			policy: TrafficPolicy::APIKey(
 				http::apikey::LocalAPIKeys {
@@ -675,6 +680,7 @@ async fn api_key() {
 				name: "route".into(),
 				namespace: "".into(),
 				rule_name: None,
+				kind: None,
 			}),
 			policy: TrafficPolicy::Authorization(deser(json!({
 				"rules": ["apiKey.group == 'eng'"]
@@ -724,6 +730,7 @@ async fn basic_auth() {
 				name: "route".into(),
 				namespace: "".into(),
 				rule_name: None,
+				kind: None,
 			}),
 			policy: TrafficPolicy::BasicAuth(
 				http::basicauth::LocalBasicAuth {
@@ -749,6 +756,7 @@ crypt_test:bGVh02xkuGli2"
 				name: "route".into(),
 				namespace: "".into(),
 				rule_name: None,
+				kind: None,
 			}),
 			policy: TrafficPolicy::Authorization(deser(json!({
 				"rules": ["basicAuth.username == 'user'"]

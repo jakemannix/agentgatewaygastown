@@ -101,6 +101,7 @@ pub fn select_best_route(
 				name: strng::literal!("_waypoint-default"),
 				namespace: svc.namespace.clone(),
 				rule_name: None,
+				kind: None,
 			},
 			hostnames: vec![],
 			matches: vec![],

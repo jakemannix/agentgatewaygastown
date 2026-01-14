@@ -10397,6 +10397,12 @@
                           "string",
                           "null"
                         ]
+                      },
+                      "kind": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
                       }
                     },
                     "additionalProperties": false,

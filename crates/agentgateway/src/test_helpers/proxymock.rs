@@ -167,6 +167,7 @@ pub fn basic_named_route(target: Strng) -> Route {
 			name: "route".into(),
 			namespace: Default::default(),
 			rule_name: None,
+			kind: None,
 		},
 		hostnames: Default::default(),
 		matches: vec![RouteMatch {
@@ -191,6 +192,7 @@ pub fn basic_named_tcp_route(target: Strng) -> TCPRoute {
 			name: "route".into(),
 			namespace: Default::default(),
 			rule_name: None,
+			kind: None,
 		},
 		hostnames: Default::default(),
 		backends: vec![TCPRouteBackendReference {

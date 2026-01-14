@@ -1109,6 +1109,7 @@
 |`policies[].target.(1)route.name`||
 |`policies[].target.(1)route.namespace`||
 |`policies[].target.(1)route.ruleName`||
+|`policies[].target.(1)route.kind`||
 |`policies[].target.(1)backend`||
 |`policies[].target.(1)backend.(1)backend`||
 |`policies[].target.(1)backend.(1)backend.name`||

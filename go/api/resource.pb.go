@@ -6144,6 +6144,7 @@ type PolicyTarget_RouteTarget struct {
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Namespace     string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	RouteRule     *string                `protobuf:"bytes,3,opt,name=route_rule,json=routeRule,proto3,oneof" json:"route_rule,omitempty"`
+	Kind          string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -6195,6 +6196,13 @@ func (x *PolicyTarget_RouteTarget) GetNamespace() string {
 func (x *PolicyTarget_RouteTarget) GetRouteRule() string {
 	if x != nil && x.RouteRule != nil {
 		return *x.RouteRule
+	}
+	return ""
+}
+
+func (x *PolicyTarget_RouteTarget) GetKind() string {
+	if x != nil {
+		return x.Kind
 	}
 	return ""
 }
@@ -10208,7 +10216,7 @@ const file_resource_proto_rawDesc = "" +
 	"\fRouteBackend\x12E\n" +
 	"\abackend\x18\x01 \x01(\v2+.agentgateway.dev.resource.BackendReferenceR\abackend\x12\x16\n" +
 	"\x06weight\x18\x02 \x01(\x05R\x06weight\x12W\n" +
-	"\x10backend_policies\x18\x05 \x03(\v2,.agentgateway.dev.resource.BackendPolicySpecR\x0fbackendPoliciesJ\x04\b\x04\x10\x05\"\x9c\x06\n" +
+	"\x10backend_policies\x18\x05 \x03(\v2,.agentgateway.dev.resource.BackendPolicySpecR\x0fbackendPoliciesJ\x04\b\x04\x10\x05\"\xb1\x06\n" +
 	"\fPolicyTarget\x12Q\n" +
 	"\agateway\x18\x01 \x01(\v25.agentgateway.dev.resource.PolicyTarget.GatewayTargetH\x00R\agateway\x12K\n" +
 	"\x05route\x18\x02 \x01(\v23.agentgateway.dev.resource.PolicyTarget.RouteTargetH\x00R\x05route\x12Q\n" +
@@ -10229,12 +10237,13 @@ const file_resource_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1f\n" +
 	"\blistener\x18\x03 \x01(\tH\x00R\blistener\x88\x01\x01B\v\n" +
-	"\t_listener\x1ar\n" +
+	"\t_listener\x1a\x86\x01\n" +
 	"\vRouteTarget\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\"\n" +
 	"\n" +
-	"route_rule\x18\x03 \x01(\tH\x00R\trouteRule\x88\x01\x01B\r\n" +
+	"route_rule\x18\x03 \x01(\tH\x00R\trouteRule\x88\x01\x01\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kindB\r\n" +
 	"\v_route_ruleB\x06\n" +
 	"\x04kind\"\xa2\x01\n" +
 	"\x0fKeepaliveConfig\x12-\n" +

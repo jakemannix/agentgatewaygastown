@@ -193,6 +193,7 @@ pub async fn setup_ext_proc_mock<T: Handler + Send + Sync + 'static>(
 				name: "route".into(),
 				namespace: Default::default(),
 				rule_name: None,
+				kind: None,
 			}),
 			policy: TrafficPolicy::ExtProc(ext_proc::ExtProc {
 				target: Arc::new(SimpleBackendReference::Backend(strng::format!(

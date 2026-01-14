@@ -420,6 +420,7 @@ message PolicyTarget {
     string name = 1;
     string namespace = 2;
     optional string route_rule = 3;
+    string kind = 4;
   }
   oneof kind {
     GatewayTarget gateway = 1;

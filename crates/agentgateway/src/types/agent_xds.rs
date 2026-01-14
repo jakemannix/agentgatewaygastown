@@ -574,13 +574,14 @@ impl TryFrom<&proto::agent::Route> for (Route, ListenerKey) {
 	type Error = ProtoError;
 
 	fn try_from(s: &proto::agent::Route) -> Result<Self, Self::Error> {
+		let name: RouteName = s
+			.name
+			.as_ref()
+			.ok_or(ProtoError::MissingRequiredField)?
+			.into();
 		let r = Route {
 			key: strng::new(&s.key),
-			name: s
-				.name
-				.as_ref()
-				.ok_or(ProtoError::MissingRequiredField)?
-				.into(),
+			name,
 			hostnames: s.hostnames.iter().map(strng::new).collect(),
 			matches: s
 				.matches
@@ -1696,6 +1697,7 @@ impl TryFrom<&proto::agent::PolicyTarget> for PolicyTarget {
 				name: strng::new(&r.name),
 				namespace: strng::new(&r.namespace),
 				rule_name: r.route_rule.as_ref().map(Into::into),
+				kind: (!r.kind.is_empty()).then(|| strng::new(&r.kind)),
 			})),
 			Some(tgt::Kind::Backend(b)) => Ok(PolicyTarget::Backend(BackendTarget::Backend {
 				name: strng::new(&b.name),
@@ -1765,6 +1767,7 @@ impl From<&proto::agent::RouteName> for RouteName {
 			name: strng::new(&value.name),
 			namespace: strng::new(&value.namespace),
 			rule_name: value.rule_name.as_ref().map(Into::into),
+			kind: (!value.kind.is_empty()).then(|| strng::new(&value.kind)),
 		}
 	}
 }

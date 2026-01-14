@@ -448,6 +448,8 @@ pub struct RouteName {
 	pub namespace: Strng,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub rule_name: Option<Strng>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub kind: Option<Strng>,
 }
 
 impl RouteName {
@@ -459,6 +461,7 @@ impl RouteName {
 			name: self.name.as_ref(),
 			namespace: self.namespace.as_ref(),
 			rule_name: None,
+			kind: self.kind.as_deref(),
 		}
 	}
 	pub fn as_route_rule_target_ref(&self) -> PolicyTargetRef {
@@ -466,6 +469,7 @@ impl RouteName {
 			name: self.name.as_ref(),
 			namespace: self.namespace.as_ref(),
 			rule_name: self.rule_name.as_deref(),
+			kind: self.kind.as_deref(),
 		}
 	}
 }
@@ -1824,6 +1828,7 @@ pub enum PolicyTargetRef<'a> {
 		name: &'a str,
 		namespace: &'a str,
 		rule_name: Option<&'a str>,
+		kind: Option<&'a str>,
 	},
 	Backend(BackendTargetRef<'a>),
 }
@@ -1840,6 +1845,7 @@ impl<'a> From<&'a PolicyTarget> for PolicyTargetRef<'a> {
 				name: &v.name,
 				namespace: v.namespace.as_ref(),
 				rule_name: v.rule_name.as_deref(),
+				kind: v.kind.as_deref(),
 			},
 			PolicyTarget::Backend(v) => PolicyTargetRef::Backend(v.into()),
 		}
