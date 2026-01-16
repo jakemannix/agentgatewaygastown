@@ -1,0 +1,104 @@
+# Docker Compose for AgentGateway Pattern Demos
+#
+# This compose file starts all services needed for the agentgateway pattern demos.
+# It includes the gateway itself and various MCP/A2A backend services.
+#
+# Usage:
+#   docker-compose up -d           # Start all services
+#   docker-compose up gateway      # Start only the gateway (use local MCP servers)
+#   docker-compose down            # Stop all services
+#   docker-compose logs -f gateway # Follow gateway logs
+
+services:
+  # AgentGateway - The main proxy/gateway service
+  gateway:
+    image: ghcr.io/agentgateway/agentgateway:latest
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"      # Main MCP/HTTP endpoint
+      - "15000:15000"    # Admin UI
+    volumes:
+      - ./configs:/configs:ro
+    command: ["-f", "/configs/demo-config.yaml"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:15000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - agentgateway-demo
+
+  # MCP Everything Server - Comprehensive demo MCP server
+  mcp-everything:
+    image: mcp/everything:latest
+    networks:
+      - agentgateway-demo
+    # Exposes stdio interface, gateway connects via docker exec or sidecar pattern
+
+  # A2A HelloWorld Agent - Simple A2A demo agent
+  # Based on the a2a-samples helloworld example
+  a2a-helloworld:
+    image: python:3.11-slim
+    working_dir: /app
+    environment:
+      - PORT=9999
+    ports:
+      - "9999:9999"
+    volumes:
+      - ./a2a-agents:/app:ro
+    command: ["python", "-m", "helloworld_agent"]
+    networks:
+      - agentgateway-demo
+    depends_on:
+      - gateway
+
+  # Strands Calculator Agent - A2A agent using AWS Strands
+  # Requires AWS credentials for Bedrock access
+  strands-calculator:
+    image: python:3.11-slim
+    working_dir: /app
+    environment:
+      - PORT=9998
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-3-7-sonnet-20250219-v1:0}
+    ports:
+      - "9998:9998"
+    volumes:
+      - ../../examples/a2a/strands-agents:/app:ro
+    command: ["sh", "-c", "pip install -q strands-agents strands-tools && python -m strands_agents"]
+    networks:
+      - agentgateway-demo
+    profiles:
+      - strands  # Only start with --profile strands
+
+  # Redis - For distributed state/caching demos (optional)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - agentgateway-demo
+    profiles:
+      - full
+
+  # Jaeger - For distributed tracing demos (optional)
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"  # UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - agentgateway-demo
+    profiles:
+      - observability
+
+networks:
+  agentgateway-demo:
+    driver: bridge
