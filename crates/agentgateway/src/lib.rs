@@ -43,6 +43,7 @@ pub mod types;
 #[cfg(feature = "ui")]
 mod ui;
 pub mod util;
+pub mod workflow;
 
 use control::caclient;
 use telemetry::{metrics, trc};
