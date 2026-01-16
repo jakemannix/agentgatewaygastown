@@ -12,7 +12,7 @@ use crate::http::auth::BackendAuth;
 use crate::http::authorization::HTTPAuthorizationSet;
 use crate::http::backendtls::BackendTLS;
 use crate::http::ext_proc::InferenceRouting;
-use crate::http::{ext_authz, ext_proc, filters, remoteratelimit, retry, timeout};
+use crate::http::{deadletter, ext_authz, ext_proc, filters, remoteratelimit, retry, timeout};
 use crate::llm::policy::ResponseGuard;
 use crate::mcp::McpAuthorizationSet;
 use crate::proxy::httpproxy::PolicyClient;
@@ -170,6 +170,7 @@ pub struct RoutePolicies {
 
 	pub timeout: Option<timeout::Policy>,
 	pub retry: Option<retry::Policy>,
+	pub dead_letter: Option<deadletter::Policy>,
 	pub request_header_modifier: Option<filters::HeaderModifier>,
 	pub response_header_modifier: Option<filters::HeaderModifier>,
 	pub request_redirect: Option<filters::RequestRedirect>,
@@ -402,6 +403,9 @@ impl Store {
 				},
 				TrafficPolicy::Retry(p) => {
 					pol.retry.get_or_insert_with(|| p.clone());
+				},
+				TrafficPolicy::DeadLetter(p) => {
+					pol.dead_letter.get_or_insert_with(|| p.clone());
 				},
 				TrafficPolicy::RequestHeaderModifier(p) => {
 					pol.request_header_modifier.get_or_insert_with(|| p.clone());

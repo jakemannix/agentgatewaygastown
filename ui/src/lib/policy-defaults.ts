@@ -58,6 +58,13 @@ export function getDefaultPolicyData(type: PolicyType) {
         backoff: null,
         codes: [],
       };
+    case "deadLetter":
+      return {
+        deadLetterTool: "",
+        maxAttempts: 1,
+        backoff: null,
+        rethrow: false,
+      };
     case "requestHeaderModifier":
     case "responseHeaderModifier":
       return {

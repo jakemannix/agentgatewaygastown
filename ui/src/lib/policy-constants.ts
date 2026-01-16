@@ -11,6 +11,7 @@ import {
   FileText,
   ArrowRight,
   Users,
+  Archive,
 } from "lucide-react";
 
 export type PolicyType =
@@ -24,6 +25,7 @@ export type PolicyType =
   | "remoteRateLimit"
   | "timeout"
   | "retry"
+  | "deadLetter"
   | "requestHeaderModifier"
   | "responseHeaderModifier"
   | "requestRedirect"
@@ -98,6 +100,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     name: "Retry",
     icon: RotateCcw,
     description: "Retry configuration for failed requests",
+    httpOnly: true,
+  },
+  deadLetter: {
+    name: "Dead Letter",
+    icon: Archive,
+    description: "Capture failures for later processing",
     httpOnly: true,
   },
   requestHeaderModifier: {
