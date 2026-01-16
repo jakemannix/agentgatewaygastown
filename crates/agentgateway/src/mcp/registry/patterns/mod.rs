@@ -19,7 +19,8 @@ pub use scatter_gather::{
 pub use schema_map::{CoalesceSource, ConcatSource, FieldSource, LiteralValue, SchemaMapSpec, TemplateSource};
 pub use stateful::{
 	BackoffStrategy, CacheSpec, CircuitBreakerSpec, ClaimCheckSpec, DeadLetterSpec, ExponentialBackoff,
-	FixedBackoff, IdempotentSpec, LinearBackoff, OnDuplicate, RetrySpec, SagaSpec, SagaStep, TimeoutSpec,
+	FixedBackoff, IdempotentSpec, LinearBackoff, OnDuplicate, OnExceeded, RetrySpec, SagaSpec, SagaStep,
+	ThrottleSpec, ThrottleStrategy, TimeoutSpec,
 };
 
 use serde::{Deserialize, Serialize};
@@ -68,6 +69,9 @@ pub enum PatternSpec {
 
 	/// Externalize large payloads
 	ClaimCheck(ClaimCheckSpec),
+
+	/// Rate limiting for tool invocations
+	Throttle(ThrottleSpec),
 }
 
 impl PatternSpec {
@@ -89,6 +93,7 @@ impl PatternSpec {
 			PatternSpec::DeadLetter(_) => vec![],
 			PatternSpec::Saga(_) => vec![],
 			PatternSpec::ClaimCheck(_) => vec![],
+			PatternSpec::Throttle(_) => vec![],
 		}
 	}
 
@@ -104,6 +109,7 @@ impl PatternSpec {
 				| PatternSpec::DeadLetter(_)
 				| PatternSpec::Saga(_)
 				| PatternSpec::ClaimCheck(_)
+				| PatternSpec::Throttle(_)
 		)
 	}
 
@@ -123,6 +129,7 @@ impl PatternSpec {
 			PatternSpec::DeadLetter(_) => "dead_letter",
 			PatternSpec::Saga(_) => "saga",
 			PatternSpec::ClaimCheck(_) => "claim_check",
+			PatternSpec::Throttle(_) => "throttle",
 		}
 	}
 }
@@ -210,6 +217,24 @@ mod tests {
 
 		let spec: PatternSpec = serde_json::from_str(json).unwrap();
 		assert!(matches!(spec, PatternSpec::MapEach(_)));
+	}
+
+	#[test]
+	fn test_parse_throttle_pattern() {
+		let json = r#"{
+			"throttle": {
+				"inner": { "tool": { "name": "expensive_api" } },
+				"rate": 100,
+				"windowMs": 60000,
+				"strategy": "sliding_window",
+				"onExceeded": "wait"
+			}
+		}"#;
+
+		let spec: PatternSpec = serde_json::from_str(json).unwrap();
+		assert!(matches!(spec, PatternSpec::Throttle(_)));
+		assert_eq!(spec.pattern_name(), "throttle");
+		assert!(spec.is_stateful_unimplemented());
 	}
 }
 

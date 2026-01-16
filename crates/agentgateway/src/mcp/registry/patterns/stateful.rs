@@ -304,6 +304,55 @@ pub struct ClaimCheckSpec {
 }
 
 // =============================================================================
+// Throttle Pattern
+// =============================================================================
+
+/// ThrottleSpec - rate limiting for tool invocations
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThrottleSpec {
+    /// The operation to throttle
+    pub inner: Box<StepOperation>,
+
+    /// Maximum requests per window
+    pub rate: u32,
+
+    /// Window size in milliseconds
+    pub window_ms: u32,
+
+    /// Rate limiting strategy
+    #[serde(default)]
+    pub strategy: ThrottleStrategy,
+
+    /// Behavior when rate exceeded
+    #[serde(default)]
+    pub on_exceeded: OnExceeded,
+
+    /// State store for distributed throttling (optional for single-instance)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThrottleStrategy {
+    #[default]
+    SlidingWindow,
+    TokenBucket,
+    FixedWindow,
+    LeakyBucket,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OnExceeded {
+    #[default]
+    Wait,
+    Reject,
+    Queue,
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -396,5 +445,101 @@ mod tests {
         let spec: SagaSpec = serde_json::from_str(json).unwrap();
         assert_eq!(spec.steps.len(), 1);
         assert_eq!(spec.saga_id_path, Some("$.orderId".to_string()));
+    }
+
+    #[test]
+    fn test_parse_throttle_spec() {
+        let json = r#"{
+            "inner": { "tool": { "name": "expensive_api" } },
+            "rate": 100,
+            "windowMs": 60000,
+            "strategy": "sliding_window",
+            "onExceeded": "wait"
+        }"#;
+
+        let spec: ThrottleSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.rate, 100);
+        assert_eq!(spec.window_ms, 60000);
+        assert_eq!(spec.strategy, ThrottleStrategy::SlidingWindow);
+        assert_eq!(spec.on_exceeded, OnExceeded::Wait);
+        assert!(spec.store.is_none());
+    }
+
+    #[test]
+    fn test_parse_throttle_spec_with_store() {
+        let json = r#"{
+            "inner": { "tool": { "name": "api" } },
+            "rate": 10,
+            "windowMs": 1000,
+            "strategy": "token_bucket",
+            "onExceeded": "reject",
+            "store": "rate_limit_store"
+        }"#;
+
+        let spec: ThrottleSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.rate, 10);
+        assert_eq!(spec.strategy, ThrottleStrategy::TokenBucket);
+        assert_eq!(spec.on_exceeded, OnExceeded::Reject);
+        assert_eq!(spec.store, Some("rate_limit_store".to_string()));
+    }
+
+    #[test]
+    fn test_parse_throttle_spec_defaults() {
+        let json = r#"{
+            "inner": { "tool": { "name": "api" } },
+            "rate": 50,
+            "windowMs": 30000
+        }"#;
+
+        let spec: ThrottleSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.rate, 50);
+        assert_eq!(spec.window_ms, 30000);
+        // Defaults
+        assert_eq!(spec.strategy, ThrottleStrategy::SlidingWindow);
+        assert_eq!(spec.on_exceeded, OnExceeded::Wait);
+        assert!(spec.store.is_none());
+    }
+
+    #[test]
+    fn test_throttle_all_strategies() {
+        for (strategy_str, expected) in [
+            ("sliding_window", ThrottleStrategy::SlidingWindow),
+            ("token_bucket", ThrottleStrategy::TokenBucket),
+            ("fixed_window", ThrottleStrategy::FixedWindow),
+            ("leaky_bucket", ThrottleStrategy::LeakyBucket),
+        ] {
+            let json = format!(
+                r#"{{
+                    "inner": {{ "tool": {{ "name": "api" }} }},
+                    "rate": 10,
+                    "windowMs": 1000,
+                    "strategy": "{}"
+                }}"#,
+                strategy_str
+            );
+            let spec: ThrottleSpec = serde_json::from_str(&json).unwrap();
+            assert_eq!(spec.strategy, expected);
+        }
+    }
+
+    #[test]
+    fn test_throttle_all_on_exceeded() {
+        for (on_exceeded_str, expected) in [
+            ("wait", OnExceeded::Wait),
+            ("reject", OnExceeded::Reject),
+            ("queue", OnExceeded::Queue),
+        ] {
+            let json = format!(
+                r#"{{
+                    "inner": {{ "tool": {{ "name": "api" }} }},
+                    "rate": 10,
+                    "windowMs": 1000,
+                    "onExceeded": "{}"
+                }}"#,
+                on_exceeded_str
+            );
+            let spec: ThrottleSpec = serde_json::from_str(&json).unwrap();
+            assert_eq!(spec.on_exceeded, expected);
+        }
     }
 }

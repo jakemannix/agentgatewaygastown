@@ -57,7 +57,8 @@ export type PatternSpec =
   | { circuitBreaker: CircuitBreakerSpec }
   | { deadLetter: DeadLetterSpec }
   | { saga: SagaSpec }
-  | { claimCheck: ClaimCheckSpec };
+  | { claimCheck: ClaimCheckSpec }
+  | { throttle: ThrottleSpec };
 
 /** Pipeline pattern - sequential execution */
 export interface PipelineSpec {
@@ -302,6 +303,22 @@ export interface ClaimCheckSpec {
   inner: StepOperation;
   retrieveAtEnd?: boolean;
 }
+
+/** Throttle pattern - rate limiting for tool invocations */
+export interface ThrottleSpec {
+  inner: StepOperation;
+  rate: number;
+  windowMs: number;
+  strategy?: ThrottleStrategy;
+  onExceeded?: OnExceeded;
+  store?: string;
+}
+
+/** Rate limiting strategy */
+export type ThrottleStrategy = 'sliding_window' | 'token_bucket' | 'fixed_window' | 'leaky_bucket';
+
+/** Behavior when rate limit is exceeded */
+export type OnExceeded = 'wait' | 'reject' | 'queue';
 
 // =============================================================================
 // Output Transform

@@ -18,6 +18,9 @@ import type {
   SagaSpec,
   SagaStep,
   ClaimCheckSpec,
+  ThrottleSpec,
+  ThrottleStrategy,
+  OnExceeded,
   BackoffStrategy,
   FieldPredicate,
   DataBinding,
@@ -447,4 +450,67 @@ export function claimCheck(config: ClaimCheckConfig): PatternSpec {
     retrieveAtEnd: config.retrieveAtEnd,
   };
   return { claimCheck: spec };
+}
+
+// =============================================================================
+// Throttle pattern
+// =============================================================================
+
+export interface ThrottleConfig {
+  /** The tool or pattern to throttle */
+  inner: StepOperation;
+  /** Maximum requests per window */
+  rate: number;
+  /** Time window */
+  window: Duration;
+  /** Rate limiting strategy (default: sliding_window) */
+  strategy?: ThrottleStrategy;
+  /** Behavior when rate exceeded (default: wait) */
+  onExceeded?: OnExceeded;
+  /** Store for distributed throttling (optional for single-instance) */
+  store?: string;
+}
+
+/**
+ * Create a throttle (rate limiter) wrapper around a tool or pattern.
+ *
+ * @example
+ * // Rate limit to 100 requests per minute
+ * throttle({
+ *   inner: { tool: { name: 'expensive_api' } },
+ *   rate: 100,
+ *   window: minutes(1),
+ *   strategy: 'sliding_window',
+ *   onExceeded: 'wait',
+ * })
+ *
+ * @example
+ * // Token bucket with 10 requests per second, reject on exceeded
+ * throttle({
+ *   inner: { tool: { name: 'rate_limited_api' } },
+ *   rate: 10,
+ *   window: seconds(1),
+ *   strategy: 'token_bucket',
+ *   onExceeded: 'reject',
+ * })
+ *
+ * @example
+ * // Distributed throttling with Redis store
+ * throttle({
+ *   inner: { tool: { name: 'shared_api' } },
+ *   rate: 1000,
+ *   window: minutes(1),
+ *   store: 'redis_rate_limiter',
+ * })
+ */
+export function throttle(config: ThrottleConfig): PatternSpec {
+  const spec: ThrottleSpec = {
+    inner: config.inner,
+    rate: config.rate,
+    windowMs: config.window.toMillis(),
+    strategy: config.strategy,
+    onExceeded: config.onExceeded,
+    store: config.store,
+  };
+  return { throttle: spec };
 }
