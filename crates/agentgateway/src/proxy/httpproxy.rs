@@ -1626,7 +1626,7 @@ pub fn build_service_call(
 	})
 }
 
-fn should_retry(res: &Result<Response, ProxyResponse>, pol: &retry::Policy) -> bool {
+pub(crate) fn should_retry(res: &Result<Response, ProxyResponse>, pol: &retry::Policy) -> bool {
 	match res {
 		Ok(resp) => pol.codes.contains(&resp.status()),
 		Err(ProxyResponse::Error(e)) => e.is_retryable(),

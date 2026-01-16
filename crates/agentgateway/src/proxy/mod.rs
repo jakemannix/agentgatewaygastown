@@ -3,6 +3,9 @@ pub mod httpproxy;
 pub mod proxy_protocol;
 #[cfg(any(test, feature = "testing"))]
 pub mod request_builder;
+#[cfg(test)]
+#[path = "retry_tests.rs"]
+mod retry_tests;
 pub mod tcpproxy;
 
 pub use gateway::Gateway;
