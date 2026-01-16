@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../../../schema/config.json
+#
+# Example configuration for running the document service through agentgateway.
+#
+# Run with:
+#   cargo run -- -f examples/pattern-demos/mcp-tools/document_service/config.yaml
+#
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+          exposeHeaders:
+          - "Mcp-Session-Id"
+      backends:
+      - mcp:
+          targets:
+          - name: documents
+            stdio:
+              cmd: python
+              args: ["-m", "document_service"]
+              workDir: examples/pattern-demos/mcp-tools/document_service
