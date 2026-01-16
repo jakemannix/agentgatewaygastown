@@ -36,6 +36,7 @@ pub mod proxy;
 pub mod saga;
 pub mod serdes;
 pub mod state_manager;
+pub mod claimcheck;
 pub mod stateful;
 pub mod store;
 mod telemetry;
