@@ -368,6 +368,26 @@ message RequestMirrors {
   repeated Mirror mirrors = 1;
 }
 
+// WireTap sends copies of requests to side channels without affecting the main flow.
+// Uses fire-and-forget semantics - tap failures don't affect the main request.
+message WireTaps {
+  message TapTarget {
+    BackendReference backend = 1;
+    // 0-100 (percentage of requests to tap)
+    double percentage = 2;
+  }
+
+  // When to tap: "before", "after", or "both"
+  enum TapPoint {
+    AFTER = 0;   // Default: tap after main execution
+    BEFORE = 1;  // Tap before main execution
+    BOTH = 2;    // Tap both before and after
+  }
+
+  repeated TapTarget targets = 1;
+  TapPoint tap_point = 2;
+}
+
 message RequestRedirect {
   string scheme = 1;
   string host = 2;
@@ -749,6 +769,7 @@ message TrafficPolicySpec {
     BasicAuthentication basic_auth = 19;
     APIKey api_key_auth = 20;
     HostRewrite host_rewrite = 21;
+    WireTaps wire_tap = 22;
   }
 }
 
@@ -977,6 +998,7 @@ message BackendPolicySpec {
     RequestMirrors request_mirror = 11;
     BackendHTTP backend_http = 12;
     BackendTCP backend_tcp = 13;
+    WireTaps wire_tap = 14;
   }
 }
 

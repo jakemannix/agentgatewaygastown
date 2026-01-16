@@ -3,6 +3,7 @@ pub mod timeout;
 
 mod buflist;
 pub mod cors;
+pub mod deadletter;
 pub mod idempotent;
 pub mod jwt;
 pub mod localratelimit;
@@ -25,6 +26,7 @@ pub mod sessionpersistence;
 #[cfg(any(test, feature = "internal_benches"))]
 pub mod tests_common;
 pub mod transformation_cel;
+pub mod wiretap;
 
 pub type Error = axum_core::Error;
 pub type Body = axum_core::body::Body;

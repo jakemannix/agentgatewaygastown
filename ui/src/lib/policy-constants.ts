@@ -11,6 +11,8 @@ import {
   FileText,
   ArrowRight,
   Users,
+  Copy,
+  Archive,
   Fingerprint,
 } from "lucide-react";
 
@@ -26,6 +28,7 @@ export type PolicyType =
   | "idempotent"
   | "timeout"
   | "retry"
+  | "deadLetter"
   | "requestHeaderModifier"
   | "responseHeaderModifier"
   | "requestRedirect"
@@ -33,7 +36,8 @@ export type PolicyType =
   | "directResponse"
   | "extAuthz"
   | "ai"
-  | "a2a";
+  | "a2a"
+  | "wireTap";
 
 export interface PolicyTypeInfo {
   name: string;
@@ -108,6 +112,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     description: "Retry configuration for failed requests",
     httpOnly: true,
   },
+  deadLetter: {
+    name: "Dead Letter",
+    icon: Archive,
+    description: "Capture failures for later processing",
+    httpOnly: true,
+  },
   requestHeaderModifier: {
     name: "Request Headers",
     icon: Edit,
@@ -154,6 +164,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     name: "Agent-to-Agent",
     icon: Users,
     description: "Mark this traffic as A2A to enable A2A processing and telemetry",
+    httpOnly: true,
+  },
+  wireTap: {
+    name: "Wire Tap",
+    icon: Copy,
+    description: "Send copies of requests to side channels for logging, auditing, or debugging",
     httpOnly: true,
   },
 };

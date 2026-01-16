@@ -58,6 +58,13 @@ export function getDefaultPolicyData(type: PolicyType) {
         backoff: null,
         codes: [],
       };
+    case "deadLetter":
+      return {
+        deadLetterTool: "",
+        maxAttempts: 1,
+        backoff: null,
+        rethrow: false,
+      };
     case "requestHeaderModifier":
     case "responseHeaderModifier":
       return {
@@ -101,6 +108,11 @@ export function getDefaultPolicyData(type: PolicyType) {
         keyPaths: [],
         onDuplicate: "cached",
         ttl: "5m",
+      };
+    case "wireTap":
+      return {
+        targets: [],
+        tapPoint: "after",
       };
     default:
       return {};
