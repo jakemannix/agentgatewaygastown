@@ -96,9 +96,11 @@ class TestPercentileCalculation:
         p95 = calculate_percentile(latencies, 95)
         p99 = calculate_percentile(latencies, 99)
 
-        assert p50 == 5.0
-        assert p95 == 9.0
-        assert p99 == 9.0  # Index-based, so limited by list size
+        # Index-based calculation: index = int(len * percentile / 100)
+        # For 10 items: p50 -> index 5 -> 6.0, p95 -> index 9 -> 10.0
+        assert p50 == 6.0
+        assert p95 == 10.0
+        assert p99 == 10.0  # Index-based, capped at len-1
 
     def test_percentile_unsorted_input(self):
         latencies = [10.0, 1.0, 5.0, 3.0, 8.0]
