@@ -1,0 +1,161 @@
+%%{init: {'theme': 'neutral', 'themeVariables': { 'primaryColor': '#4A90D9' }}}%%
+graph TB
+    subgraph LEGEND["Legend"]
+        direction LR
+        new[NEW Module]
+        style new fill:#90EE90,stroke:#228B22
+        modified[Modified]
+        style modified fill:#FFD700,stroke:#DAA520
+        unchanged[Unchanged]
+        style unchanged fill:#87CEEB,stroke:#4682B4
+    end
+
+    subgraph "Module Changes: main → feature/tool-algebra"
+        direction TB
+
+        subgraph CORE["Core Modules"]
+            app[app.rs]
+            style app fill:#87CEEB,stroke:#4682B4
+            state[state_manager.rs]
+            style state fill:#FFD700,stroke:#DAA520
+            lib[lib.rs]
+            style lib fill:#FFD700,stroke:#DAA520
+        end
+
+        subgraph MCP["MCP Module"]
+            mcpmod[mod.rs]
+            style mcpmod fill:#FFD700,stroke:#DAA520
+            handler[handler.rs<br/>+559 lines]
+            style handler fill:#FFD700,stroke:#DAA520
+            router[router.rs<br/>+43 lines]
+            style router fill:#FFD700,stroke:#DAA520
+            session[session.rs<br/>+144 lines]
+            style session fill:#FFD700,stroke:#DAA520
+
+            subgraph REGISTRY["registry/ +4000 lines"]
+                style REGISTRY fill:#90EE90,stroke:#228B22
+                regmod[mod.rs]
+                types[types.rs 663L]
+                compiled[compiled.rs 1440L]
+                client[client.rs 305L]
+                store[store.rs 364L]
+                error[error.rs 88L]
+                execgraph[execution_graph.rs 364L]
+
+                subgraph EXEC["executor/ +2300L"]
+                    execmod[mod.rs 386L]
+                    context[context.rs 116L]
+                    pipeline[pipeline.rs 236L]
+                    scatter[scatter_gather.rs 372L]
+                    filter[filter.rs 292L]
+                    mapeach[map_each.rs 180L]
+                    schemamap[schema_map.rs 322L]
+                    throttle[throttle.rs 409L]
+                end
+
+                subgraph PATS["patterns/ +1800L"]
+                    patmod[mod.rs 244L]
+                    patpipe[pipeline.rs 201L]
+                    patscatter[scatter_gather.rs 196L]
+                    patfilter[filter.rs 230L]
+                    patmap[map_each.rs 101L]
+                    patschema[schema_map.rs 299L]
+                    patstate[stateful.rs 545L]
+                end
+            end
+
+            upstream[upstream/<br/>+22 lines]
+            style upstream fill:#FFD700,stroke:#DAA520
+        end
+
+        subgraph NEWMODS["New Top-Level Modules"]
+            style NEWMODS fill:#90EE90,stroke:#228B22
+
+            subgraph SAGA["saga/ +1930L"]
+                sagamod[mod.rs 35L]
+                sagatypes[types.rs 333L]
+                sagaexec[executor.rs 834L]
+                sagatests[integration_tests.rs 729L]
+            end
+
+            subgraph WORKFLOW["workflow/ +750L"]
+                wfmod[mod.rs 12L]
+                wftypes[types.rs 139L]
+                wfrouter[router.rs 196L]
+                wftests[router_tests.rs 406L]
+            end
+
+            subgraph STATEFUL["stateful/ +890L"]
+                stmod[mod.rs 13L]
+                cache[cache.rs 243L]
+                cachetests[cache/tests.rs 415L]
+                ststore[store.rs 74L]
+                memory[memory.rs 142L]
+            end
+
+            subgraph PATTOP["patterns/ +430L"]
+                pmod[mod.rs 178L]
+                timeout[timeout.rs 248L]
+            end
+
+            claimcheck[claimcheck.rs 476L]
+        end
+
+        subgraph HTTP["HTTP Module"]
+            httpmod[mod.rs]
+            style httpmod fill:#FFD700,stroke:#DAA520
+
+            subgraph HTTPNEW["New HTTP Patterns +1900L"]
+                style HTTPNEW fill:#90EE90,stroke:#228B22
+                deadletter[deadletter/mod.rs 140L<br/>tests.rs 205L]
+                idempotent[idempotent.rs 457L]
+                httpstateful[stateful.rs 447L<br/>tests.rs 343L]
+                wiretap[wiretap.rs 128L<br/>tests.rs 190L]
+            end
+
+            retry[retry/mod.rs]
+            style retry fill:#FFD700,stroke:#DAA520
+            retrytests[retry/policy_tests.rs 144L]
+            style retrytests fill:#90EE90,stroke:#228B22
+        end
+
+        subgraph TYPES["Types Module"]
+            typesmod[mod.rs]
+            style typesmod fill:#FFD700,stroke:#DAA520
+            agent[agent.rs]
+            style agent fill:#FFD700,stroke:#DAA520
+            agentxds[agent_xds.rs]
+            style agentxds fill:#FFD700,stroke:#DAA520
+            local[local.rs]
+            style local fill:#FFD700,stroke:#DAA520
+            typestateful[stateful.rs 173L]
+            style typestateful fill:#90EE90,stroke:#228B22
+        end
+
+        subgraph PROXY["Proxy Module"]
+            gateway[gateway.rs]
+            style gateway fill:#FFD700,stroke:#DAA520
+            httpproxy[httpproxy.rs]
+            style httpproxy fill:#FFD700,stroke:#DAA520
+            proxymod[mod.rs]
+            style proxymod fill:#FFD700,stroke:#DAA520
+            retrytests2[retry_tests.rs 217L]
+            style retrytests2 fill:#90EE90,stroke:#228B22
+        end
+
+        subgraph STORE["Store Module"]
+            storemod[mod.rs]
+            style storemod fill:#FFD700,stroke:#DAA520
+            binds[binds.rs]
+            style binds fill:#FFD700,stroke:#DAA520
+        end
+    end
+
+    %% Summary
+    subgraph SUMMARY["Change Summary"]
+        direction LR
+        s1["+9 new modules"]
+        s2["+70,000 lines"]
+        s3["+14 patterns"]
+        s4["+3000L tests"]
+    end

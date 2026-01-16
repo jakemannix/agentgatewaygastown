@@ -1,0 +1,118 @@
+%%{init: {'theme': 'neutral', 'flowchart': {'curve': 'basis'}}}%%
+flowchart TB
+    subgraph CLIENT["Client Layer"]
+        req[Incoming Request<br/>tools/call]
+    end
+
+    subgraph GATEWAY["AgentGateway Runtime"]
+        subgraph INGRESS["Request Ingress"]
+            handler[MCP Handler]
+            auth[Authentication<br/>JWT / API Key / Basic]
+            rbac[RBAC Authorization]
+        end
+
+        subgraph ROUTING["Routing Layer"]
+            router[MCP Router]
+            lookup{Virtual Tool?}
+        end
+
+        subgraph REGISTRY["Registry Layer"]
+            regstore[(Registry Store)]
+            compiled[Compiled<br/>Virtual Tool]
+        end
+
+        subgraph EXECUTION["Execution Engine"]
+            executor[Composition Executor]
+
+            subgraph PATTERNS["Pattern Executors"]
+                direction TB
+                pipeline[Pipeline<br/>Sequential Steps]
+                scatter[Scatter-Gather<br/>Parallel Fan-out]
+                filter[Filter<br/>Array Predicate]
+                mapeach[Map-Each<br/>Transform Elements]
+                schemamap[Schema-Map<br/>Field Projection]
+            end
+
+            subgraph RESILIENCE["Resilience Patterns"]
+                direction TB
+                timeout[Timeout<br/>Duration Limit]
+                retry[Retry<br/>Backoff Strategy]
+                cb[Circuit Breaker<br/>Fail Fast]
+                cache[Cache<br/>TTL Store]
+                throttle[Throttle<br/>Rate Limit]
+            end
+
+            subgraph TRANSACTION["Transaction Patterns"]
+                direction TB
+                saga[Saga<br/>Compensation]
+                idempotent[Idempotent<br/>Dedup]
+                deadletter[Dead Letter<br/>Failed Capture]
+                claimcheck[Claim Check<br/>Large Payload]
+            end
+        end
+
+        subgraph STATE["State Management"]
+            statestore[(State Store)]
+            cachestore[(Cache Store)]
+            sagastate[(Saga State)]
+        end
+
+        subgraph UPSTREAM["Upstream Communication"]
+            uclient[Upstream Client]
+            sse[SSE Transport]
+            stdio[Stdio Transport]
+            streamhttp[HTTP Transport]
+        end
+    end
+
+    subgraph BACKENDS["Backend Services"]
+        mcp1[MCP Server 1]
+        mcp2[MCP Server 2]
+        http1[HTTP Backend]
+    end
+
+    %% Request Flow
+    req --> handler
+    handler --> auth
+    auth --> rbac
+    rbac --> router
+    router --> lookup
+
+    lookup -->|Yes| regstore
+    regstore --> compiled
+    compiled --> executor
+
+    lookup -->|No| uclient
+
+    %% Execution Flow
+    executor --> PATTERNS
+    executor --> RESILIENCE
+    executor --> TRANSACTION
+
+    %% Pattern to State
+    cache -.-> cachestore
+    cb -.-> statestore
+    saga -.-> sagastate
+    idempotent -.-> statestore
+
+    %% Execution to Upstream
+    PATTERNS --> uclient
+    RESILIENCE --> uclient
+    TRANSACTION --> uclient
+
+    %% Upstream to Backends
+    uclient --> sse
+    uclient --> stdio
+    uclient --> streamhttp
+
+    sse --> mcp1
+    stdio --> mcp2
+    streamhttp --> http1
+
+    %% Styling
+    style REGISTRY fill:#90EE90,stroke:#228B22
+    style EXECUTION fill:#90EE90,stroke:#228B22
+    style PATTERNS fill:#98FB98,stroke:#228B22
+    style RESILIENCE fill:#98FB98,stroke:#228B22
+    style TRANSACTION fill:#98FB98,stroke:#228B22
+    style STATE fill:#FFD700,stroke:#DAA520

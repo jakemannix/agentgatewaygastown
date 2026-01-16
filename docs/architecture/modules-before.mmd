@@ -1,0 +1,112 @@
+%%{init: {'theme': 'neutral', 'themeVariables': { 'primaryColor': '#4A90D9', 'lineColor': '#5C6370', 'textColor': '#333' }}}%%
+graph TB
+    subgraph "AgentGateway - Main Branch Architecture"
+        direction TB
+
+        subgraph APP["Application Layer"]
+            direction LR
+            app[app.rs<br/>Application Setup]
+            state[state_manager.rs<br/>State Management]
+        end
+
+        subgraph MCP["MCP Module"]
+            direction TB
+            mcpmod[mod.rs<br/>Operations: Tool, Prompt, Resource]
+            handler[handler.rs<br/>Protocol Handler]
+            router[router.rs<br/>Request Routing]
+            session[session.rs<br/>Session Management]
+            sse[sse.rs<br/>SSE Support]
+            rbac[rbac.rs<br/>Authorization]
+            streamhttp[streamablehttp.rs<br/>HTTP Streaming]
+
+            subgraph UPSTREAM["upstream/"]
+                uclient[client.rs<br/>Upstream Client]
+                usse[sse.rs<br/>SSE Client]
+                ustdio[stdio.rs<br/>Stdio Transport]
+                ustream[streamablehttp.rs<br/>HTTP Client]
+
+                subgraph OPENAPI["openapi/"]
+                    omod[mod.rs<br/>OpenAPI Tools]
+                end
+            end
+        end
+
+        subgraph HTTP["HTTP Module"]
+            direction TB
+            filters[filters.rs<br/>Request/Response Filters]
+
+            subgraph AUTH["Authentication"]
+                auth[auth.rs]
+                jwt[jwt.rs]
+                basic[basicauth.rs]
+                apikey[apikey.rs]
+            end
+
+            subgraph AUTHZ["Authorization"]
+                authz[authorization.rs]
+                extauthz[ext_authz.rs]
+            end
+
+            subgraph POLICIES["Policies"]
+                timeout[timeout.rs]
+                retry[retry/mod.rs]
+                ratelimit[localratelimit.rs<br/>remoteratelimit.rs]
+                cors[cors.rs]
+                csrf[csrf.rs]
+                compression[compression.rs]
+            end
+        end
+
+        subgraph PROXY["Proxy Module"]
+            direction TB
+            gateway[gateway.rs<br/>Gateway State]
+            httpproxy[httpproxy.rs<br/>HTTP Proxying]
+            tcpproxy[tcpproxy.rs<br/>TCP/HBONE Proxy]
+        end
+
+        subgraph STORE["Store Module"]
+            direction TB
+            discovery[discovery.rs<br/>Service Discovery]
+            binds[binds.rs<br/>Route Binding]
+        end
+
+        subgraph TYPES["Types Module"]
+            direction TB
+            agent[agent.rs<br/>Agent Config]
+            backend[backend.rs<br/>Backend Defs]
+            frontend[frontend.rs<br/>Listener Config]
+            loadbal[loadbalancer.rs<br/>LB Strategies]
+        end
+
+        subgraph SUPPORT["Support Modules"]
+            direction TB
+            control[control/<br/>Auth & Control Plane]
+            mgmt[management/<br/>Admin APIs]
+            client[client/<br/>DNS & HTTP Client]
+            cel[cel/<br/>CEL Expressions]
+            telemetry[telemetry/<br/>Observability]
+        end
+    end
+
+    %% Connections
+    app --> MCP
+    app --> HTTP
+    app --> PROXY
+    app --> STORE
+
+    MCP --> UPSTREAM
+    MCP --> HTTP
+
+    handler --> router
+    handler --> session
+    router --> rbac
+
+    HTTP --> PROXY
+    PROXY --> STORE
+    PROXY --> TYPES
+
+    STORE --> TYPES
+
+    %% External
+    EXT[External<br/>MCP Servers] -.-> UPSTREAM
+    BACKEND[Backend<br/>Services] -.-> PROXY

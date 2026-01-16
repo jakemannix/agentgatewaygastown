@@ -1,0 +1,70 @@
+%%{init: {'theme': 'neutral', 'sequence': {'mirrorActors': false}}}%%
+sequenceDiagram
+    autonumber
+    participant Client
+    participant Handler as MCP Handler
+    participant Router
+    participant Registry as Registry<br/>(NEW)
+    participant Executor as Composition<br/>Executor (NEW)
+    participant Pattern as Pattern<br/>Executor (NEW)
+    participant Upstream as Upstream<br/>MCP Server
+    participant Backend
+
+    rect rgb(200, 220, 240)
+        Note over Client,Backend: BEFORE: Direct Tool Invocation (main branch)
+        Client->>Handler: tools/call {tool: "weather", args: {...}}
+        Handler->>Router: route_request()
+        Router->>Upstream: forward_tool_call()
+        Upstream->>Backend: HTTP/SSE request
+        Backend-->>Upstream: response
+        Upstream-->>Router: tool result
+        Router-->>Handler: result
+        Handler-->>Client: {result: {...}}
+    end
+
+    rect rgb(200, 240, 200)
+        Note over Client,Backend: AFTER: Composed Tool Invocation (tool-algebra)
+        Client->>Handler: tools/call {tool: "enriched_weather", args: {...}}
+        Handler->>Router: route_request()
+
+        alt Virtual Tool (composition)
+            Router->>Registry: lookup_tool("enriched_weather")
+            Registry-->>Router: CompiledVirtualTool
+
+            Router->>Executor: execute_composition()
+
+            rect rgb(180, 230, 180)
+                Note over Executor,Pattern: Pattern Execution Pipeline
+                Executor->>Pattern: execute_pattern(Pipeline)
+
+                loop For each step in pipeline
+                    Pattern->>Pattern: check_timeout()
+                    Pattern->>Pattern: check_circuit_breaker()
+
+                    alt Cache Hit
+                        Pattern-->>Executor: cached_result
+                    else Cache Miss
+                        Pattern->>Upstream: execute_tool_call()
+                        Upstream->>Backend: HTTP request
+                        Backend-->>Upstream: response
+                        Upstream-->>Pattern: result
+                        Pattern->>Pattern: update_cache()
+                        Pattern-->>Executor: fresh_result
+                    end
+                end
+
+                Executor->>Pattern: execute_pattern(SchemaMap)
+                Pattern-->>Executor: transformed_result
+            end
+
+            Executor-->>Router: composed_result
+        else Direct Tool
+            Router->>Upstream: forward_tool_call()
+            Upstream->>Backend: HTTP request
+            Backend-->>Upstream: response
+            Upstream-->>Router: result
+        end
+
+        Router-->>Handler: result
+        Handler-->>Client: {result: {...}}
+    end
