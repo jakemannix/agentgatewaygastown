@@ -48,6 +48,21 @@ fix-lint:
 test:
 	cargo test --all-targets
 
+# bench - run performance benchmarks
+.PHONY: bench
+bench:
+	cargo bench --package agentgateway -F internal_benches --bench bench_tests
+
+# bench-baseline - run benchmarks and save baseline for comparison
+.PHONY: bench-baseline
+bench-baseline:
+	cargo bench --package agentgateway -F internal_benches --bench bench_tests -- --save-baseline main
+
+# bench-compare - run benchmarks and compare against saved baseline
+.PHONY: bench-compare
+bench-compare:
+	cargo bench --package agentgateway -F internal_benches --bench bench_tests -- --load-baseline main --baseline main
+
 # clean
 .PHONY: clean
 clean:

@@ -3,6 +3,7 @@ mod mergestream;
 mod rbac;
 pub mod registry;
 mod router;
+pub mod saga;
 mod session;
 mod sse;
 mod streamablehttp;
