@@ -201,6 +201,15 @@ impl ExecutionGraph {
 			| PatternSpec::Saga(_)
 			| PatternSpec::ClaimCheck(_)
 			| PatternSpec::Throttle(_) => NodeOperation::Pattern(Box::new(spec.clone())),
+
+			// Vision patterns - wrap as Pattern for now (execution will error at runtime)
+			PatternSpec::Router(_)
+			| PatternSpec::Enricher(_)
+			| PatternSpec::WireTap(_)
+			| PatternSpec::RecipientList(_)
+			| PatternSpec::CapabilityRouter(_)
+			| PatternSpec::SemanticDedup(_)
+			| PatternSpec::ConfidenceAggregator(_) => NodeOperation::Pattern(Box::new(spec.clone())),
 		}
 	}
 
