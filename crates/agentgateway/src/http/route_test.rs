@@ -2,18 +2,23 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use agent_core::strng;
 use divan::Bencher;
+#[cfg(test)]
 use itertools::Itertools;
+#[cfg(test)]
 use regex::Regex;
 
+#[cfg(test)]
 use crate::http::Request;
 use crate::http::tests_common::*;
 use crate::store::Stores;
+#[cfg(test)]
 use crate::types::agent::{
-	HeaderMatch, HeaderValueMatch, Listener, ListenerProtocol, MethodMatch, PathMatch, QueryMatch,
-	QueryValueMatch, Route, RouteMatch, RouteSet,
+	HeaderMatch, HeaderValueMatch, MethodMatch, QueryMatch, QueryValueMatch,
 };
+use crate::types::agent::{Listener, ListenerProtocol, PathMatch, Route, RouteMatch, RouteSet};
 use crate::*;
 
+#[cfg(test)]
 fn run_test(req: &Request, routes: &[(&str, Vec<&str>, Vec<RouteMatch>)]) -> Option<String> {
 	let stores = Stores::new();
 	let network = strng::literal!("network");
@@ -32,6 +37,7 @@ fn run_test(req: &Request, routes: &[(&str, Vec<&str>, Vec<RouteMatch>)]) -> Opt
 	result.map(|(r, _)| r.key.to_string())
 }
 
+#[cfg(test)]
 fn setup_listener(routes: &[(&str, Vec<&str>, Vec<RouteMatch>)]) -> Arc<Listener> {
 	let mk_route = |name: &str, hostnames: Vec<&str>, matches: Vec<RouteMatch>| Route {
 		key: name.into(),

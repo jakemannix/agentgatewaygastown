@@ -442,7 +442,7 @@ pub type RouteRuleName = Strng;
 
 #[apply(schema!)]
 #[derive(Hash, Eq, PartialEq)]
-#[cfg_attr(test, derive(Default))]
+#[cfg_attr(any(test, feature = "internal_benches"), derive(Default))]
 pub struct RouteName {
 	pub name: Strng,
 	pub namespace: Strng,
@@ -476,7 +476,7 @@ impl RouteName {
 
 #[apply(schema!)]
 #[derive(Hash, Eq, PartialEq)]
-#[cfg_attr(test, derive(Default))]
+#[cfg_attr(any(test, feature = "internal_benches"), derive(Default))]
 pub struct ListenerName {
 	pub gateway_name: Strng,
 	pub gateway_namespace: Strng,

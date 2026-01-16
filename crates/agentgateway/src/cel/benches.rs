@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
@@ -15,6 +16,7 @@ struct TestCase {
 	name: &'static str,
 	expression: &'static str,
 	request_builder: fn() -> crate::http::Request,
+	#[cfg_attr(not(test), allow(dead_code))]
 	expected: serde_json::Value,
 }
 

@@ -3,7 +3,9 @@ use agent_core::bow::OwnedOrBorrowed;
 use assert_matches::assert_matches;
 use divan::Bencher;
 use secrecy::SecretString;
-use serde_json::{Map, Value};
+use serde_json::Map;
+#[cfg(test)]
+use serde_json::Value;
 
 use super::*;
 use crate::http::authorization::PolicySet;
