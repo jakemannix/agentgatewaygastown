@@ -218,6 +218,8 @@ async fn apply_backend_policies(
 		session_persistence: _,
 		// Applied elsewhere
 		request_mirror: _,
+		// Applied elsewhere (fire-and-forget)
+		wire_tap: _,
 		// Applied elsewhere
 		override_dest: _,
 	} = &backend_call.backend_policies;
@@ -708,6 +710,36 @@ impl HTTPProxy {
 					warn!("error sending mirror request: {}", e);
 				}
 			});
+		}
+
+		// WireTap - fire-and-forget copies to side channels
+		// Process "before" and "both" tap points before the main request
+		for wire_tap in route_policies
+			.wire_tap
+			.iter()
+			.chain(backend_policies.wire_tap.iter())
+		{
+			if !wire_tap.should_tap_before() {
+				continue;
+			}
+			for target in &wire_tap.targets {
+				if !http::wiretap::WireTap::should_sample(target) {
+					trace!(
+						"skipping wire tap, percentage {} not triggered",
+						target.percentage
+					);
+					continue;
+				}
+				let req = Request::from_parts(head.clone(), http::Body::empty());
+				let inputs = inputs.clone();
+				let policy_client = self.policy_client();
+				let target = target.clone();
+				tokio::task::spawn(async move {
+					if let Err(e) = send_wire_tap(inputs, policy_client, target, req).await {
+						warn!("error sending wire tap request: {}", e);
+					}
+				});
+			}
 		}
 
 		const MAX_BUFFERED_BYTES: usize = 64 * 1024;
@@ -1651,6 +1683,20 @@ async fn send_mirror(
 ) -> Result<(), ProxyError> {
 	req.headers_mut().remove(http::header::CONTENT_LENGTH);
 	let backend = super::resolve_simple_backend(&mirror.backend, inputs.as_ref())?;
+	let _ = upstream.call(req, backend).await?;
+	Ok(())
+}
+
+/// Send a wire tap request to a single target.
+/// This is fire-and-forget - failures are logged but don't affect the main flow.
+async fn send_wire_tap(
+	inputs: Arc<ProxyInputs>,
+	upstream: PolicyClient,
+	target: http::wiretap::TapTarget,
+	mut req: Request,
+) -> Result<(), ProxyError> {
+	req.headers_mut().remove(http::header::CONTENT_LENGTH);
+	let backend = super::resolve_simple_backend(&target.backend, inputs.as_ref())?;
 	let _ = upstream.call(req, backend).await?;
 	Ok(())
 }

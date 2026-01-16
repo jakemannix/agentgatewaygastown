@@ -105,6 +105,7 @@ pub struct BackendPolicies {
 	pub response_header_modifier: Option<filters::HeaderModifier>,
 	pub request_redirect: Option<filters::RequestRedirect>,
 	pub request_mirror: Vec<filters::RequestMirror>,
+	pub wire_tap: Vec<http::wiretap::WireTap>,
 
 	pub session_persistence: Option<http::sessionpersistence::Policy>,
 
@@ -139,6 +140,11 @@ impl BackendPolicies {
 				self.request_mirror
 			} else {
 				other.request_mirror
+			},
+			wire_tap: if other.wire_tap.is_empty() {
+				self.wire_tap
+			} else {
+				other.wire_tap
 			},
 			session_persistence: other.session_persistence.or(self.session_persistence),
 			override_dest: other.override_dest.or(self.override_dest),
@@ -176,6 +182,7 @@ pub struct RoutePolicies {
 	pub url_rewrite: Option<filters::UrlRewrite>,
 	pub hostname_rewrite: Option<agent::HostRedirectOverride>,
 	pub request_mirror: Vec<filters::RequestMirror>,
+	pub wire_tap: Vec<http::wiretap::WireTap>,
 	pub direct_response: Option<filters::DirectResponse>,
 	pub cors: Option<http::cors::Cors>,
 }
@@ -425,6 +432,11 @@ impl Store {
 						pol.request_mirror = p.clone();
 					}
 				},
+				TrafficPolicy::WireTap(p) => {
+					if pol.wire_tap.is_empty() {
+						pol.wire_tap = p.clone();
+					}
+				},
 				TrafficPolicy::DirectResponse(p) => {
 					pol.direct_response.get_or_insert_with(|| p.clone());
 				},
@@ -616,6 +628,11 @@ impl Store {
 				BackendPolicy::RequestMirror(p) => {
 					if pol.request_mirror.is_empty() {
 						pol.request_mirror = p.clone();
+					}
+				},
+				BackendPolicy::WireTap(p) => {
+					if pol.wire_tap.is_empty() {
+						pol.wire_tap = p.clone();
 					}
 				},
 				BackendPolicy::McpAuthorization(p) => {

@@ -1886,6 +1886,7 @@ pub enum TrafficPolicy {
 	UrlRewrite(filters::UrlRewrite),
 	HostRewrite(agent::HostRedirectOverride),
 	RequestMirror(Vec<filters::RequestMirror>),
+	WireTap(Vec<http::wiretap::WireTap>),
 	DirectResponse(filters::DirectResponse),
 	#[serde(rename = "cors")]
 	CORS(http::cors::Cors),
@@ -1912,6 +1913,7 @@ pub enum BackendPolicy {
 	ResponseHeaderModifier(filters::HeaderModifier),
 	RequestRedirect(filters::RequestRedirect),
 	RequestMirror(Vec<filters::RequestMirror>),
+	WireTap(Vec<http::wiretap::WireTap>),
 }
 
 #[apply(schema!)]
