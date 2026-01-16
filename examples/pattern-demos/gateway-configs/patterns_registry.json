@@ -1,0 +1,478 @@
+{
+  "$comment": "Pattern Demos Registry - showcasing all agentgateway composition patterns",
+  "schemaVersion": "1.0",
+
+  "tools": [
+    {
+      "$comment": "=== SOURCE TOOLS (Backend References) ===",
+      "$comment2": "These represent the underlying MCP tools that patterns will compose"
+    },
+
+    {
+      "name": "document_search",
+      "description": "Search documents by query",
+      "source": {"target": "search-server", "tool": "search_documents"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"},
+          "limit": {"type": "integer", "description": "Max results", "default": 10}
+        },
+        "required": ["query"]
+      }
+    },
+
+    {
+      "name": "llm_summarize",
+      "description": "Summarize text using LLM",
+      "source": {"target": "llm-server", "tool": "summarize"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string", "description": "Text to summarize"},
+          "max_length": {"type": "integer", "description": "Maximum summary length"}
+        },
+        "required": ["text"]
+      }
+    },
+
+    {
+      "name": "create_task",
+      "description": "Create a new task",
+      "source": {"target": "project-server", "tool": "create_task"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string"},
+          "description": {"type": "string"},
+          "projectId": {"type": "string"}
+        },
+        "required": ["title", "projectId"]
+      }
+    },
+
+    {
+      "name": "assign_user",
+      "description": "Assign a user to a task",
+      "source": {"target": "project-server", "tool": "assign_user"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "taskId": {"type": "string"},
+          "userId": {"type": "string"}
+        },
+        "required": ["taskId", "userId"]
+      }
+    },
+
+    {
+      "name": "unassign_user",
+      "description": "Remove user assignment from task (compensation)",
+      "source": {"target": "project-server", "tool": "unassign_user"}
+    },
+
+    {
+      "name": "send_notification",
+      "description": "Send notification to user",
+      "source": {"target": "notification-server", "tool": "send"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "userId": {"type": "string"},
+          "message": {"type": "string"},
+          "channel": {"type": "string", "enum": ["email", "slack", "push"]}
+        },
+        "required": ["userId", "message"]
+      }
+    },
+
+    {
+      "name": "delete_task",
+      "description": "Delete a task (compensation)",
+      "source": {"target": "project-server", "tool": "delete_task"}
+    },
+
+    {
+      "name": "search_users",
+      "description": "Search users by query",
+      "source": {"target": "user-server", "tool": "search"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "limit": {"type": "integer"}
+        },
+        "required": ["query"]
+      }
+    },
+
+    {
+      "name": "search_docs",
+      "description": "Search documents",
+      "source": {"target": "docs-server", "tool": "search"}
+    },
+
+    {
+      "name": "search_tasks",
+      "description": "Search tasks",
+      "source": {"target": "project-server", "tool": "search_tasks"}
+    },
+
+    {
+      "name": "get_user",
+      "description": "Get user by ID",
+      "source": {"target": "user-server", "tool": "get_user"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "userId": {"type": "string"}
+        },
+        "required": ["userId"]
+      }
+    },
+
+    {
+      "name": "external_api_call",
+      "description": "Call an external API",
+      "source": {"target": "external-server", "tool": "api_call"}
+    },
+
+    {
+      "$comment": "=== PIPELINE PATTERN ===",
+      "$comment2": "Sequential execution: document search → LLM summarize"
+    },
+
+    {
+      "name": "search_and_summarize",
+      "description": "Search documents and summarize the results using an LLM",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "search",
+              "operation": {"tool": {"name": "document_search"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "combine",
+              "operation": {
+                "schemaMap": {
+                  "mappings": {
+                    "text": {
+                      "template": {
+                        "template": "Search results for '{query}':\n\n{results}",
+                        "vars": {
+                          "query": "$.query",
+                          "results": "$.documents[*].content"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "input": {
+                "construct": {
+                  "fields": {
+                    "query": {"input": {"path": "$.query"}},
+                    "documents": {"step": {"stepId": "search", "path": "$.results"}}
+                  }
+                }
+              }
+            },
+            {
+              "id": "summarize",
+              "operation": {"tool": {"name": "llm_summarize"}},
+              "input": {"step": {"stepId": "combine", "path": "$"}}
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query to find and summarize"}
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "summary": {"type": "string", "description": "LLM-generated summary of search results"}
+        }
+      }
+    },
+
+    {
+      "$comment": "=== SAGA PATTERN ===",
+      "$comment2": "Distributed transaction: create task → assign user → notify (with compensation)"
+    },
+
+    {
+      "name": "create_project",
+      "description": "Create a project with task assignment and notification - uses saga for compensation on failure",
+      "spec": {
+        "saga": {
+          "steps": [
+            {
+              "id": "create",
+              "name": "Create Task",
+              "action": {"tool": {"name": "create_task"}},
+              "compensate": {"tool": {"name": "delete_task"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "title": {"input": {"path": "$.title"}},
+                    "description": {"input": {"path": "$.description"}},
+                    "projectId": {"input": {"path": "$.projectId"}}
+                  }
+                }
+              }
+            },
+            {
+              "id": "assign",
+              "name": "Assign User",
+              "action": {"tool": {"name": "assign_user"}},
+              "compensate": {"tool": {"name": "unassign_user"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "taskId": {"step": {"stepId": "create", "path": "$.taskId"}},
+                    "userId": {"input": {"path": "$.assigneeId"}}
+                  }
+                }
+              }
+            },
+            {
+              "id": "notify",
+              "name": "Send Notification",
+              "action": {"tool": {"name": "send_notification"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "userId": {"input": {"path": "$.assigneeId"}},
+                    "message": {
+                      "constant": {
+                        "stringValue": "You have been assigned a new task"
+                      }
+                    },
+                    "channel": {"constant": {"stringValue": "slack"}}
+                  }
+                }
+              }
+            }
+          ],
+          "sagaIdPath": "$.projectId",
+          "timeoutMs": 30000
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string", "description": "Task title"},
+          "description": {"type": "string", "description": "Task description"},
+          "projectId": {"type": "string", "description": "Project ID"},
+          "assigneeId": {"type": "string", "description": "User ID to assign"}
+        },
+        "required": ["title", "projectId", "assigneeId"]
+      }
+    },
+
+    {
+      "$comment": "=== SCATTER-GATHER PATTERN ===",
+      "$comment2": "Parallel search: users + docs + tasks with aggregation"
+    },
+
+    {
+      "name": "multi_search",
+      "description": "Search across users, documents, and tasks in parallel",
+      "spec": {
+        "scatterGather": {
+          "targets": [
+            {"tool": "search_users"},
+            {"tool": "search_docs"},
+            {"tool": "search_tasks"}
+          ],
+          "aggregation": {
+            "ops": [
+              {"flatten": true},
+              {"sort": {"field": "$.relevance", "order": "desc"}},
+              {"dedupe": {"field": "$.id"}},
+              {"limit": {"count": 20}}
+            ]
+          },
+          "timeoutMs": 5000,
+          "failFast": false
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"},
+          "limit": {"type": "integer", "description": "Results per source", "default": 10}
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "description": "Aggregated search results from all sources",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "type": {"type": "string", "enum": ["user", "document", "task"]},
+                "title": {"type": "string"},
+                "relevance": {"type": "number"}
+              }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "$comment": "=== CACHE PATTERN ===",
+      "$comment2": "Read-through caching for user lookups"
+    },
+
+    {
+      "name": "cached_user_lookup",
+      "description": "Get user with read-through caching (15 minute TTL)",
+      "spec": {
+        "cache": {
+          "keyPaths": ["$.userId"],
+          "inner": {"tool": {"name": "get_user"}},
+          "store": "user_cache",
+          "ttlSeconds": 900,
+          "staleWhileRevalidateSeconds": 60
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "userId": {"type": "string", "description": "User ID to look up"}
+        },
+        "required": ["userId"]
+      }
+    },
+
+    {
+      "$comment": "=== RETRY PATTERN ===",
+      "$comment2": "Reliable notification delivery with exponential backoff"
+    },
+
+    {
+      "name": "reliable_notification",
+      "description": "Send notification with automatic retry on transient failures",
+      "spec": {
+        "retry": {
+          "inner": {"tool": {"name": "send_notification"}},
+          "maxAttempts": 5,
+          "backoff": {
+            "exponential": {
+              "initialDelayMs": 500,
+              "maxDelayMs": 30000,
+              "multiplier": 2.0
+            }
+          },
+          "jitter": 0.2,
+          "retryIf": {
+            "field": "$.error.code",
+            "op": "in",
+            "value": {
+              "listValue": [
+                {"stringValue": "TIMEOUT"},
+                {"stringValue": "SERVICE_UNAVAILABLE"},
+                {"stringValue": "RATE_LIMITED"}
+              ]
+            }
+          },
+          "attemptTimeoutMs": 10000
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "userId": {"type": "string", "description": "User ID to notify"},
+          "message": {"type": "string", "description": "Notification message"},
+          "channel": {"type": "string", "enum": ["email", "slack", "push"]}
+        },
+        "required": ["userId", "message"]
+      }
+    },
+
+    {
+      "$comment": "=== CIRCUIT BREAKER PATTERN ===",
+      "$comment2": "Protect against cascading failures from external APIs"
+    },
+
+    {
+      "name": "protected_external_call",
+      "description": "Call external API with circuit breaker protection",
+      "spec": {
+        "circuitBreaker": {
+          "name": "external_api_circuit",
+          "inner": {"tool": {"name": "external_api_call"}},
+          "store": "circuit_state",
+          "failureThreshold": 5,
+          "failureWindowSeconds": 60,
+          "resetTimeoutSeconds": 30,
+          "successThreshold": 2,
+          "fallback": {
+            "schemaMap": {
+              "mappings": {
+                "error": {"literal": {"stringValue": "Service temporarily unavailable"}},
+                "cached": {"literal": {"boolValue": true}},
+                "retryAfter": {"literal": {"numberValue": 30}}
+              }
+            }
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "endpoint": {"type": "string", "description": "API endpoint"},
+          "payload": {"type": "object", "description": "Request payload"}
+        },
+        "required": ["endpoint"]
+      }
+    },
+
+    {
+      "$comment": "=== TIMEOUT PATTERN ===",
+      "$comment2": "Enforce time bounds on search operations"
+    },
+
+    {
+      "name": "time_bounded_search",
+      "description": "Search with strict timeout enforcement",
+      "spec": {
+        "timeout": {
+          "inner": {"tool": {"name": "document_search"}},
+          "durationMs": 5000,
+          "fallback": {
+            "schemaMap": {
+              "mappings": {
+                "results": {"literal": {"listValue": []}},
+                "timedOut": {"literal": {"boolValue": true}},
+                "message": {"literal": {"stringValue": "Search timed out. Please try a more specific query."}}
+              }
+            }
+          },
+          "message": "Search operation exceeded 5 second limit"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"},
+          "limit": {"type": "integer", "description": "Max results"}
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}
