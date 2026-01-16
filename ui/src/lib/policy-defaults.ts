@@ -19,6 +19,13 @@ export function getDefaultPolicyData(type: PolicyType) {
       return {
         rules: [],
       };
+    case "claimCheck":
+      return {
+        storeTool: "",
+        retrieveTool: "",
+        inner: { passthrough: {} },
+        retrieveAtEnd: false,
+      };
     case "cors":
       return {
         allowCredentials: false,

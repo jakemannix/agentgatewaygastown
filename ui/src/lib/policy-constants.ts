@@ -11,12 +11,14 @@ import {
   FileText,
   ArrowRight,
   Users,
+  Database,
 } from "lucide-react";
 
 export type PolicyType =
   | "jwtAuth"
   | "mcpAuthentication"
   | "mcpAuthorization"
+  | "claimCheck"
   | "cors"
   | "backendTLS"
   | "backendAuth"
@@ -58,6 +60,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     name: "MCP Authorization",
     icon: Lock,
     description: "Model Context Protocol authorization rules",
+    httpOnly: true,
+  },
+  claimCheck: {
+    name: "Claim Check",
+    icon: Database,
+    description: "Externalize large payloads via store/retrieve pattern",
     httpOnly: true,
   },
   cors: {
@@ -156,6 +164,7 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
 export const BACKEND_POLICY_KEYS: readonly PolicyType[] = [
   "mcpAuthentication",
   "mcpAuthorization",
+  "claimCheck",
   "backendTLS",
   "backendAuth",
   "ai",
