@@ -14,6 +14,7 @@ mod map_each;
 mod pipeline;
 mod scatter_gather;
 mod schema_map;
+mod throttle;
 
 pub use context::ExecutionContext;
 pub use filter::FilterExecutor;
@@ -21,6 +22,7 @@ pub use map_each::MapEachExecutor;
 pub use pipeline::PipelineExecutor;
 pub use scatter_gather::ScatterGatherExecutor;
 pub use schema_map::SchemaMapExecutor;
+pub use throttle::{ThrottleExecutor, SharedRateLimiterRegistry, RateLimiterRegistry};
 
 use std::sync::Arc;
 
@@ -189,6 +191,13 @@ impl CompositionExecutor {
 					pattern: "claim_check".to_string(),
 					details: "The claim check pattern requires blob storage tools for externalizing large payloads. \
 						Configure store_tool and retrieve_tool backends and implement ClaimCheckExecutor to enable payload externalization."
+						.to_string(),
+				}),
+				PatternSpec::Throttle(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "throttle".to_string(),
+					details: "The throttle pattern requires a rate limiter implementation. \
+						For single-instance: use in-memory rate limiter (e.g., governor crate). \
+						For distributed: configure a store backend with atomic increment support."
 						.to_string(),
 				}),
 			}

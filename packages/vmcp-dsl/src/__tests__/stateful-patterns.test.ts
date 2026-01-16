@@ -8,6 +8,7 @@ import {
   deadLetter,
   saga,
   claimCheck,
+  throttle,
   Duration,
   millis,
   seconds,
@@ -329,5 +330,126 @@ describe('Pattern Composition', () => {
 
     expect(spec.circuitBreaker).toBeDefined();
     expect(spec.circuitBreaker?.inner.pattern?.retry).toBeDefined();
+  });
+});
+
+describe('throttle pattern', () => {
+  it('should create a basic throttle spec', () => {
+    const spec = throttle({
+      inner: { tool: { name: 'expensive_api' } },
+      rate: 100,
+      window: minutes(1),
+    });
+
+    expect(spec.throttle).toBeDefined();
+    expect(spec.throttle?.rate).toBe(100);
+    expect(spec.throttle?.windowMs).toBe(60000);
+    // Defaults
+    expect(spec.throttle?.strategy).toBeUndefined();
+    expect(spec.throttle?.onExceeded).toBeUndefined();
+    expect(spec.throttle?.store).toBeUndefined();
+  });
+
+  it('should create throttle with sliding window strategy', () => {
+    const spec = throttle({
+      inner: { tool: { name: 'api' } },
+      rate: 10,
+      window: seconds(1),
+      strategy: 'sliding_window',
+      onExceeded: 'wait',
+    });
+
+    expect(spec.throttle?.strategy).toBe('sliding_window');
+    expect(spec.throttle?.onExceeded).toBe('wait');
+  });
+
+  it('should create throttle with token bucket strategy', () => {
+    const spec = throttle({
+      inner: { tool: { name: 'api' } },
+      rate: 10,
+      window: seconds(1),
+      strategy: 'token_bucket',
+      onExceeded: 'reject',
+    });
+
+    expect(spec.throttle?.strategy).toBe('token_bucket');
+    expect(spec.throttle?.onExceeded).toBe('reject');
+  });
+
+  it('should create throttle with fixed window strategy', () => {
+    const spec = throttle({
+      inner: { tool: { name: 'api' } },
+      rate: 50,
+      window: minutes(5),
+      strategy: 'fixed_window',
+      onExceeded: 'queue',
+    });
+
+    expect(spec.throttle?.strategy).toBe('fixed_window');
+    expect(spec.throttle?.onExceeded).toBe('queue');
+    expect(spec.throttle?.windowMs).toBe(300000);
+  });
+
+  it('should create throttle with leaky bucket strategy', () => {
+    const spec = throttle({
+      inner: { tool: { name: 'api' } },
+      rate: 20,
+      window: seconds(10),
+      strategy: 'leaky_bucket',
+    });
+
+    expect(spec.throttle?.strategy).toBe('leaky_bucket');
+  });
+
+  it('should create distributed throttle with store', () => {
+    const spec = throttle({
+      inner: { tool: { name: 'shared_api' } },
+      rate: 1000,
+      window: minutes(1),
+      store: 'redis_rate_limiter',
+    });
+
+    expect(spec.throttle?.store).toBe('redis_rate_limiter');
+  });
+
+  it('should compose throttle with retry', () => {
+    // Rate limit, then retry on failures
+    const spec = throttle({
+      inner: {
+        pattern: retry({
+          inner: { tool: { name: 'flaky_api' } },
+          maxAttempts: 3,
+          backoff: exponentialBackoff(millis(100), seconds(2)),
+        }),
+      },
+      rate: 10,
+      window: seconds(1),
+      onExceeded: 'wait',
+    });
+
+    expect(spec.throttle).toBeDefined();
+    expect(spec.throttle?.inner.pattern?.retry).toBeDefined();
+  });
+
+  it('should compose circuit breaker with throttle', () => {
+    // Circuit breaker protecting a throttled operation
+    const spec = circuitBreaker({
+      name: 'protected_throttled_api',
+      inner: {
+        pattern: throttle({
+          inner: { tool: { name: 'rate_limited_api' } },
+          rate: 100,
+          window: minutes(1),
+          onExceeded: 'reject',
+        }),
+      },
+      store: 'circuit_state',
+      failureThreshold: 10,
+      failureWindow: minutes(1),
+      resetTimeout: seconds(30),
+    });
+
+    expect(spec.circuitBreaker).toBeDefined();
+    expect(spec.circuitBreaker?.inner.pattern?.throttle).toBeDefined();
   });
 });

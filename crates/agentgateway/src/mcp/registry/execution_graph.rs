@@ -187,7 +187,8 @@ impl ExecutionGraph {
 			| PatternSpec::CircuitBreaker(_)
 			| PatternSpec::DeadLetter(_)
 			| PatternSpec::Saga(_)
-			| PatternSpec::ClaimCheck(_) => NodeOperation::Pattern(Box::new(spec.clone())),
+			| PatternSpec::ClaimCheck(_)
+			| PatternSpec::Throttle(_) => NodeOperation::Pattern(Box::new(spec.clone())),
 		}
 	}
 
