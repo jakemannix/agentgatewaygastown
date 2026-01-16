@@ -6,3 +6,4 @@ pub mod frontend;
 pub mod loadbalancer;
 pub mod local;
 pub(crate) mod proto;
+pub mod stateful;
