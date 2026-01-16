@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=../../../../schema/config.json
+#
+# AgentGateway configuration for Google ADK agent integration
+#
+# This configuration sets up agentgateway to provide MCP tools
+# that can be discovered and used by the Google ADK agent.
+
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+          exposeHeaders:
+          - "Mcp-Session-Id"
+      backends:
+      - mcp:
+          targets:
+          # Everything server for demo/testing
+          - name: everything
+            stdio:
+              cmd: npx
+              args: ["@modelcontextprotocol/server-everything"]
+
+          # Filesystem server for project operations (optional)
+          # - name: filesystem
+          #   stdio:
+          #     cmd: npx
+          #     args: ["@modelcontextprotocol/server-filesystem", "/tmp/projects"]
+
+          # Git server for repository operations (optional)
+          # - name: git
+          #   stdio:
+          #     cmd: npx
+          #     args: ["@modelcontextprotocol/server-git"]
