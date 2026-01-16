@@ -11,19 +11,26 @@ import {
   FileText,
   ArrowRight,
   Users,
+  Copy,
+  Archive,
+  Fingerprint,
+  Database,
 } from "lucide-react";
 
 export type PolicyType =
   | "jwtAuth"
   | "mcpAuthentication"
   | "mcpAuthorization"
+  | "claimCheck"
   | "cors"
   | "backendTLS"
   | "backendAuth"
   | "localRateLimit"
   | "remoteRateLimit"
+  | "idempotent"
   | "timeout"
   | "retry"
+  | "deadLetter"
   | "requestHeaderModifier"
   | "responseHeaderModifier"
   | "requestRedirect"
@@ -31,7 +38,8 @@ export type PolicyType =
   | "directResponse"
   | "extAuthz"
   | "ai"
-  | "a2a";
+  | "a2a"
+  | "wireTap";
 
 export interface PolicyTypeInfo {
   name: string;
@@ -58,6 +66,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     name: "MCP Authorization",
     icon: Lock,
     description: "Model Context Protocol authorization rules",
+    httpOnly: true,
+  },
+  claimCheck: {
+    name: "Claim Check",
+    icon: Database,
+    description: "Externalize large payloads via store/retrieve pattern",
     httpOnly: true,
   },
   cors: {
@@ -88,6 +102,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     description: "Rate limiting using external service",
     httpOnly: true,
   },
+  idempotent: {
+    name: "Idempotent",
+    icon: Fingerprint,
+    description: "Prevent duplicate request processing",
+    httpOnly: true,
+  },
   timeout: {
     name: "Timeout",
     icon: Timer,
@@ -98,6 +118,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     name: "Retry",
     icon: RotateCcw,
     description: "Retry configuration for failed requests",
+    httpOnly: true,
+  },
+  deadLetter: {
+    name: "Dead Letter",
+    icon: Archive,
+    description: "Capture failures for later processing",
     httpOnly: true,
   },
   requestHeaderModifier: {
@@ -148,6 +174,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     description: "Mark this traffic as A2A to enable A2A processing and telemetry",
     httpOnly: true,
   },
+  wireTap: {
+    name: "Wire Tap",
+    icon: Copy,
+    description: "Send copies of requests to side channels for logging, auditing, or debugging",
+    httpOnly: true,
+  },
 };
 
 /**
@@ -156,6 +188,7 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
 export const BACKEND_POLICY_KEYS: readonly PolicyType[] = [
   "mcpAuthentication",
   "mcpAuthorization",
+  "claimCheck",
   "backendTLS",
   "backendAuth",
   "ai",

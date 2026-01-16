@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vMCP: From Proxy to Virtual MCP Server</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+    <style>
+        :root {
+            --r-background-color: #0d1117;
+            --r-main-color: #c9d1d9;
+            --r-heading-color: #58a6ff;
+        }
+        .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
+        .reveal pre { width: 100%; font-size: 0.5em; }
+        .reveal code { background: #161b22; padding: 0.1em 0.3em; border-radius: 4px; }
+        .reveal pre code { padding: 1em; max-height: 450px; }
+        .hl-blue { color: #58a6ff; }
+        .hl-green { color: #3fb950; }
+        .hl-orange { color: #d29922; }
+        .hl-purple { color: #bc8cff; }
+        .reveal .box { background: #161b22; border: 2px solid #30363d; border-radius: 8px; padding: 0.8em; margin: 0.5em 0; }
+        .reveal .small { font-size: 0.7em; }
+        .reveal .smaller { font-size: 0.55em; }
+    </style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- Title -->
+<section data-background-gradient="linear-gradient(135deg, #0d1117 0%, #161b22 100%)">
+    <h1>vMCP</h1>
+    <h3 style="color:#8b949e">From Proxy to Virtual MCP Server</h3>
+    <p class="small" style="color:#6e7681; margin-top:2em">AgentGateway + Tool Registry + Tool Algebra</p>
+</section>
+
+<!-- The Problem -->
+<section>
+    <h2>The Problem</h2>
+    <p>Agents get tools as <span class="hl-orange">black boxes</span></p>
+    <ul class="small">
+        <li class="fragment">Verbose descriptions waste context tokens</li>
+        <li class="fragment">Complex schemas cause hallucinations</li>
+        <li class="fragment">50-field responses when you need 2</li>
+        <li class="fragment">No way to compose multiple tools</li>
+    </ul>
+    <p class="fragment" style="margin-top:1em">
+        Choice: <span class="hl-orange">accept verbatim</span> or <span class="hl-orange">reimplement from scratch</span>
+    </p>
+</section>
+
+<!-- The Solution -->
+<section>
+    <h2>The Solution: vMCP</h2>
+    <p>AgentGateway becomes a <span class="hl-green">transparent virtual MCP server</span></p>
+    <div class="box smaller" style="text-align:center">
+        Agent &rarr; <span class="hl-blue">AgentGateway</span> (virtual tools) &rarr; Backend MCP Servers
+    </div>
+    <ul class="small fragment">
+        <li><span class="hl-green">Virtual Tools</span> - rename, reshape, inject defaults</li>
+        <li><span class="hl-orange">Tool Registry</span> - JSON catalog with hot-reload</li>
+        <li><span class="hl-purple">Tool Algebra</span> - compose tools into pipelines</li>
+    </ul>
+</section>
+
+<!-- Architecture -->
+<section>
+    <h2>Architecture</h2>
+    <pre><code class="language-text">
+┌─────────────────────────────────────────────────────────┐
+│                    MCP Client (Agent)                    │
+└─────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────┐
+│                     AgentGateway                         │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │                  Tool Registry                     │  │
+│  │  - Virtual tool definitions (JSON)                 │  │
+│  │  - Input/output transforms                         │  │
+│  │  - Pipeline compositions                           │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+                           │
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+      ┌─────────┐    ┌─────────┐    ┌─────────┐
+      │  MCP    │    │  MCP    │    │ Remote  │
+      │ Server  │    │ Server  │    │  MCP    │
+      │ (stdio) │    │ (stdio) │    │ (HTTP)  │
+      └─────────┘    └─────────┘    └─────────┘
+</code></pre>
+</section>
+
+<!-- Virtual Tool Example -->
+<section>
+    <h2>Virtual Tool: Before/After</h2>
+    <div style="display:flex; gap:1em;">
+        <div style="flex:1">
+            <p class="small"><span class="hl-orange">Backend</span></p>
+            <pre><code class="language-json">{
+  "name": "search_repositories",
+  "result": {
+    "total_count": 12345,
+    "items": [{
+      "full_name": "rust-lang/rust",
+      "description": "...",
+      "html_url": "...",
+      "stargazers_count": 95000,
+      // ... 50+ more fields
+    }]
+  }
+}</code></pre>
+        </div>
+        <div style="flex:1">
+            <p class="small"><span class="hl-green">Virtual</span></p>
+            <pre><code class="language-json">{
+  "name": "search_repos",
+  "result": {
+    "total": 12345,
+    "repos": [{
+      "name": "rust-lang/rust",
+      "stars": 95000,
+      "url": "..."
+    }]
+  }
+}</code></pre>
+        </div>
+    </div>
+</section>
+
+<!-- Registry Definition -->
+<section>
+    <h2>Registry Definition</h2>
+    <pre><code class="language-json">{
+  "name": "search_repos",
+  "source": {"target": "github-server", "tool": "search_repositories"},
+  "description": "Search GitHub - returns name, stars, URL only",
+  "outputSchema": {
+    "properties": {
+      "total": {"type": "integer"},
+      "repos": {"type": "array", "items": {...}}
+    }
+  },
+  "outputTransform": {
+    "mappings": {
+      "total": {"path": "$.total_count"},
+      "repos": {"path": "$.items[*]"},
+      "repos[*].name": {"path": "$.full_name"},
+      "repos[*].stars": {"path": "$.stargazers_count"},
+      "repos[*].url": {"path": "$.html_url"}
+    }
+  }
+}</code></pre>
+</section>
+
+<!-- Pipeline Composition -->
+<section>
+    <h2>Tool Composition: Pipeline</h2>
+    <pre><code class="language-json">{
+  "name": "research_github_repo",
+  "description": "Search repos, fetch top result",
+  "spec": {
+    "pipeline": {
+      "steps": [
+        {
+          "id": "search",
+          "operation": {"tool": {"name": "search_repos"}}
+        },
+        {
+          "id": "fetch_top",
+          "operation": {"tool": {"name": "fetch"}},
+          "input": {
+            "construct": {
+              "fields": {
+                "url": {"step": {"stepId": "search", "path": "$.repos[0].url"}}
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}</code></pre>
+    <p class="small">Agent sees <span class="hl-green">one tool</span>, gateway executes <span class="hl-blue">two</span></p>
+</section>
+
+<!-- Config -->
+<section>
+    <h2>Configuration</h2>
+    <pre><code class="language-yaml"># Gateway config
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - backends:
+      - mcp:
+          targets:
+          - name: github-server
+            stdio:
+              cmd: npx
+              args: ["-y", "@modelcontextprotocol/server-github"]
+          - name: fetch-server
+            stdio:
+              cmd: uvx
+              args: ["mcp-server-fetch"]
+
+registry:
+  source: file://./registries/tools.json
+  refreshInterval: 30s</code></pre>
+</section>
+
+<!-- What's Implemented -->
+<section>
+    <h2>Implementation Status</h2>
+    <table class="small">
+        <tr>
+            <td class="hl-green">Virtual Tools</td>
+            <td>rename, redescribe, reshape input/output, defaults, hide fields</td>
+        </tr>
+        <tr>
+            <td class="hl-green">Output Transform</td>
+            <td>JSONPath extraction, array mapping, nested projection</td>
+        </tr>
+        <tr>
+            <td class="hl-green">Registry</td>
+            <td>file:// and http:// sources, hot-reload</td>
+        </tr>
+        <tr>
+            <td class="hl-green">Pipeline</td>
+            <td>Sequential tool composition with data flow</td>
+        </tr>
+        <tr>
+            <td class="hl-orange">Scatter-Gather</td>
+            <td>Parallel execution with aggregation</td>
+        </tr>
+    </table>
+</section>
+
+<!-- Key Files -->
+<section>
+    <h2>Key Files</h2>
+    <table class="smaller">
+        <tr>
+            <td><code>crates/agentgateway/src/mcp/registry/</code></td>
+            <td>Rust implementation</td>
+        </tr>
+        <tr>
+            <td><code>demo/registries/showcase.json</code></td>
+            <td>Sample registry</td>
+        </tr>
+        <tr>
+            <td><code>docs/virtual-tools.md</code></td>
+            <td>Usage docs</td>
+        </tr>
+        <tr>
+            <td><code>docs/mcp-algebra-ala-camel.md</code></td>
+            <td>Full pattern catalog</td>
+        </tr>
+        <tr>
+            <td><code>docs/design/registry-integration.md</code></td>
+            <td>Design doc</td>
+        </tr>
+    </table>
+</section>
+
+<!-- Demo -->
+<section>
+    <h2>Try It</h2>
+    <pre><code class="language-bash"># Build
+cargo build
+
+# Run with demo config
+./target/debug/agentgateway -f demo/agentgateway-demo.yaml
+
+# Enable debug logging
+RUST_LOG=virtual_tools=debug ./target/debug/agentgateway ...</code></pre>
+    <p class="small" style="margin-top:1em">
+        See <code>docs/virtual-tools.md</code> for full demo setup
+    </p>
+</section>
+
+<!-- Summary -->
+<section data-background-gradient="linear-gradient(135deg, #0d1117 0%, #161b22 100%)">
+    <h2>Summary</h2>
+    <p class="small">AgentGateway extended from <span class="hl-orange">proxy</span> to <span class="hl-green">virtual MCP server</span></p>
+    <div class="box small" style="text-align:left">
+        <p><span class="hl-green">Virtual Tools</span> - wrap tools without reimplementing</p>
+        <p><span class="hl-orange">Tool Registry</span> - JSON catalog, hot-reload</p>
+        <p><span class="hl-purple">Tool Algebra</span> - compose tools declaratively</p>
+    </div>
+    <p class="smaller" style="margin-top:2em; color:#6e7681">
+        Composition without reimplementation
+    </p>
+</section>
+
+</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script>
+    Reveal.initialize({
+        hash: true,
+        slideNumber: true,
+        transition: 'slide',
+        plugins: [RevealHighlight]
+    });
+</script>
+</body>
+</html>

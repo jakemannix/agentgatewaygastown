@@ -124,6 +124,16 @@ async fn apply_request_policies(
 		lrl.check_request()?;
 	}
 
+	// Check idempotency - may return cached response or error
+	if let Some(idempotent) = &policies.idempotent {
+		let check_result = idempotent.check(build_ctx(&exec, log)?)?;
+		if let Some(policy_response) = check_result.to_policy_response() {
+			policy_response.apply(response_policies.headers())?;
+		}
+		// Store the idempotency key in request extensions for later use
+		req.extensions_mut().insert(check_result);
+	}
+
 	if let Some(rrl) = &policies.remote_rate_limit {
 		rrl.check(client, req, build_ctx(&exec, log)?).await?
 	} else {
@@ -218,6 +228,8 @@ async fn apply_backend_policies(
 		session_persistence: _,
 		// Applied elsewhere
 		request_mirror: _,
+		// Applied elsewhere (fire-and-forget)
+		wire_tap: _,
 		// Applied elsewhere
 		override_dest: _,
 		// Circuit breaker is applied at a different layer
@@ -710,6 +722,36 @@ impl HTTPProxy {
 					warn!("error sending mirror request: {}", e);
 				}
 			});
+		}
+
+		// WireTap - fire-and-forget copies to side channels
+		// Process "before" and "both" tap points before the main request
+		for wire_tap in route_policies
+			.wire_tap
+			.iter()
+			.chain(backend_policies.wire_tap.iter())
+		{
+			if !wire_tap.should_tap_before() {
+				continue;
+			}
+			for target in &wire_tap.targets {
+				if !http::wiretap::WireTap::should_sample(target) {
+					trace!(
+						"skipping wire tap, percentage {} not triggered",
+						target.percentage
+					);
+					continue;
+				}
+				let req = Request::from_parts(head.clone(), http::Body::empty());
+				let inputs = inputs.clone();
+				let policy_client = self.policy_client();
+				let target = target.clone();
+				tokio::task::spawn(async move {
+					if let Err(e) = send_wire_tap(inputs, policy_client, target, req).await {
+						warn!("error sending wire tap request: {}", e);
+					}
+				});
+			}
 		}
 
 		const MAX_BUFFERED_BYTES: usize = 64 * 1024;
@@ -1628,7 +1670,7 @@ pub fn build_service_call(
 	})
 }
 
-fn should_retry(res: &Result<Response, ProxyResponse>, pol: &retry::Policy) -> bool {
+pub(crate) fn should_retry(res: &Result<Response, ProxyResponse>, pol: &retry::Policy) -> bool {
 	match res {
 		Ok(resp) => pol.codes.contains(&resp.status()),
 		Err(ProxyResponse::Error(e)) => e.is_retryable(),
@@ -1653,6 +1695,20 @@ async fn send_mirror(
 ) -> Result<(), ProxyError> {
 	req.headers_mut().remove(http::header::CONTENT_LENGTH);
 	let backend = super::resolve_simple_backend(&mirror.backend, inputs.as_ref())?;
+	let _ = upstream.call(req, backend).await?;
+	Ok(())
+}
+
+/// Send a wire tap request to a single target.
+/// This is fire-and-forget - failures are logged but don't affect the main flow.
+async fn send_wire_tap(
+	inputs: Arc<ProxyInputs>,
+	upstream: PolicyClient,
+	target: http::wiretap::TapTarget,
+	mut req: Request,
+) -> Result<(), ProxyError> {
+	req.headers_mut().remove(http::header::CONTENT_LENGTH);
+	let backend = super::resolve_simple_backend(&target.backend, inputs.as_ref())?;
 	let _ = upstream.call(req, backend).await?;
 	Ok(())
 }

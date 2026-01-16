@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 use crate::http::auth::BackendAuth;
 use crate::http::authorization::RuleSet;
 use crate::http::{
-	HeaderOrPseudo, HeaderValue, ext_authz, ext_proc, filters, remoteratelimit, retry, stateful,
+	HeaderOrPseudo, HeaderValue, deadletter, ext_authz, ext_proc, filters, remoteratelimit, retry, stateful,
 	timeout,
 };
 use crate::mcp::McpAuthorization;
@@ -1868,11 +1868,13 @@ pub enum FrontendPolicy {
 pub enum TrafficPolicy {
 	Timeout(timeout::Policy),
 	Retry(retry::Policy),
+	DeadLetter(deadletter::Policy),
 	#[serde(rename = "ai")]
 	AI(Arc<llm::Policy>),
 	Authorization(Authorization),
 	LocalRateLimit(Vec<crate::http::localratelimit::RateLimit>),
 	RemoteRateLimit(remoteratelimit::RemoteRateLimit),
+	Idempotent(crate::http::idempotent::Idempotent),
 	ExtAuthz(ext_authz::ExtAuthz),
 	ExtProc(ext_proc::ExtProc),
 	JwtAuth(crate::http::jwt::Jwt),
@@ -1887,6 +1889,7 @@ pub enum TrafficPolicy {
 	UrlRewrite(filters::UrlRewrite),
 	HostRewrite(agent::HostRedirectOverride),
 	RequestMirror(Vec<filters::RequestMirror>),
+	WireTap(Vec<http::wiretap::WireTap>),
 	DirectResponse(filters::DirectResponse),
 	#[serde(rename = "cors")]
 	CORS(http::cors::Cors),
@@ -1914,6 +1917,7 @@ pub enum BackendPolicy {
 	ResponseHeaderModifier(filters::HeaderModifier),
 	RequestRedirect(filters::RequestRedirect),
 	RequestMirror(Vec<filters::RequestMirror>),
+	WireTap(Vec<http::wiretap::WireTap>),
 }
 
 #[apply(schema!)]
