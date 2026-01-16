@@ -8,9 +8,8 @@ fn main() {
 #[cfg(feature = "internal_benches")]
 mod composition_benchmarks {
 	use agentgateway::mcp::registry::{
-		AggregationOp, AggregationStrategy, CompiledRegistry, PatternSpec, PipelineSpec, PipelineStep,
-		Registry, ScatterGatherSpec, ScatterTarget, StepOperation, ToolCall, ToolDefinition,
-		VirtualToolDef,
+		CompiledRegistry, PatternSpec, PipelineSpec, PipelineStep, Registry, StepOperation, ToolCall,
+		ToolDefinition, VirtualToolDef,
 	};
 	use divan::{Bencher, black_box};
 
@@ -264,6 +263,347 @@ mod composition_benchmarks {
 			compiled
 				.prepare_call_args("test", black_box(args.clone()))
 				.unwrap()
+		});
+	}
+}
+
+// =============================================================================
+// Pipeline Execution Benchmarks
+// =============================================================================
+
+#[cfg(feature = "internal_benches")]
+mod pipeline_benchmarks {
+	use agentgateway::mcp::registry::{
+		CompiledRegistry, CompositionExecutor, ExecutionContext, MockToolInvoker, PipelineExecutor,
+		PipelineSpec, PipelineStep, Registry, StepOperation, ToolCall,
+	};
+	use divan::{black_box, Bencher};
+	use std::sync::Arc;
+
+	/// Create a pipeline spec with N steps
+	fn create_pipeline_spec(num_steps: usize) -> PipelineSpec {
+		let steps = (0..num_steps)
+			.map(|i| PipelineStep {
+				id: format!("step_{}", i),
+				operation: StepOperation::Tool(ToolCall {
+					name: format!("tool_{}", i),
+				}),
+				input: None,
+			})
+			.collect();
+		PipelineSpec { steps }
+	}
+
+	/// Create mock invoker with responses for N tools
+	fn create_mock_invoker(num_tools: usize) -> MockToolInvoker {
+		let mut invoker = MockToolInvoker::new();
+		for i in 0..num_tools {
+			invoker = invoker.with_response(
+				&format!("tool_{}", i),
+				serde_json::json!({"step": i, "data": "processed"}),
+			);
+		}
+		invoker
+	}
+
+	/// Setup executor and context for pipeline execution
+	fn setup_executor(
+		invoker: MockToolInvoker,
+	) -> (Arc<CompiledRegistry>, Arc<MockToolInvoker>, CompositionExecutor) {
+		let registry = Registry::new();
+		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
+		let invoker = Arc::new(invoker);
+		let executor = CompositionExecutor::new(compiled.clone(), invoker.clone());
+		(compiled, invoker, executor)
+	}
+
+	// -------------------------------------------------------------------------
+	// Pipeline Execution: Varying Pipeline Depth
+	// -------------------------------------------------------------------------
+
+	#[divan::bench]
+	fn pipeline_1_step(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = create_pipeline_spec(1);
+		let invoker = create_mock_invoker(1);
+		let (compiled, invoker_arc, executor) = setup_executor(invoker);
+		let input = serde_json::json!({"initial": "data"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				let ctx = ExecutionContext::new(
+					serde_json::json!({}),
+					compiled.clone(),
+					invoker_arc.clone(),
+				);
+				PipelineExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn pipeline_3_steps(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = create_pipeline_spec(3);
+		let invoker = create_mock_invoker(3);
+		let (compiled, invoker_arc, executor) = setup_executor(invoker);
+		let input = serde_json::json!({"initial": "data"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				let ctx = ExecutionContext::new(
+					serde_json::json!({}),
+					compiled.clone(),
+					invoker_arc.clone(),
+				);
+				PipelineExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn pipeline_5_steps(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = create_pipeline_spec(5);
+		let invoker = create_mock_invoker(5);
+		let (compiled, invoker_arc, executor) = setup_executor(invoker);
+		let input = serde_json::json!({"initial": "data"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				let ctx = ExecutionContext::new(
+					serde_json::json!({}),
+					compiled.clone(),
+					invoker_arc.clone(),
+				);
+				PipelineExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn pipeline_10_steps(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = create_pipeline_spec(10);
+		let invoker = create_mock_invoker(10);
+		let (compiled, invoker_arc, executor) = setup_executor(invoker);
+		let input = serde_json::json!({"initial": "data"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				let ctx = ExecutionContext::new(
+					serde_json::json!({}),
+					compiled.clone(),
+					invoker_arc.clone(),
+				);
+				PipelineExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	// -------------------------------------------------------------------------
+	// Pipeline Execution: Data Binding Overhead
+	// -------------------------------------------------------------------------
+
+	#[divan::bench]
+	fn pipeline_with_input_binding(bencher: Bencher) {
+		use agentgateway::mcp::registry::{DataBinding, InputBinding};
+
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		// Pipeline with explicit input binding using JSONPath
+		let spec = PipelineSpec {
+			steps: vec![
+				PipelineStep {
+					id: "step_0".to_string(),
+					operation: StepOperation::Tool(ToolCall {
+						name: "tool_0".to_string(),
+					}),
+					input: Some(DataBinding::Input(InputBinding {
+						path: "$.query".to_string(),
+					})),
+				},
+				PipelineStep {
+					id: "step_1".to_string(),
+					operation: StepOperation::Tool(ToolCall {
+						name: "tool_1".to_string(),
+					}),
+					input: None, // Uses previous step output
+				},
+			],
+		};
+
+		let invoker = create_mock_invoker(2);
+		let (compiled, invoker_arc, executor) = setup_executor(invoker);
+		let input = serde_json::json!({"query": "search term", "extra": "ignored"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				let ctx = ExecutionContext::new(
+					serde_json::json!({}),
+					compiled.clone(),
+					invoker_arc.clone(),
+				);
+				PipelineExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn pipeline_with_step_binding(bencher: Bencher) {
+		use agentgateway::mcp::registry::{DataBinding, StepBinding};
+
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		// Pipeline where step 2 references step 0's output via JSONPath
+		let spec = PipelineSpec {
+			steps: vec![
+				PipelineStep {
+					id: "fetch".to_string(),
+					operation: StepOperation::Tool(ToolCall {
+						name: "tool_0".to_string(),
+					}),
+					input: None,
+				},
+				PipelineStep {
+					id: "transform".to_string(),
+					operation: StepOperation::Tool(ToolCall {
+						name: "tool_1".to_string(),
+					}),
+					input: None,
+				},
+				PipelineStep {
+					id: "enrich".to_string(),
+					operation: StepOperation::Tool(ToolCall {
+						name: "tool_2".to_string(),
+					}),
+					input: Some(DataBinding::Step(StepBinding {
+						step_id: "fetch".to_string(),
+						path: "$.data".to_string(),
+					})),
+				},
+			],
+		};
+
+		let invoker = create_mock_invoker(3);
+		let (compiled, invoker_arc, executor) = setup_executor(invoker);
+		let input = serde_json::json!({"initial": "data"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				let ctx = ExecutionContext::new(
+					serde_json::json!({}),
+					compiled.clone(),
+					invoker_arc.clone(),
+				);
+				PipelineExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	// -------------------------------------------------------------------------
+	// Pipeline Execution: Payload Size Scaling
+	// -------------------------------------------------------------------------
+
+	fn create_large_json(size_kb: usize) -> serde_json::Value {
+		let data: String = "x".repeat(size_kb * 1024);
+		serde_json::json!({
+			"payload": data,
+			"metadata": {"size_kb": size_kb}
+		})
+	}
+
+	#[divan::bench]
+	fn pipeline_small_payload_1kb(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = create_pipeline_spec(3);
+		let invoker = create_mock_invoker(3);
+		let (compiled, invoker_arc, executor) = setup_executor(invoker);
+		let input = create_large_json(1);
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				let ctx = ExecutionContext::new(
+					serde_json::json!({}),
+					compiled.clone(),
+					invoker_arc.clone(),
+				);
+				PipelineExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn pipeline_medium_payload_10kb(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = create_pipeline_spec(3);
+		let invoker = create_mock_invoker(3);
+		let (compiled, invoker_arc, executor) = setup_executor(invoker);
+		let input = create_large_json(10);
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				let ctx = ExecutionContext::new(
+					serde_json::json!({}),
+					compiled.clone(),
+					invoker_arc.clone(),
+				);
+				PipelineExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn pipeline_large_payload_100kb(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = create_pipeline_spec(3);
+		let invoker = create_mock_invoker(3);
+		let (compiled, invoker_arc, executor) = setup_executor(invoker);
+		let input = create_large_json(100);
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				let ctx = ExecutionContext::new(
+					serde_json::json!({}),
+					compiled.clone(),
+					invoker_arc.clone(),
+				);
+				PipelineExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
 		});
 	}
 }

@@ -40,3 +40,6 @@ pub use executor::{
 	CompositionExecutor, ExecutionContext, ExecutionError, FilterExecutor, MapEachExecutor,
 	PipelineExecutor, ScatterGatherExecutor, SchemaMapExecutor, ToolInvoker,
 };
+
+#[cfg(any(test, feature = "internal_benches"))]
+pub use executor::MockToolInvoker;

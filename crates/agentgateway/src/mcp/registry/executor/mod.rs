@@ -240,13 +240,13 @@ impl CompositionExecutor {
 	}
 }
 
-/// Mock tool invoker for testing
-#[cfg(test)]
+/// Mock tool invoker for testing and benchmarking
+#[cfg(any(test, feature = "internal_benches"))]
 pub struct MockToolInvoker {
 	responses: std::sync::Mutex<std::collections::HashMap<String, Value>>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "internal_benches"))]
 impl MockToolInvoker {
 	pub fn new() -> Self {
 		Self {
@@ -264,7 +264,7 @@ impl MockToolInvoker {
 	}
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "internal_benches"))]
 #[async_trait::async_trait]
 impl ToolInvoker for MockToolInvoker {
 	async fn invoke(&self, tool_name: &str, _args: Value) -> Result<Value, ExecutionError> {
