@@ -91,6 +91,7 @@ impl<S> Server<S> {
 		let state = Arc::new(self.state);
 		let f = Arc::new(f);
 		info!(
+				target: "operational",
 				%address,
 				component=self.name,
 				"listener established",
@@ -144,6 +145,7 @@ impl<S> Server<S> {
 					});
 				}
 				info!(
+						target: "operational",
 						%address,
 						component=name,
 						"listener drained",

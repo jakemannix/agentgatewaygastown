@@ -64,6 +64,7 @@ impl ProxyResponse {
 			ProxyError::RateLimitFailed | ProxyError::RateLimitExceeded { .. } => {
 				ProxyResponseReason::RateLimit
 			},
+			ProxyError::DuplicateRequest => ProxyResponseReason::DuplicateRequest,
 		}
 	}
 	pub fn downcast(self) -> ProxyError {
@@ -106,6 +107,8 @@ pub enum ProxyResponseReason {
 	RateLimit,
 	/// The upstream request failed
 	UpstreamFailure,
+	/// Duplicate request detected (idempotency)
+	DuplicateRequest,
 }
 
 impl Display for ProxyResponseReason {
@@ -178,6 +181,8 @@ pub enum ProxyError {
 	},
 	#[error("rate limit failed")]
 	RateLimitFailed,
+	#[error("duplicate request")]
+	DuplicateRequest,
 	#[error("invalid request")]
 	InvalidRequest,
 	#[error("request upgrade failed, backend tried {1:?} but {0:?} was requested")]
@@ -231,6 +236,7 @@ impl ProxyError {
 			ProxyError::ProcessingString(_) => StatusCode::SERVICE_UNAVAILABLE,
 			ProxyError::RateLimitExceeded { .. } => StatusCode::TOO_MANY_REQUESTS,
 			ProxyError::RateLimitFailed => StatusCode::TOO_MANY_REQUESTS,
+			ProxyError::DuplicateRequest => StatusCode::CONFLICT,
 
 			// Shouldn't happen on this path
 			ProxyError::UpstreamTCPCallFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,

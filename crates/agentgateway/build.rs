@@ -8,6 +8,7 @@ fn main() -> Result<(), anyhow::Error> {
 		"proto/resource.proto",
 		"proto/workload.proto",
 		"proto/citadel.proto",
+		"proto/registry.proto",
 	]
 	.iter()
 	.map(|name| std::env::current_dir().unwrap().join(name))

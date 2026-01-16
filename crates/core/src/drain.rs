@@ -44,6 +44,7 @@ pub async fn run_with_drain<F, O>(
 		let res = drain.wait_for_drain().await;
 		if res.mode() == DrainMode::Graceful {
 			info!(
+				target: "operational",
 				component,
 				"drain started, waiting {:?}-{:?} for any connections to complete", min_delay, deadline
 			);
@@ -52,6 +53,7 @@ pub async fn run_with_drain<F, O>(
 			// If this feature is implemented, we can instead join!() the min_delay and `start_drain_and_wait`.
 			tokio::time::sleep(min_delay).await;
 			info!(
+				target: "operational",
 				component,
 				"minimum drain completed, waiting, not accepting new connections and waiting {:?} for any connections to complete",
 				deadline
@@ -64,18 +66,19 @@ pub async fn run_with_drain<F, O>(
 			if res.is_err() {
 				// Not all connections completed within time, we will force shut them down
 				warn!(
+					target: "operational",
 					component,
 					"drain duration expired with pending connections, forcefully shutting down"
 				);
 			}
 		} else {
-			debug!(component, "terminating");
+			debug!(target: "operational", component, "terminating");
 		}
 		// Trigger force shutdown. In theory, this is only needed in the timeout case. However,
 		// it doesn't hurt to always trigger it.
 		let _ = trigger_force_shutdown.send(());
 
-		info!(component, "shutdown complete");
+		info!(target: "operational", component, "shutdown complete");
 	};
 	tokio::select! {
 		_ = fut => {
