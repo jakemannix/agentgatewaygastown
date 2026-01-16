@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=../../../../schema/config.json
+#
+# Sample agentgateway configuration for Claude Agent SDK demo
+#
+# This config exposes the 'everything' MCP server which provides a variety
+# of demo tools that the Claude Agent can use.
+#
+# Run with: cargo run -- -f examples/pattern-demos/agents/claude_agent/config.yaml
+
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+          - authorization
+          exposeHeaders:
+          - "Mcp-Session-Id"
+      backends:
+      - mcp:
+          targets:
+          # The 'everything' MCP server provides various demo tools
+          # including echo, add, longRunningOperation, sampleLLM, etc.
+          - name: everything
+            stdio:
+              cmd: npx
+              args: ["@modelcontextprotocol/server-everything"]
+
+          # Uncomment to add a filesystem server for document access
+          # - name: filesystem
+          #   stdio:
+          #     cmd: npx
+          #     args: ["-y", "@modelcontextprotocol/server-filesystem", "./demo-docs"]
+
+          # Uncomment to add memory server for task storage
+          # - name: memory
+          #   stdio:
+          #     cmd: npx
+          #     args: ["-y", "@modelcontextprotocol/server-memory"]

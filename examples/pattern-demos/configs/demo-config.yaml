@@ -1,0 +1,119 @@
+# AgentGateway Demo Configuration
+#
+# This config demonstrates all major patterns:
+# - MCP multiplexing (multiple backend servers)
+# - Virtual tools (renaming, output projection)
+# - A2A agent proxying
+# - Tool composition (pipelines)
+#
+# Usage:
+#   agentgateway -f examples/pattern-demos/configs/demo-config.yaml
+#
+# Connect with:
+#   - MCP Inspector: npx @modelcontextprotocol/inspector http://localhost:3000/mcp
+#   - Claude Desktop: Configure as SSE transport at http://localhost:3000/sse
+#   - Admin UI: http://localhost:15000/ui
+
+config:
+  logging:
+    format: json
+    fields:
+      add:
+        demo: pattern-demos
+
+binds:
+# Main MCP/HTTP endpoint
+- port: 3000
+  listeners:
+  - routes:
+    # Route 1: MCP traffic with virtual tools
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+          - mcp-session-id
+      match:
+        prefix: /mcp
+      backends:
+      - mcp:
+          targets:
+          # Fetch server - web content retrieval
+          - name: fetch-server
+            stdio:
+              cmd: uvx
+              args: ["mcp-server-fetch"]
+
+          # Memory server - knowledge graph
+          - name: memory-server
+            stdio:
+              cmd: npx
+              args: ["-y", "@modelcontextprotocol/server-memory"]
+
+          # Time server - timezone operations
+          - name: time-server
+            stdio:
+              cmd: uvx
+              args: ["mcp-server-time"]
+
+          # Everything server - comprehensive demo
+          - name: everything-server
+            stdio:
+              cmd: npx
+              args: ["-y", "@modelcontextprotocol/server-everything"]
+
+    # Route 2: SSE transport (same backends)
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - content-type
+          - cache-control
+      match:
+        prefix: /sse
+      backends:
+      - mcp:
+          targets:
+          - name: fetch-server
+            stdio:
+              cmd: uvx
+              args: ["mcp-server-fetch"]
+          - name: memory-server
+            stdio:
+              cmd: npx
+              args: ["-y", "@modelcontextprotocol/server-memory"]
+          - name: time-server
+            stdio:
+              cmd: uvx
+              args: ["mcp-server-time"]
+
+    # Route 3: A2A agent proxy
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - content-type
+          - cache-control
+        a2a: {}
+      match:
+        prefix: /a2a
+      backends:
+      - host: localhost:9999
+
+# Admin UI port
+- port: 15000
+  listeners:
+  - routes:
+    - backends:
+      - admin: {}
+
+# Registry for virtual tool mappings
+# This provides tool renaming, output projection, compositions, etc.
+registry:
+  source: file://./examples/pattern-demos/configs/registry.json
+  refreshInterval: 30s

@@ -1,0 +1,158 @@
+%%{init: {'theme': 'neutral', 'themeVariables': { 'primaryColor': '#4A90D9', 'lineColor': '#5C6370', 'textColor': '#333' }}}%%
+graph TB
+    subgraph "AgentGateway - Tool Algebra Architecture"
+        direction TB
+
+        subgraph APP["Application Layer"]
+            direction LR
+            app[app.rs<br/>Application Setup]
+            state[state_manager.rs<br/>State Management]
+        end
+
+        subgraph MCP["MCP Module"]
+            direction TB
+            mcpmod[mod.rs<br/>Operations: Tool, Prompt, Resource]
+            handler[handler.rs<br/>Protocol Handler]
+            router[router.rs<br/>Request Routing]
+            session[session.rs<br/>Session Management]
+
+            subgraph REGISTRY["registry/ NEW"]
+                style REGISTRY fill:#90EE90,stroke:#228B22
+                regmod[mod.rs<br/>Virtual Tools]
+                regtypes[types.rs<br/>Registry Types]
+                compiled[compiled.rs<br/>Compiled Patterns]
+                regclient[client.rs<br/>Registry Client]
+                regstore[store.rs<br/>Registry Storage]
+                regerror[error.rs<br/>Error Types]
+                execgraph[execution_graph.rs<br/>Dependency Graph]
+
+                subgraph EXECUTOR["executor/"]
+                    style EXECUTOR fill:#98FB98,stroke:#228B22
+                    execmod[mod.rs<br/>Composition Executor]
+                    execctx[context.rs<br/>Execution Context]
+                    pipeline[pipeline.rs<br/>Sequential Exec]
+                    scatter[scatter_gather.rs<br/>Fan-out/Fan-in]
+                    filter[filter.rs<br/>Array Filtering]
+                    mapeach[map_each.rs<br/>Element Transform]
+                    schemamap[schema_map.rs<br/>Field Mapping]
+                    throttle[throttle.rs<br/>Rate Limiting]
+                end
+
+                subgraph PATTERNS["patterns/"]
+                    style PATTERNS fill:#98FB98,stroke:#228B22
+                    patmod[mod.rs<br/>PatternSpec]
+                    patpipe[pipeline.rs]
+                    patscatter[scatter_gather.rs]
+                    patfilter[filter.rs]
+                    patmap[map_each.rs]
+                    patschema[schema_map.rs]
+                    patstate[stateful.rs<br/>Retry, Cache, CB]
+                end
+            end
+
+            subgraph UPSTREAM["upstream/"]
+                uclient[client.rs]
+                usse[sse.rs]
+                ustdio[stdio.rs]
+            end
+        end
+
+        subgraph SAGA["saga/ NEW"]
+            style SAGA fill:#90EE90,stroke:#228B22
+            sagamod[mod.rs<br/>Distributed Transactions]
+            sagatypes[types.rs<br/>Saga IR Types]
+            sagaexec[executor.rs<br/>Compensation Engine]
+        end
+
+        subgraph WORKFLOW["workflow/ NEW"]
+            style WORKFLOW fill:#90EE90,stroke:#228B22
+            wfmod[mod.rs<br/>Step Orchestration]
+            wftypes[types.rs<br/>Workflow IR]
+            wfrouter[router.rs<br/>Content Router]
+        end
+
+        subgraph STATEFUL["stateful/ NEW"]
+            style STATEFUL fill:#90EE90,stroke:#228B22
+            stmod[mod.rs<br/>State Patterns]
+            cache[cache.rs<br/>Cache Executor]
+            ststore[store.rs<br/>StateStore Trait]
+            memory[memory.rs<br/>In-Memory Store]
+        end
+
+        subgraph PATTERNSTOP["patterns/ NEW"]
+            style PATTERNSTOP fill:#90EE90,stroke:#228B22
+            pattop[mod.rs<br/>Operation Executors]
+            pattimeout[timeout.rs<br/>Timeout Pattern]
+        end
+
+        subgraph HTTP["HTTP Module"]
+            direction TB
+            filters[filters.rs<br/>Request/Response Filters]
+
+            subgraph HTTPNEW["New HTTP Patterns"]
+                style HTTPNEW fill:#90EE90,stroke:#228B22
+                deadletter[deadletter/<br/>Failed Request Capture]
+                idempotent[idempotent.rs<br/>Duplicate Prevention]
+                httpstateful[stateful.rs<br/>Circuit Breaker]
+                wiretap[wiretap.rs<br/>Message Copying]
+            end
+
+            subgraph EXISTING["Existing"]
+                timeout[timeout.rs]
+                retry[retry/mod.rs]
+                ratelimit[ratelimit.rs]
+                auth[auth.rs, jwt.rs]
+            end
+        end
+
+        subgraph PROXY["Proxy Module"]
+            gateway[gateway.rs]
+            httpproxy[httpproxy.rs]
+        end
+
+        subgraph STORE["Store Module"]
+            discovery[discovery.rs]
+            binds[binds.rs]
+        end
+
+        subgraph TYPES["Types Module"]
+            agent[agent.rs]
+            backend[backend.rs]
+            typestateful[stateful.rs NEW]
+            style typestateful fill:#90EE90,stroke:#228B22
+        end
+
+        subgraph TOPLEVEL["Top-Level NEW"]
+            style TOPLEVEL fill:#90EE90,stroke:#228B22
+            claimcheck[claimcheck.rs<br/>Payload Externalization]
+        end
+    end
+
+    %% Core Flow
+    app --> MCP
+    app --> SAGA
+    app --> WORKFLOW
+
+    MCP --> REGISTRY
+    REGISTRY --> EXECUTOR
+    REGISTRY --> PATTERNS
+
+    handler --> router
+    router --> REGISTRY
+
+    %% Pattern Execution
+    EXECUTOR --> STATEFUL
+    EXECUTOR --> PATTERNSTOP
+    SAGA --> PATTERNSTOP
+    WORKFLOW --> PATTERNSTOP
+
+    %% HTTP Integration
+    HTTP --> PROXY
+    HTTPNEW --> STATEFUL
+
+    %% State Management
+    STATEFUL --> STORE
+    PROXY --> STORE
+
+    %% Claims
+    claimcheck --> REGISTRY

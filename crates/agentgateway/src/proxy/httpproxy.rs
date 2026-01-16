@@ -135,11 +135,19 @@ async fn apply_request_policies(
 	}
 
 	if let Some(rrl) = &policies.remote_rate_limit {
-		rrl.check(client, req, build_ctx(&exec, log)?).await?
+		rrl.check(client.clone(), req, build_ctx(&exec, log)?).await?
 	} else {
 		http::PolicyResponse::default()
 	}
 	.apply(response_policies.headers())?;
+
+	// Enricher: augment request body with data from parallel backend calls
+	if let Some(enricher) = &policies.enricher {
+		enricher
+			.execute(client.clone(), req, build_ctx(&exec, log)?)
+			.await
+			.map_err(|e| ProxyResponse::from(ProxyError::Processing(e.into())))?;
+	}
 
 	if let Some(x) = response_policies.ext_proc.as_mut() {
 		x.mutate_request(req).await?

@@ -191,6 +191,7 @@ pub struct RoutePolicies {
 	pub wire_tap: Vec<http::wiretap::WireTap>,
 	pub direct_response: Option<filters::DirectResponse>,
 	pub cors: Option<http::cors::Cors>,
+	pub enricher: Option<http::enricher::EnricherSpec>,
 }
 
 #[derive(Debug, Default)]
@@ -459,6 +460,9 @@ impl Store {
 				},
 				TrafficPolicy::CORS(p) => {
 					pol.cors.get_or_insert_with(|| p.clone());
+				},
+				TrafficPolicy::Enricher(p) => {
+					pol.enricher.get_or_insert_with(|| p.clone());
 				},
 			}
 		}

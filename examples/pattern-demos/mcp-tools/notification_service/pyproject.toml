@@ -1,0 +1,16 @@
+[project]
+name = "notification-service-mcp"
+version = "0.1.0"
+description = "MCP Notification Service for async notification patterns demo"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[project.scripts]
+notification-service = "server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=../../../schema/config.json
+#
+# A2A Multi-Agent Delegation Demo
+# ================================
+# This config routes A2A traffic through agentgateway to demonstrate
+# agent-to-agent communication with task delegation.
+#
+# Architecture:
+#   Client -> Gateway:3000 -> Claude Delegator:9001 -> LangGraph:9002 -> ADK:9003
+#
+# Each agent exposes an A2A endpoint and can discover/delegate to others.
+
+config:
+  logging:
+    format: json
+    fields:
+      add:
+        demo: a2a-delegation
+        backend: backend
+
+binds:
+# Main entry point - routes to Claude Delegator agent
+- port: 3000
+  listeners:
+  - routes:
+    - match:
+        # Route everything to the Claude Delegator agent
+        path: "/*"
+      policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - content-type
+          - cache-control
+        a2a: {}
+      backends:
+      - host: localhost:9001  # Claude Delegator
+
+# LangGraph processor accessible via gateway
+- port: 3001
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - content-type
+          - cache-control
+        a2a: {}
+      backends:
+      - host: localhost:9002  # LangGraph Processor
+
+# ADK specialist accessible via gateway
+- port: 3002
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - content-type
+          - cache-control
+        a2a: {}
+      backends:
+      - host: localhost:9003  # ADK Specialist

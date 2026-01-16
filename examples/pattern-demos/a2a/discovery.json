@@ -1,0 +1,93 @@
+{
+  "$schema": "https://a2aproject.github.io/A2A/schemas/discovery.json",
+  "version": "1.0.0",
+  "name": "A2A Delegation Demo Registry",
+  "description": "Agent discovery registry for the multi-agent delegation demo",
+  "agents": [
+    {
+      "id": "claude-delegator",
+      "name": "Claude Delegator",
+      "description": "Orchestrating agent that analyzes tasks and delegates to specialized agents",
+      "url": "http://localhost:3000",
+      "capabilities": {
+        "delegation": true,
+        "streaming": true
+      },
+      "skills": [
+        {
+          "id": "task-analysis",
+          "name": "Task Analysis",
+          "description": "Analyzes incoming tasks and determines optimal delegation strategy",
+          "tags": ["orchestration", "planning", "delegation"]
+        },
+        {
+          "id": "result-synthesis",
+          "name": "Result Synthesis",
+          "description": "Combines results from multiple agents into coherent response",
+          "tags": ["synthesis", "aggregation"]
+        }
+      ]
+    },
+    {
+      "id": "langgraph-processor",
+      "name": "LangGraph Processor",
+      "description": "Workflow agent that handles multi-step processing with state management",
+      "url": "http://localhost:3001",
+      "capabilities": {
+        "stateful": true,
+        "streaming": true
+      },
+      "skills": [
+        {
+          "id": "workflow-execution",
+          "name": "Workflow Execution",
+          "description": "Executes multi-step workflows with state persistence",
+          "tags": ["workflow", "state", "processing"]
+        },
+        {
+          "id": "data-transformation",
+          "name": "Data Transformation",
+          "description": "Transforms and processes data through defined pipelines",
+          "tags": ["data", "transformation", "pipeline"]
+        }
+      ]
+    },
+    {
+      "id": "adk-specialist",
+      "name": "Google ADK Specialist",
+      "description": "Specialized agent for Google Cloud operations and AI services",
+      "url": "http://localhost:3002",
+      "capabilities": {
+        "tools": true,
+        "streaming": true
+      },
+      "skills": [
+        {
+          "id": "cloud-operations",
+          "name": "Cloud Operations",
+          "description": "Performs Google Cloud infrastructure operations",
+          "tags": ["gcp", "cloud", "infrastructure"]
+        },
+        {
+          "id": "vertex-ai",
+          "name": "Vertex AI Integration",
+          "description": "Integrates with Vertex AI for ML operations",
+          "tags": ["ai", "ml", "vertex"]
+        }
+      ]
+    }
+  ],
+  "routing": {
+    "default": "claude-delegator",
+    "rules": [
+      {
+        "pattern": "*workflow*",
+        "target": "langgraph-processor"
+      },
+      {
+        "pattern": "*gcp*|*google*|*vertex*",
+        "target": "adk-specialist"
+      }
+    ]
+  }
+}

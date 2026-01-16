@@ -1,0 +1,81 @@
+%%{init: {'theme': 'neutral', 'sequence': {'mirrorActors': false}}}%%
+sequenceDiagram
+    autonumber
+    participant Client
+    participant Handler as MCP Handler
+    participant Saga as Saga Executor
+    participant Step as Step Executor
+    participant State as State Store
+    participant Tool1 as Tool: reserve_inventory
+    participant Tool2 as Tool: charge_payment
+    participant Tool3 as Tool: create_shipment
+    participant Comp1 as Compensate: release_inventory
+    participant Comp2 as Compensate: refund_payment
+
+    rect rgb(200, 240, 200)
+        Note over Client,Comp2: Saga: Order Processing with Compensation
+
+        Client->>Handler: tools/call {tool: "process_order", args: {...}}
+        Handler->>Saga: execute_saga(order_saga)
+
+        Saga->>State: create_saga_state(saga_id)
+        State-->>Saga: state_initialized
+
+        rect rgb(180, 230, 180)
+            Note over Saga,Tool1: Step 1: Reserve Inventory
+            Saga->>Step: execute_step(reserve_inventory)
+            Step->>Tool1: call_tool({product_id, quantity})
+            Tool1-->>Step: {reservation_id: "R123"}
+            Step-->>Saga: step_complete
+            Saga->>State: save_step_result(step_1, result)
+        end
+
+        rect rgb(180, 230, 180)
+            Note over Saga,Tool2: Step 2: Charge Payment
+            Saga->>Step: execute_step(charge_payment)
+            Step->>Tool2: call_tool({amount, card_token})
+            Tool2-->>Step: {transaction_id: "T456"}
+            Step-->>Saga: step_complete
+            Saga->>State: save_step_result(step_2, result)
+        end
+
+        rect rgb(255, 200, 200)
+            Note over Saga,Tool3: Step 3: Create Shipment (FAILS)
+            Saga->>Step: execute_step(create_shipment)
+            Step->>Tool3: call_tool({address, items})
+            Tool3--xStep: ERROR: shipping_unavailable
+            Step-->>Saga: step_failed(error)
+            Saga->>State: mark_saga_failed(step_3)
+        end
+
+        rect rgb(255, 220, 180)
+            Note over Saga,Comp2: COMPENSATION: Rollback in Reverse Order
+
+            Saga->>State: load_completed_steps()
+            State-->>Saga: [step_1, step_2]
+
+            rect rgb(255, 235, 200)
+                Note over Saga,Comp2: Compensate Step 2: Refund Payment
+                Saga->>Step: execute_compensation(refund_payment)
+                Step->>State: get_step_result(step_2)
+                State-->>Step: {transaction_id: "T456"}
+                Step->>Comp2: call_tool({transaction_id: "T456"})
+                Comp2-->>Step: {refund_id: "RF789"}
+                Step-->>Saga: compensation_complete
+            end
+
+            rect rgb(255, 235, 200)
+                Note over Saga,Comp1: Compensate Step 1: Release Inventory
+                Saga->>Step: execute_compensation(release_inventory)
+                Step->>State: get_step_result(step_1)
+                State-->>Step: {reservation_id: "R123"}
+                Step->>Comp1: call_tool({reservation_id: "R123"})
+                Comp1-->>Step: {released: true}
+                Step-->>Saga: compensation_complete
+            end
+        end
+
+        Saga->>State: mark_saga_compensated()
+        Saga-->>Handler: saga_result(failed, compensated)
+        Handler-->>Client: {error: "shipping_unavailable", compensated: true}
+    end

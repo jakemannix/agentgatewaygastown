@@ -9,6 +9,7 @@ mod pipeline;
 mod scatter_gather;
 mod schema_map;
 mod stateful;
+mod vision;
 
 pub use filter::{FieldPredicate, FilterSpec, PredicateValue};
 pub use map_each::{MapEachInner, MapEachSpec};
@@ -26,6 +27,11 @@ pub use stateful::{
 	BackoffStrategy, CacheSpec, CircuitBreakerSpec, ClaimCheckSpec, DeadLetterSpec,
 	ExponentialBackoff, FixedBackoff, IdempotentSpec, LinearBackoff, OnDuplicate, OnExceeded,
 	RetrySpec, SagaSpec, SagaStep, ThrottleSpec, ThrottleStrategy, TimeoutSpec,
+};
+pub use vision::{
+	CapabilityRouterSpec, ConfidenceAggregatorSpec, ConfidenceStrategy, DedupKeepStrategy,
+	EnrichmentSource, EnricherSpec, MergeStrategy, RecipientListSpec, RouteCase, RouterSpec,
+	SemanticDedupSpec, TapPoint, TapTarget, WeightedSource, WireTapSpec,
 };
 
 use serde::{Deserialize, Serialize};
@@ -77,6 +83,28 @@ pub enum PatternSpec {
 
 	/// Rate limiting for tool invocations
 	Throttle(ThrottleSpec),
+
+	// Vision patterns (advanced routing, enrichment, aggregation)
+	/// Content-based routing to different tools
+	Router(RouterSpec),
+
+	/// Augment input with parallel enrichments
+	Enricher(EnricherSpec),
+
+	/// Fire-and-forget side channel taps
+	WireTap(WireTapSpec),
+
+	/// Dynamic recipient list from input data
+	RecipientList(RecipientListSpec),
+
+	/// Route based on tool capabilities (MCP-specific)
+	CapabilityRouter(CapabilityRouterSpec),
+
+	/// Semantic similarity-based deduplication
+	SemanticDedup(SemanticDedupSpec),
+
+	/// Confidence-weighted aggregation
+	ConfidenceAggregator(ConfidenceAggregatorSpec),
 }
 
 impl PatternSpec {
@@ -99,13 +127,22 @@ impl PatternSpec {
 			PatternSpec::Saga(_) => vec![],
 			PatternSpec::ClaimCheck(_) => vec![],
 			PatternSpec::Throttle(_) => vec![],
+			// Vision patterns - include referenced tools for validation
+			PatternSpec::Router(r) => r.referenced_tools(),
+			PatternSpec::Enricher(e) => e.referenced_tools(),
+			PatternSpec::WireTap(w) => w.referenced_tools(),
+			PatternSpec::RecipientList(rl) => rl.referenced_tools(),
+			PatternSpec::CapabilityRouter(cr) => cr.referenced_tools(),
+			PatternSpec::SemanticDedup(sd) => sd.referenced_tools(),
+			PatternSpec::ConfidenceAggregator(ca) => ca.referenced_tools(),
 		}
 	}
 
-	/// Returns true if this is a stateful pattern that is not yet implemented
+	/// Returns true if this is a stateful or vision pattern that is not yet implemented
 	pub fn is_stateful_unimplemented(&self) -> bool {
 		matches!(
 			self,
+			// Stateful patterns
 			PatternSpec::Retry(_)
 				| PatternSpec::Timeout(_)
 				| PatternSpec::Cache(_)
@@ -115,6 +152,14 @@ impl PatternSpec {
 				| PatternSpec::Saga(_)
 				| PatternSpec::ClaimCheck(_)
 				| PatternSpec::Throttle(_)
+				// Vision patterns
+				| PatternSpec::Router(_)
+				| PatternSpec::Enricher(_)
+				| PatternSpec::WireTap(_)
+				| PatternSpec::RecipientList(_)
+				| PatternSpec::CapabilityRouter(_)
+				| PatternSpec::SemanticDedup(_)
+				| PatternSpec::ConfidenceAggregator(_)
 		)
 	}
 
@@ -135,6 +180,13 @@ impl PatternSpec {
 			PatternSpec::Saga(_) => "saga",
 			PatternSpec::ClaimCheck(_) => "claim_check",
 			PatternSpec::Throttle(_) => "throttle",
+			PatternSpec::Router(_) => "router",
+			PatternSpec::Enricher(_) => "enricher",
+			PatternSpec::WireTap(_) => "wire_tap",
+			PatternSpec::RecipientList(_) => "recipient_list",
+			PatternSpec::CapabilityRouter(_) => "capability_router",
+			PatternSpec::SemanticDedup(_) => "semantic_dedup",
+			PatternSpec::ConfidenceAggregator(_) => "confidence_aggregator",
 		}
 	}
 }
@@ -240,5 +292,150 @@ mod tests {
 		assert!(matches!(spec, PatternSpec::Throttle(_)));
 		assert_eq!(spec.pattern_name(), "throttle");
 		assert!(spec.is_stateful_unimplemented());
+	}
+
+	// Vision pattern tests
+
+	#[test]
+	fn test_parse_router_pattern() {
+		let json = r#"{
+			"router": {
+				"routes": [
+					{
+						"when": {
+							"field": "$.type",
+							"op": "eq",
+							"value": { "stringValue": "pdf" }
+						},
+						"then": { "tool": { "name": "pdf_processor" } }
+					}
+				],
+				"otherwise": { "tool": { "name": "default_processor" } }
+			}
+		}"#;
+
+		let spec: PatternSpec = serde_json::from_str(json).unwrap();
+		assert!(matches!(spec, PatternSpec::Router(_)));
+		assert_eq!(spec.pattern_name(), "router");
+		assert!(spec.is_stateful_unimplemented());
+		assert_eq!(spec.referenced_tools(), vec!["pdf_processor", "default_processor"]);
+	}
+
+	#[test]
+	fn test_parse_enricher_pattern() {
+		let json = r#"{
+			"enricher": {
+				"enrichments": [
+					{
+						"field": "metadata",
+						"operation": { "tool": { "name": "fetch_metadata" } }
+					}
+				],
+				"merge": "spread",
+				"ignoreFailures": true
+			}
+		}"#;
+
+		let spec: PatternSpec = serde_json::from_str(json).unwrap();
+		assert!(matches!(spec, PatternSpec::Enricher(_)));
+		assert_eq!(spec.pattern_name(), "enricher");
+		assert!(spec.is_stateful_unimplemented());
+		assert_eq!(spec.referenced_tools(), vec!["fetch_metadata"]);
+	}
+
+	#[test]
+	fn test_parse_wiretap_pattern() {
+		let json = r#"{
+			"wireTap": {
+				"inner": { "tool": { "name": "main_process" } },
+				"taps": [
+					{ "tool": "audit_logger" }
+				],
+				"tapPoint": "after"
+			}
+		}"#;
+
+		let spec: PatternSpec = serde_json::from_str(json).unwrap();
+		assert!(matches!(spec, PatternSpec::WireTap(_)));
+		assert_eq!(spec.pattern_name(), "wire_tap");
+		assert!(spec.is_stateful_unimplemented());
+		assert_eq!(spec.referenced_tools(), vec!["main_process", "audit_logger"]);
+	}
+
+	#[test]
+	fn test_parse_recipient_list_pattern() {
+		let json = r#"{
+			"recipientList": {
+				"recipientsPath": "$.targets",
+				"parallel": true,
+				"failOnError": false
+			}
+		}"#;
+
+		let spec: PatternSpec = serde_json::from_str(json).unwrap();
+		assert!(matches!(spec, PatternSpec::RecipientList(_)));
+		assert_eq!(spec.pattern_name(), "recipient_list");
+		assert!(spec.is_stateful_unimplemented());
+	}
+
+	#[test]
+	fn test_parse_capability_router_pattern() {
+		let json = r#"{
+			"capabilityRouter": {
+				"required": ["text-generation"],
+				"preferred": ["low-latency"],
+				"fallback": { "tool": { "name": "default_tool" } }
+			}
+		}"#;
+
+		let spec: PatternSpec = serde_json::from_str(json).unwrap();
+		assert!(matches!(spec, PatternSpec::CapabilityRouter(_)));
+		assert_eq!(spec.pattern_name(), "capability_router");
+		assert!(spec.is_stateful_unimplemented());
+		assert_eq!(spec.referenced_tools(), vec!["default_tool"]);
+	}
+
+	#[test]
+	fn test_parse_semantic_dedup_pattern() {
+		let json = r#"{
+			"semanticDedup": {
+				"embedder": "text_embedder",
+				"contentPath": "$.content",
+				"threshold": 0.9,
+				"keep": "first"
+			}
+		}"#;
+
+		let spec: PatternSpec = serde_json::from_str(json).unwrap();
+		assert!(matches!(spec, PatternSpec::SemanticDedup(_)));
+		assert_eq!(spec.pattern_name(), "semantic_dedup");
+		assert!(spec.is_stateful_unimplemented());
+		assert_eq!(spec.referenced_tools(), vec!["text_embedder"]);
+	}
+
+	#[test]
+	fn test_parse_confidence_aggregator_pattern() {
+		let json = r#"{
+			"confidenceAggregator": {
+				"sources": [
+					{
+						"operation": { "tool": { "name": "expert_api" } },
+						"weight": 0.9
+					},
+					{
+						"operation": { "tool": { "name": "fallback_api" } },
+						"weight": 0.5
+					}
+				],
+				"strategy": "weighted_vote",
+				"minWeight": 0.7
+			}
+		}"#;
+
+		let spec: PatternSpec = serde_json::from_str(json).unwrap();
+		assert!(matches!(spec, PatternSpec::ConfidenceAggregator(_)));
+		assert_eq!(spec.pattern_name(), "confidence_aggregator");
+		assert!(spec.is_stateful_unimplemented());
+		assert_eq!(spec.referenced_tools(), vec!["expert_api", "fallback_api"]);
 	}
 }

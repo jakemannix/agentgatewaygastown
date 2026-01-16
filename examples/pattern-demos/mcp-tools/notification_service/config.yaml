@@ -1,0 +1,22 @@
+# Example Agent Gateway configuration for Notification Service
+#
+# This demonstrates running the notification MCP server through the gateway.
+
+listeners:
+  - address: "localhost:3000"
+    mcp:
+      enabled: true
+
+targets:
+  notifications:
+    mcp_server:
+      # Run the notification service as a subprocess
+      command: python
+      args:
+        - server.py
+      # Working directory (relative to config location)
+      cwd: "."
+      # Environment variables (optional)
+      env:
+        PYTHONUNBUFFERED: "1"
+    description: "Notification service with email, slack, and in-app channels"

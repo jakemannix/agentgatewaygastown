@@ -211,6 +211,50 @@ impl CompositionExecutor {
 						For distributed: configure a store backend with atomic increment support."
 						.to_string(),
 				}),
+
+				// Vision patterns (IR defined, runtime not yet implemented)
+				PatternSpec::Router(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "router".to_string(),
+					details: "The router pattern provides content-based routing to different tools based on predicates. \
+						Implement RouterExecutor to evaluate route conditions and dispatch to matching operations."
+						.to_string(),
+				}),
+				PatternSpec::Enricher(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "enricher".to_string(),
+					details: "The enricher pattern augments input with parallel enrichment calls. \
+						Implement EnricherExecutor to run enrichments concurrently and merge results."
+						.to_string(),
+				}),
+				PatternSpec::WireTap(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "wire_tap".to_string(),
+					details: "The wire tap pattern sends copies of data to side channels without affecting main flow. \
+						Implement WireTapExecutor to spawn fire-and-forget tap operations."
+						.to_string(),
+				}),
+				PatternSpec::RecipientList(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "recipient_list".to_string(),
+					details: "The recipient list pattern dynamically determines targets at runtime from input data. \
+						Implement RecipientListExecutor to resolve recipients and dispatch operations."
+						.to_string(),
+				}),
+				PatternSpec::CapabilityRouter(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "capability_router".to_string(),
+					details: "The capability router pattern routes based on tool capabilities from registry introspection. \
+						Implement CapabilityRouterExecutor to query registry for matching tools."
+						.to_string(),
+				}),
+				PatternSpec::SemanticDedup(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "semantic_dedup".to_string(),
+					details: "The semantic dedup pattern deduplicates based on embedding similarity. \
+						Implement SemanticDedupExecutor with embedding service integration."
+						.to_string(),
+				}),
+				PatternSpec::ConfidenceAggregator(_) => Err(ExecutionError::StatefulPatternNotImplemented {
+					pattern: "confidence_aggregator".to_string(),
+					details: "The confidence aggregator pattern provides weighted aggregation based on source reliability. \
+						Implement ConfidenceAggregatorExecutor with consensus and conflict detection logic."
+						.to_string(),
+				}),
 			}
 		})
 	}

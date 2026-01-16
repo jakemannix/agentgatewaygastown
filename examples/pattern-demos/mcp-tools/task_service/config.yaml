@@ -1,0 +1,23 @@
+# Agent Gateway configuration for MCP Task Service
+#
+# This configuration shows how to integrate the task service with Agent Gateway.
+# The task service demonstrates CRUD operations and saga patterns.
+
+listeners:
+  - address: 0.0.0.0:3000
+    routes:
+      - upstream: task-service
+
+servers:
+  - name: task-service
+    prefix: ""
+    transport:
+      type: stdio
+      command: uv
+      args:
+        - run
+        - python
+        - -m
+        - task_service
+        - --db
+        - /tmp/tasks.db

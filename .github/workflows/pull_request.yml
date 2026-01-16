@@ -114,3 +114,14 @@ jobs:
         cd ui
         npm ci
         npm run lint
+
+  bench:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - name: Run benchmarks
+      run: make bench
