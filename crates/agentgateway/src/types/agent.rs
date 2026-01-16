@@ -10,7 +10,8 @@ use std::sync::{Arc, RwLock};
 use crate::http::auth::BackendAuth;
 use crate::http::authorization::RuleSet;
 use crate::http::{
-	HeaderOrPseudo, HeaderValue, ext_authz, ext_proc, filters, remoteratelimit, retry, timeout,
+	HeaderOrPseudo, HeaderValue, ext_authz, ext_proc, filters, remoteratelimit, retry, stateful,
+	timeout,
 };
 use crate::mcp::McpAuthorization;
 use crate::telemetry::log::OrderedStringMap;
@@ -1907,6 +1908,7 @@ pub enum BackendPolicy {
 	InferenceRouting(ext_proc::InferenceRouting),
 	AI(Arc<llm::Policy>),
 	SessionPersistence(http::sessionpersistence::Policy),
+	CircuitBreaker(stateful::CircuitBreakerSpec),
 
 	RequestHeaderModifier(filters::HeaderModifier),
 	ResponseHeaderModifier(filters::HeaderModifier),

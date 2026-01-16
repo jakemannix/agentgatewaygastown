@@ -220,6 +220,8 @@ async fn apply_backend_policies(
 		request_mirror: _,
 		// Applied elsewhere
 		override_dest: _,
+		// Circuit breaker is applied at a different layer
+		circuit_breaker: _,
 	} = &backend_call.backend_policies;
 	response_policies.backend_response_header = response_header_modifier.clone();
 

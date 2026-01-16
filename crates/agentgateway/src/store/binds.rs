@@ -12,7 +12,7 @@ use crate::http::auth::BackendAuth;
 use crate::http::authorization::HTTPAuthorizationSet;
 use crate::http::backendtls::BackendTLS;
 use crate::http::ext_proc::InferenceRouting;
-use crate::http::{ext_authz, ext_proc, filters, remoteratelimit, retry, timeout};
+use crate::http::{ext_authz, ext_proc, filters, remoteratelimit, retry, stateful, timeout};
 use crate::llm::policy::ResponseGuard;
 use crate::mcp::McpAuthorizationSet;
 use crate::proxy::httpproxy::PolicyClient;
@@ -107,6 +107,7 @@ pub struct BackendPolicies {
 	pub request_mirror: Vec<filters::RequestMirror>,
 
 	pub session_persistence: Option<http::sessionpersistence::Policy>,
+	pub circuit_breaker: Option<stateful::CircuitBreakerSpec>,
 
 	/// Internal-only override for destination endpoint selection.
 	/// Used for stateful MCP routing (session affinity).
@@ -141,6 +142,7 @@ impl BackendPolicies {
 				other.request_mirror
 			},
 			session_persistence: other.session_persistence.or(self.session_persistence),
+			circuit_breaker: other.circuit_breaker.or(self.circuit_breaker),
 			override_dest: other.override_dest.or(self.override_dest),
 		}
 	}
@@ -624,6 +626,9 @@ impl Store {
 				},
 				BackendPolicy::McpAuthentication(p) => {
 					pol.mcp_authentication.get_or_insert_with(|| p.clone());
+				},
+				BackendPolicy::CircuitBreaker(p) => {
+					pol.circuit_breaker.get_or_insert_with(|| p.clone());
 				},
 			}
 		}
