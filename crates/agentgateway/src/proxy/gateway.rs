@@ -64,11 +64,11 @@ impl Gateway {
 				},
 			};
 			if active.contains_key(&b.address) {
-				debug!("bind already exists");
+				debug!(target: "operational", "bind already exists");
 				return;
 			}
 
-			debug!("add bind {}", b.address);
+			debug!(target: "operational", "add bind {}", b.address);
 			if self.pi.cfg.threading_mode == crate::ThreadingMode::ThreadPerCore {
 				let core_ids = core_affinity::get_core_ids().unwrap();
 				let _ = core_ids
@@ -120,11 +120,11 @@ impl Gateway {
 					warn!("bind complete {res:?}");
 				}
 				_ = &mut wait => {
-					info!("stop listening for binds; drain started");
+					info!(target: "operational", "stop listening for binds; drain started");
 					while let Some(res) = js.join_next().await  {
-						info!("bind complete {res:?}");
+						info!(target: "operational", "bind complete {res:?}");
 					}
-					info!("binds drained");
+					info!(target: "operational", "binds drained");
 					return
 				}
 			}
@@ -167,7 +167,7 @@ impl Gateway {
 		} else {
 			(pi, TcpListener::bind(b.address).await?)
 		};
-		info!(bind = name.as_str(), "started bind");
+		info!(target: "operational", bind = name.as_str(), "started bind");
 		let component = format!("bind {name}");
 
 		// Desired drain semantics:
@@ -205,15 +205,15 @@ impl Gateway {
 				let mut force_shutdown = force_shutdown.clone();
 				let name = name.clone();
 				tokio::spawn(async move {
-					debug!(bind=?name, "connection started");
+					debug!(target: "connections", bind=?name, "connection started");
 					tokio::select! {
 						// We took too long; shutdown now.
 						_ = force_shutdown.changed() => {
-							info!(bind=?name, "connection forcefully terminated");
+							info!(target: "connections", bind=?name, "connection forcefully terminated");
 						}
 						_ = Self::handle_tunnel(name.clone(), bind_protocol, tunnel_protocol, stream, pi, drain) => {}
 					}
-					debug!(bind=?name, dur=?start.elapsed(), "connection completed");
+					debug!(target: "connections", bind=?name, dur=?start.elapsed(), "connection completed");
 				});
 			};
 			let wait = drain_watch.wait_for_drain();
@@ -272,7 +272,7 @@ impl Gateway {
 		}
 		let peer_addr = raw_stream.tcp().peer_addr;
 		event!(
-			target: "downstream connection",
+			target: "connections",
 			parent: None,
 			tracing::Level::DEBUG,
 
@@ -293,7 +293,7 @@ impl Gateway {
 				)
 				.await;
 				if let Err(e) = err {
-					warn!(src.addr = %peer_addr, "proxy error: {e}");
+					warn!(target: "connections", src_addr = %peer_addr, "proxy error: {e}");
 				}
 			},
 			BindProtocol::tcp => Self::proxy_tcp(bind_name, inputs, None, raw_stream, drain).await,

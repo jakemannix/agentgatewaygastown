@@ -116,6 +116,7 @@ export interface Policies {
   extAuthz?: any;
   timeout?: TimeoutPolicy | null;
   retry?: RetryPolicy | null;
+  deadLetter?: DeadLetterPolicy | null;
 }
 
 // Top-level applied policy entries from config dump
@@ -243,6 +244,13 @@ export interface RetryPolicy {
   attempts?: number; // uint8, 1-255, default: 1
   backoff?: string | null;
   codes: number[]; // uint8[], 1-255
+}
+
+export interface DeadLetterPolicy {
+  deadLetterTool: string; // Tool to send the failed request to
+  maxAttempts?: number; // uint8, 1-255, default: 1
+  backoff?: string | null; // Backoff between retries before dead-lettering
+  rethrow?: boolean; // Whether to rethrow error after dead-lettering
 }
 
 export interface Backend {

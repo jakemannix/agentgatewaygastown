@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vMCP: Tool Virtualization & Composition | AgentGateway</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+    <style>
+        :root {
+            --r-background-color: #0d1117;
+            --r-main-color: #c9d1d9;
+            --r-heading-color: #58a6ff;
+            --r-link-color: #58a6ff;
+            --r-selection-background-color: #388bfd;
+        }
+        .reveal h1, .reveal h2, .reveal h3 {
+            text-transform: none;
+        }
+        .reveal pre {
+            width: 100%;
+            font-size: 0.55em;
+        }
+        .reveal code {
+            background: #161b22;
+            padding: 0.1em 0.3em;
+            border-radius: 4px;
+        }
+        .reveal pre code {
+            padding: 1em;
+            max-height: 500px;
+        }
+        .reveal .highlight-blue { color: #58a6ff; }
+        .reveal .highlight-green { color: #3fb950; }
+        .reveal .highlight-orange { color: #d29922; }
+        .reveal .highlight-red { color: #f85149; }
+        .reveal .highlight-purple { color: #bc8cff; }
+        .reveal table {
+            font-size: 0.7em;
+        }
+        .reveal table th {
+            background: #21262d;
+        }
+        .reveal table td, .reveal table th {
+            border: 1px solid #30363d;
+            padding: 0.4em 0.6em;
+        }
+        .reveal .two-column {
+            display: flex;
+            gap: 2em;
+        }
+        .reveal .two-column > div {
+            flex: 1;
+        }
+        .reveal .small-text {
+            font-size: 0.7em;
+        }
+        .reveal .smaller-text {
+            font-size: 0.6em;
+        }
+        .reveal .diagram-box {
+            background: #161b22;
+            border: 2px solid #30363d;
+            border-radius: 8px;
+            padding: 1em;
+            margin: 0.5em 0;
+        }
+        .reveal .flow-arrow {
+            color: #58a6ff;
+            font-size: 1.2em;
+        }
+        .reveal section.title-slide h1 {
+            font-size: 2.2em;
+        }
+        .reveal section.title-slide h2 {
+            color: #8b949e;
+            font-size: 1.2em;
+        }
+        .reveal blockquote {
+            background: #161b22;
+            border-left: 4px solid #58a6ff;
+            padding: 0.5em 1em;
+            font-style: normal;
+        }
+        .reveal .layer-box {
+            background: #161b22;
+            border: 2px solid #30363d;
+            border-radius: 8px;
+            padding: 0.8em;
+            margin: 0.3em 0;
+            text-align: center;
+        }
+        .reveal .layer-advanced {
+            border-color: #bc8cff;
+        }
+        .reveal .layer-medium {
+            border-color: #d29922;
+        }
+        .reveal .layer-simple {
+            border-color: #3fb950;
+        }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+
+            <!-- Title Slide -->
+            <section class="title-slide" data-background-gradient="linear-gradient(135deg, #0d1117 0%, #161b22 100%)">
+                <h1>vMCP: Tool Virtualization<br>& Composition</h1>
+                <h2>Virtual Tools, Tool Registry & Tool Algebra</h2>
+                <p style="margin-top: 2em; color: #8b949e;">
+                    <small>AgentGateway</small>
+                </p>
+            </section>
+
+            <!-- The Three Layers -->
+            <section>
+                <h2>Three Layers of Abstraction</h2>
+                <div class="layer-box layer-advanced">
+                    <span class="highlight-purple">Tool Algebra</span><br>
+                    <span class="smaller-text">Advanced: N:1 Compositions (pipeline, scatter-gather, saga...)</span>
+                </div>
+                <div class="layer-box layer-medium fragment">
+                    <span class="highlight-orange">Tool Registry</span><br>
+                    <span class="smaller-text">Medium: Discovery, Versioning, Hot-Reload</span>
+                </div>
+                <div class="layer-box layer-simple fragment">
+                    <span class="highlight-green">Virtual Tools</span><br>
+                    <span class="smaller-text">Simple: 1:1 Overrides (rename, reshape, inject defaults)</span>
+                </div>
+                <p class="fragment small-text" style="margin-top: 1em; color: #8b949e;">
+                    Each layer builds on the one below it
+                </p>
+            </section>
+
+            <!-- Part 1: Virtual Tools -->
+            <section>
+                <section>
+                    <h2 class="highlight-green">Part 1: Virtual Tools</h2>
+                    <h3>Simple 1:1 Overrides</h3>
+                </section>
+
+                <section>
+                    <h3>What Are Virtual Tools?</h3>
+                    <p>Simple <span class="highlight-green">1:1 mappings</span> that override backend tool properties:</p>
+                    <ul>
+                        <li class="fragment"><span class="highlight-blue">Rename</span> — Give agent-friendly names</li>
+                        <li class="fragment"><span class="highlight-green">Redescribe</span> — Override the description</li>
+                        <li class="fragment"><span class="highlight-orange">Reshape</span> — Override input/output schemas</li>
+                        <li class="fragment"><span class="highlight-purple">Inject</span> — Add default parameter values</li>
+                        <li class="fragment"><span class="highlight-red">Hide</span> — Remove fields from schema</li>
+                    </ul>
+                    <p class="fragment" style="margin-top: 1em; font-style: italic;">
+                        All without touching the backend tool!
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Virtual Tool Definition</h3>
+                    <pre><code class="language-rust">pub struct VirtualToolDef {
+    pub name: String,           // Override: exposed name
+    pub source: ToolSource,     // Reference to backend tool
+    pub description: Option&lt;String&gt;,    // Override: description
+    pub input_schema: Option&lt;Value&gt;,    // Override: input schema
+    pub defaults: HashMap&lt;String, Value&gt;, // Inject: default values
+    pub hide_fields: Vec&lt;String&gt;,       // Hide: remove from schema
+    pub output_schema: Option&lt;OutputSchema&gt;, // Override: output
+    pub version: Option&lt;String&gt;,        // Semantic version
+    pub metadata: HashMap&lt;String, Value&gt;, // Arbitrary metadata
+}</code></pre>
+                </section>
+
+                <section>
+                    <h3>Example: Weather Tool Override</h3>
+                    <pre><code class="language-json">{
+  "name": "get_weather",
+  "source": { "target": "weather-service", "tool": "fetch_weather" },
+  "description": "Get current weather for a city",
+  "defaults": {
+    "api_key": "${WEATHER_API_KEY}",
+    "units": "metric"
+  },
+  "hideFields": ["debug_mode", "raw_output"],
+  "outputSchema": {
+    "properties": {
+      "temperature": { "sourceField": "$.data.current.temp_f" },
+      "conditions": { "sourceField": "$.data.current.condition.text" }
+    }
+  },
+  "version": "2.1.0"
+}</code></pre>
+                </section>
+
+                <section>
+                    <h3>Override: Rename & Redescribe</h3>
+                    <pre><code class="language-json">{
+  "name": "get_customer_emails",
+  "source": {
+    "target": "salesforce",
+    "tool": "query_contacts"
+  },
+  "description": "Get email addresses for customers at a company"
+}</code></pre>
+                    <p class="small-text fragment">
+                        Backend: <code>salesforce.query_contacts</code><br>
+                        Agent sees: <code>get_customer_emails</code>
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Override: Input Schema</h3>
+                    <p>Simplify what the agent needs to provide:</p>
+                    <pre><code class="language-json">{
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company_name": {
+        "type": "string",
+        "description": "Company name to search for"
+      }
+    },
+    "required": ["company_name"]
+  }
+}</code></pre>
+                    <p class="small-text fragment">
+                        Backend expects complex SOQL → Agent provides simple <code>company_name</code>
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Inject: Default Values</h3>
+                    <p>Automatically inject parameters:</p>
+                    <pre><code class="language-json">{
+  "defaults": {
+    "api_key": "${WEATHER_API_KEY}",
+    "timeout": 30,
+    "units": "metric"
+  }
+}</code></pre>
+                    <p class="small-text fragment">
+                        Environment variable substitution: <code>${VAR_NAME}</code><br>
+                        Agent doesn't need to provide these values
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Hide: Remove Fields from Schema</h3>
+                    <pre><code class="language-json">{
+  "hideFields": [
+    "debug_mode",
+    "raw_output",
+    "internal_trace_id",
+    "legacy_format"
+  ]
+}</code></pre>
+                    <p class="small-text fragment">
+                        These fields are removed from the exposed schema<br>
+                        Agent never sees them, can't accidentally set them
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Override: Output Schema (JSONPath)</h3>
+                    <p>Transform output with JSONPath extraction:</p>
+                    <pre><code class="language-json">{
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "temperature": {
+        "type": "number",
+        "sourceField": "$.data.current.temp_f"
+      },
+      "conditions": {
+        "type": "string",
+        "sourceField": "$.data.current.condition.text"
+      }
+    }
+  }
+}</code></pre>
+                    <p class="small-text fragment">
+                        Backend returns 50+ fields → Agent sees 2 fields
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Virtual Tools Summary</h3>
+                    <table>
+                        <thead>
+                            <tr><th>Override</th><th>Field</th><th>Purpose</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Rename</td><td><code>name</code></td><td>Agent-friendly name</td></tr>
+                            <tr><td>Redescribe</td><td><code>description</code></td><td>Task-specific docs</td></tr>
+                            <tr><td>Reshape Input</td><td><code>inputSchema</code></td><td>Simplify parameters</td></tr>
+                            <tr><td>Inject Defaults</td><td><code>defaults</code></td><td>Auto-fill values</td></tr>
+                            <tr><td>Hide Fields</td><td><code>hideFields</code></td><td>Remove from schema</td></tr>
+                            <tr><td>Reshape Output</td><td><code>outputSchema</code></td><td>JSONPath extraction</td></tr>
+                        </tbody>
+                    </table>
+                </section>
+            </section>
+
+            <!-- Part 2: Tool Registry -->
+            <section>
+                <section>
+                    <h2 class="highlight-orange">Part 2: Tool Registry</h2>
+                    <h3>Centralized Discovery & Management</h3>
+                </section>
+
+                <section>
+                    <h3>What Is The Tool Registry?</h3>
+                    <p>A centralized catalog that manages virtual tools:</p>
+                    <ul>
+                        <li class="fragment"><span class="highlight-blue">Discovery</span> — Find available tools</li>
+                        <li class="fragment"><span class="highlight-green">Versioning</span> — Semantic versions for tools</li>
+                        <li class="fragment"><span class="highlight-orange">Hot-Reload</span> — Update without restart</li>
+                        <li class="fragment"><span class="highlight-purple">Multiple Sources</span> — File or HTTP</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Registry Configuration</h3>
+                    <pre><code class="language-yaml"># From local file (with hot-reload on change)
+registry:
+  source: file:///etc/agentgateway/tools.json
+  refreshInterval: 30s
+
+# From HTTP endpoint
+registry:
+  source: http://registry.corp.com/api/v1/tools
+  refreshInterval: 5m
+  auth:
+    bearer: ${REGISTRY_TOKEN}</code></pre>
+                </section>
+
+                <section>
+                    <h3>Registry JSON Structure</h3>
+                    <pre><code class="language-json">{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "get_weather",
+      "source": { "target": "weather", "tool": "fetch_weather" },
+      "description": "Get current weather",
+      "version": "2.1.0",
+      "defaults": { "units": "metric" },
+      "hideFields": ["debug_mode"],
+      "outputSchema": { ... }
+    },
+    {
+      "name": "search_docs",
+      "source": { "target": "confluence", "tool": "search" },
+      "version": "1.3.0",
+      ...
+    }
+  ]
+}</code></pre>
+                </section>
+
+                <section>
+                    <h3>Versioning</h3>
+                    <p>Tools have semantic versions:</p>
+                    <pre><code class="language-json">{
+  "name": "get_weather",
+  "version": "2.1.0",
+  "metadata": {
+    "owner": "weather-team",
+    "dataClassification": "public",
+    "deprecatedAt": null
+  }
+}</code></pre>
+                    <p class="small-text fragment">
+                        Track changes, detect drift, manage deprecation
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Hot-Reload Mechanism</h3>
+                    <pre><code class="language-rust">pub struct RegistryStore {
+    // Atomic registry replacement via ArcSwap
+    current: Arc&lt;ArcSwap&lt;Option&lt;CompiledRegistry&gt;&gt;&gt;,
+}
+
+impl RegistryStore {
+    // Readers see updates without blocking
+    pub fn update(&self, registry: Registry) {
+        let compiled = CompiledRegistry::compile(registry);
+        self.current.store(Arc::new(Some(compiled)));
+    }
+}</code></pre>
+                    <p class="smaller-text fragment">
+                        <span class="highlight-green">File source:</span> Watcher triggers on file change<br>
+                        <span class="highlight-blue">HTTP source:</span> Background refresh at interval
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Request Flow</h3>
+                    <div class="diagram-box small-text">
+                        <p><strong>ListTools:</strong></p>
+                        <p>
+                            Agent requests tools → Gateway queries backends →<br>
+                            Registry applies overrides → Returns virtual tool list
+                        </p>
+                    </div>
+                    <div class="diagram-box small-text fragment">
+                        <p><strong>CallTool:</strong></p>
+                        <p>
+                            Agent calls <code>get_weather</code> → Registry resolves to <code>weather/fetch_weather</code> →<br>
+                            Injects defaults → Calls backend → Transforms output → Returns
+                        </p>
+                    </div>
+                </section>
+            </section>
+
+            <!-- Part 3: Tool Algebra -->
+            <section>
+                <section>
+                    <h2 class="highlight-purple">Part 3: Tool Algebra</h2>
+                    <h3>Advanced N:1 Compositions</h3>
+                </section>
+
+                <section>
+                    <h3>The Problem</h3>
+                    <p>Virtual tools are 1:1 mappings.</p>
+                    <p class="fragment">But what about <span class="highlight-purple">composing multiple tools</span>?</p>
+                    <ul class="fragment small-text">
+                        <li>Search 3 sources in parallel, aggregate results</li>
+                        <li>Chain tools: search → fetch → summarize</li>
+                        <li>Route to different tools based on input</li>
+                        <li>Retry failed operations with backoff</li>
+                    </ul>
+                    <p class="fragment">
+                        Today: <span class="highlight-red">imperative glue code</span> in every agent
+                    </p>
+                </section>
+
+                <section>
+                    <h3>The Vision</h3>
+                    <blockquote>
+                        What if <code>scatter_gather</code>, <code>pipeline</code>, <code>circuit_breaker</code>, and <code>retry</code> were first-class primitives you could compose declaratively?
+                    </blockquote>
+                    <p class="fragment small-text">
+                        Inspired by <span class="highlight-blue">Apache Camel</span>'s Enterprise Integration Patterns
+                    </p>
+                </section>
+
+                <section>
+                    <h3>The Analogy</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Apache Camel</th>
+                                <th>MCP Tool Algebra</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Endpoint (HTTP, JMS)</td>
+                                <td>MCP Server/Tool</td>
+                            </tr>
+                            <tr>
+                                <td>Message</td>
+                                <td>Tool Input/Output (JSON)</td>
+                            </tr>
+                            <tr>
+                                <td>Route</td>
+                                <td>Tool Pipeline/Workflow</td>
+                            </tr>
+                            <tr>
+                                <td>Processor</td>
+                                <td>Tool Result Transformer</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <section>
+                    <h3>Pattern Catalog</h3>
+                    <table style="font-size: 0.6em;">
+                        <thead>
+                            <tr><th>Pattern</th><th>Type</th><th>Purpose</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td class="highlight-blue">Pipeline</td><td>N:1</td><td>Sequential: output feeds next input</td></tr>
+                            <tr><td class="highlight-green">Scatter-Gather</td><td>N:1</td><td>Parallel: query multiple, aggregate</td></tr>
+                            <tr><td class="highlight-orange">Router</td><td>1:N</td><td>Dispatch based on input content</td></tr>
+                            <tr><td class="highlight-purple">Filter</td><td>1:1</td><td>Pass/block based on predicate</td></tr>
+                            <tr><td class="highlight-red">Normalizer</td><td>N:1</td><td>Unify heterogeneous outputs</td></tr>
+                            <tr><td>Enricher</td><td>N:1</td><td>Augment with additional data</td></tr>
+                            <tr><td>Circuit Breaker</td><td>1:1</td><td>Fail fast on repeated failures</td></tr>
+                            <tr><td>Saga</td><td>N:1</td><td>Distributed transactions</td></tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <section>
+                    <h3>Pattern: Pipeline</h3>
+                    <p>Chain tools where output feeds next input:</p>
+                    <pre><code class="language-javascript">// research_pipeline: (query: string) -> Summary
+pipeline(
+    web_search,      // string -> SearchResult[]
+    extract_urls,    // SearchResult[] -> URL[]
+    web_fetch,       // URL[] -> Document[]
+    summarize        // Document[] -> Summary
+)</code></pre>
+                    <div class="diagram-box small-text fragment">
+                        <code>query → [search] → [extract] → [fetch] → [summarize] → Summary</code>
+                    </div>
+                </section>
+
+                <section>
+                    <h3>Pattern: Scatter-Gather</h3>
+                    <p>Query multiple sources in parallel, aggregate results:</p>
+                    <pre><code class="language-javascript">// knowledge_search: (query: string) -> RankedAnswer
+scatter_gather({
+    targets: [web_search, arxiv_search, internal_docs],
+    aggregate: [flatten, dedupe, sort_by_relevance, limit(10)],
+    timeout: 5s
+})</code></pre>
+                    <div class="diagram-box small-text fragment">
+                        <pre>        ┌→ web_search ────┐
+query ──┼→ arxiv_search ──┼→ Aggregate → Results
+        └→ internal_docs ─┘</pre>
+                    </div>
+                </section>
+
+                <section>
+                    <h3>Pattern: Content-Based Router</h3>
+                    <p>Dispatch to different tools based on input:</p>
+                    <pre><code class="language-javascript">// analyze_document: (file: File) -> ExtractedText
+route(input) {
+    when(input.type == "pdf")  -> pdf_tool.extract
+    when(input.type == "xlsx") -> xlsx_tool.read
+    when(input.type == "docx") -> docx_tool.parse
+    otherwise                  -> generic_extractor
+}</code></pre>
+                </section>
+
+                <section>
+                    <h3>Pattern: Normalizer</h3>
+                    <p>Convert heterogeneous outputs to common schema:</p>
+                    <pre><code class="language-javascript">// unified_search: (query: string) -> UnifiedDocument[]
+normalize(
+    sources: {
+        gdrive: gdrive_search,      // {name, link, mimeType}
+        slack: slack_search,        // {title, url, ts, channel}
+        confluence: confluence_search // {page, href, space}
+    },
+    to_schema: UnifiedDocument      // {title, content, source, url}
+)</code></pre>
+                </section>
+
+                <section>
+                    <h3>Resilience Patterns</h3>
+                    <div class="two-column small-text">
+                        <div>
+                            <p><strong class="highlight-blue">Circuit Breaker</strong></p>
+                            <pre><code class="language-javascript">circuit_breaker({
+    tool: external_api,
+    failure_threshold: 5,
+    reset_timeout: 30s,
+    fallback: local_cache
+})</code></pre>
+                        </div>
+                        <div>
+                            <p><strong class="highlight-green">Retry with Backoff</strong></p>
+                            <pre><code class="language-javascript">retry({
+    tool: flaky_service,
+    max_attempts: 3,
+    backoff: exponential(
+        base: 100ms,
+        max: 5s
+    )
+})</code></pre>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h3>Pattern: Saga</h3>
+                    <p>Multi-step transactions with compensation on failure:</p>
+                    <pre><code class="language-javascript">// order_workflow: (order: Order) -> Success | RolledBack
+saga({
+    steps: [
+        { action: reserve_inventory, compensate: release_inventory },
+        { action: charge_payment, compensate: refund_payment },
+        { action: ship_order, compensate: cancel_shipment }
+    ]
+})</code></pre>
+                    <p class="smaller-text fragment">
+                        If step 3 fails → run compensate[2], compensate[1], compensate[0]
+                    </p>
+                </section>
+
+                <section>
+                    <h3>Composing Patterns</h3>
+                    <pre><code class="language-javascript">// ResearchPipeline: (topic: string) -> Report
+workflow ResearchPipeline(topic) {
+    // Scatter-gather from multiple sources
+    sources = scatter_gather({
+        targets: [web_search, arxiv_search, internal_docs],
+        timeout: 10s
+    })
+
+    // Normalize to common schema
+    normalized = normalize(sources, to: ResearchDocument)
+
+    // Filter and enrich
+    relevant = normalized
+        | filter(doc => doc.relevance > 0.7)
+        | enrich(doc => { ...doc, citations: get_citations(doc.id) })
+
+    return aggregate(relevant, strategy: synthesize_report)
+}</code></pre>
+                </section>
+            </section>
+
+            <!-- MCP-Specific Patterns -->
+            <section>
+                <section>
+                    <h2>MCP-Specific Patterns</h2>
+                    <h3>Beyond Enterprise Integration</h3>
+                </section>
+
+                <section>
+                    <h3>AI/LLM-Specific Patterns</h3>
+                    <ul>
+                        <li class="fragment">
+                            <span class="highlight-blue">Schema Mediator</span><br>
+                            <span class="smaller-text">LLM-assisted transformation between incompatible schemas</span>
+                        </li>
+                        <li class="fragment">
+                            <span class="highlight-green">Capability Router</span><br>
+                            <span class="smaller-text">Route based on tool capabilities discovered at runtime</span>
+                        </li>
+                        <li class="fragment">
+                            <span class="highlight-orange">Semantic Deduplicator</span><br>
+                            <span class="smaller-text">Merge by semantic similarity, not exact match</span>
+                        </li>
+                        <li class="fragment">
+                            <span class="highlight-purple">Confidence Aggregator</span><br>
+                            <span class="smaller-text">Weight results by source reliability</span>
+                        </li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Confidence Aggregator Example</h3>
+                    <pre><code class="language-javascript">// drug_interaction_check: (drug_a, drug_b) -> SafetyAssessment
+confidence_aggregate({
+    sources: [
+        { tool: fda_database,     weight: 0.95 },  // authoritative
+        { tool: pubmed_search,    weight: 0.80 },  // peer-reviewed
+        { tool: drugs_com,        weight: 0.70 },  // curated
+        { tool: web_search,       weight: 0.30 },  // unverified
+        { tool: llm_knowledge,    weight: 0.20 }   // may hallucinate
+    ],
+    strategy: weighted_consensus
+})</code></pre>
+                </section>
+            </section>
+
+            <!-- Summary -->
+            <section>
+                <section>
+                    <h2>Summary: The Complete Picture</h2>
+                </section>
+
+                <section>
+                    <h3>Three Layers</h3>
+                    <div class="layer-box layer-advanced">
+                        <span class="highlight-purple">Tool Algebra</span> (Advanced)<br>
+                        <span class="smaller-text">N:1 compositions: pipeline, scatter-gather, router, saga...</span>
+                    </div>
+                    <div class="layer-box layer-medium">
+                        <span class="highlight-orange">Tool Registry</span> (Medium)<br>
+                        <span class="smaller-text">Discovery, versioning, hot-reload, multiple sources</span>
+                    </div>
+                    <div class="layer-box layer-simple">
+                        <span class="highlight-green">Virtual Tools</span> (Simple)<br>
+                        <span class="smaller-text">1:1 overrides: rename, reshape, inject defaults, hide fields</span>
+                    </div>
+                </section>
+
+                <section>
+                    <h3>Implementation Status</h3>
+                    <table style="font-size: 0.6em;">
+                        <thead>
+                            <tr><th>Layer</th><th>Status</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="highlight-green">Virtual Tools</td>
+                                <td>✅ Implemented in agentgateway</td>
+                            </tr>
+                            <tr>
+                                <td class="highlight-orange">Tool Registry</td>
+                                <td>✅ Implemented (file + HTTP sources)</td>
+                            </tr>
+                            <tr>
+                                <td class="highlight-purple">Tool Algebra</td>
+                                <td>⏳ Design complete, implementation in progress</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </section>
+
+                <section>
+                    <h3>Key Insight</h3>
+                    <blockquote>
+                        <span class="highlight-green">Tools compose.</span><br><br>
+                        Virtual tools provide simple 1:1 overrides.<br>
+                        Tool algebra adds N:1 composition patterns.<br>
+                        Tool registry manages discovery and versioning.<br><br>
+                        Together: <span class="highlight-blue">declarative tool orchestration</span> without imperative glue code.
+                    </blockquote>
+                </section>
+
+                <section>
+                    <h3>Learn More</h3>
+                    <ul class="small-text">
+                        <li><code>docs/mcp-algebra-ala-camel.md</code> — Full pattern catalog</li>
+                        <li><code>docs/DESIGN_STATEFUL_PATTERNS.md</code> — Stateful patterns</li>
+                        <li><code>docs/design/registry-integration.md</code> — Registry design</li>
+                        <li><code>docs/ALIGNMENT_WITH_AGENTGATEWAY.md</code> — Integration plan</li>
+                        <li><code>crates/agentgateway/src/mcp/registry/</code> — Implementation</li>
+                    </ul>
+                </section>
+
+                <section class="title-slide" data-background-gradient="linear-gradient(135deg, #0d1117 0%, #161b22 100%)">
+                    <h1>Questions?</h1>
+                    <p style="margin-top: 2em; color: #8b949e;">
+                        Thank you!
+                    </p>
+                </section>
+            </section>
+
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/markdown/markdown.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            slideNumber: true,
+            transition: 'slide',
+            backgroundTransition: 'fade',
+            plugins: [ RevealHighlight, RevealNotes, RevealMarkdown ]
+        });
+    </script>
+</body>
+</html>
