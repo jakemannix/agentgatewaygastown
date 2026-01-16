@@ -15,6 +15,7 @@ mod pipeline;
 mod scatter_gather;
 mod schema_map;
 mod throttle;
+mod timeout;
 
 pub use context::ExecutionContext;
 pub use filter::FilterExecutor;
@@ -23,6 +24,7 @@ pub use pipeline::PipelineExecutor;
 pub use scatter_gather::ScatterGatherExecutor;
 pub use schema_map::SchemaMapExecutor;
 pub use throttle::{RateLimiterRegistry, SharedRateLimiterRegistry, ThrottleExecutor};
+pub use timeout::TimeoutExecutor;
 
 use std::sync::Arc;
 
@@ -165,12 +167,7 @@ impl CompositionExecutor {
 						Configure a state store backend (e.g., Redis, in-memory) and implement RetryExecutor to enable this pattern."
 						.to_string(),
 				}),
-				PatternSpec::Timeout(_) => Err(ExecutionError::StatefulPatternNotImplemented {
-					pattern: "timeout".to_string(),
-					details: "The timeout pattern requires async cancellation support. \
-						Implement TimeoutExecutor with tokio::time::timeout to enable this pattern."
-						.to_string(),
-				}),
+				PatternSpec::Timeout(t) => TimeoutExecutor::execute(t, input, ctx, self).await,
 				PatternSpec::Cache(_) => Err(ExecutionError::StatefulPatternNotImplemented {
 					pattern: "cache".to_string(),
 					details: "The cache pattern requires a cache store backend (e.g., Redis, in-memory LRU). \
