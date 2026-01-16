@@ -577,4 +577,203 @@ mod composition_benchmarks {
 			})
 		});
 	}
+
+	// =========================================================================
+	// Saga Pattern Benchmarks
+	// =========================================================================
+
+	use agentgateway::mcp::registry::patterns::{DataBinding, InputSource, SagaSpec, SagaStep};
+
+	/// Create a SagaStep with compensation
+	fn create_saga_step_with_compensation(id: &str, name: &str) -> SagaStep {
+		SagaStep {
+			id: id.to_string(),
+			name: name.to_string(),
+			action: StepOperation::Tool(ToolCall {
+				name: format!("{}_action", id),
+			}),
+			compensate: Some(StepOperation::Tool(ToolCall {
+				name: format!("{}_compensate", id),
+			})),
+			input: DataBinding::Input(InputSource { path: "$".to_string() }),
+		}
+	}
+
+	/// Create a SagaStep without compensation
+	fn create_saga_step_no_compensation(id: &str, name: &str) -> SagaStep {
+		SagaStep {
+			id: id.to_string(),
+			name: name.to_string(),
+			action: StepOperation::Tool(ToolCall {
+				name: format!("{}_action", id),
+			}),
+			compensate: None,
+			input: DataBinding::Input(InputSource { path: "$".to_string() }),
+		}
+	}
+
+	#[divan::bench(args = [1, 3, 5, 10])]
+	fn saga_spec_creation_varying_steps(bencher: Bencher, step_count: usize) {
+		bencher.bench_local(|| {
+			let steps: Vec<SagaStep> = (0..step_count)
+				.map(|i| create_saga_step_with_compensation(&format!("step_{}", i), &format!("Step {}", i)))
+				.collect();
+
+			SagaSpec {
+				steps: black_box(steps),
+				store: None,
+				saga_id_path: None,
+				timeout_ms: None,
+				output: None,
+			}
+		});
+	}
+
+	#[divan::bench]
+	fn saga_spec_creation_with_all_options(bencher: Bencher) {
+		bencher.bench_local(|| {
+			let steps: Vec<SagaStep> = (0..5)
+				.map(|i| create_saga_step_with_compensation(&format!("step_{}", i), &format!("Step {}", i)))
+				.collect();
+
+			SagaSpec {
+				steps: black_box(steps),
+				store: Some("saga_store".to_string()),
+				saga_id_path: Some("$.orderId".to_string()),
+				timeout_ms: Some(300000),
+				output: Some(DataBinding::Input(InputSource {
+					path: "$.result".to_string(),
+				})),
+			}
+		});
+	}
+
+	#[divan::bench]
+	fn saga_step_creation_with_compensation(bencher: Bencher) {
+		bencher.bench_local(|| {
+			create_saga_step_with_compensation(black_box("step_1"), black_box("Reserve Inventory"))
+		});
+	}
+
+	#[divan::bench]
+	fn saga_step_creation_no_compensation(bencher: Bencher) {
+		bencher.bench_local(|| {
+			create_saga_step_no_compensation(black_box("step_1"), black_box("Read-only Operation"))
+		});
+	}
+
+	#[divan::bench]
+	fn saga_spec_parsing_simple(bencher: Bencher) {
+		let json = r#"{
+			"steps": [
+				{
+					"id": "step_0",
+					"name": "reserve_inventory",
+					"action": { "tool": { "name": "reserve" } },
+					"compensate": { "tool": { "name": "release" } },
+					"input": { "input": { "path": "$" } }
+				}
+			]
+		}"#;
+
+		bencher.bench_local(|| {
+			let spec: SagaSpec = serde_json::from_str(black_box(json)).unwrap();
+			black_box(spec)
+		});
+	}
+
+	#[divan::bench]
+	fn saga_spec_parsing_complex(bencher: Bencher) {
+		let json = r#"{
+			"steps": [
+				{
+					"id": "step_0",
+					"name": "reserve_inventory",
+					"action": { "tool": { "name": "reserve" } },
+					"compensate": { "tool": { "name": "release" } },
+					"input": { "input": { "path": "$.inventory" } }
+				},
+				{
+					"id": "step_1",
+					"name": "charge_payment",
+					"action": { "tool": { "name": "charge" } },
+					"compensate": { "tool": { "name": "refund" } },
+					"input": { "input": { "path": "$.payment" } }
+				},
+				{
+					"id": "step_2",
+					"name": "ship_order",
+					"action": { "tool": { "name": "ship" } },
+					"compensate": { "tool": { "name": "cancel_shipment" } },
+					"input": { "input": { "path": "$.shipping" } }
+				},
+				{
+					"id": "step_3",
+					"name": "send_notification",
+					"action": { "tool": { "name": "notify" } },
+					"input": { "input": { "path": "$.notification" } }
+				}
+			],
+			"store": "saga_state_store",
+			"sagaIdPath": "$.orderId",
+			"timeoutMs": 300000
+		}"#;
+
+		bencher.bench_local(|| {
+			let spec: SagaSpec = serde_json::from_str(black_box(json)).unwrap();
+			black_box(spec)
+		});
+	}
+
+	#[divan::bench]
+	fn saga_pattern_dispatch_overhead(bencher: Bencher) {
+		// Measures the overhead of pattern dispatch for stateful patterns
+		// (returns StatefulPatternNotImplemented error)
+		let rt = tokio::runtime::Runtime::new().unwrap();
+
+		let registry = Registry::new();
+		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
+		let invoker = Arc::new(FastMockInvoker);
+		let executor = CompositionExecutor::new(compiled.clone(), invoker.clone());
+		let ctx = ExecutionContext::new(serde_json::json!({}), compiled, invoker);
+
+		let spec = PatternSpec::Saga(SagaSpec {
+			steps: vec![create_saga_step_with_compensation("step_0", "Reserve")],
+			store: None,
+			saga_id_path: None,
+			timeout_ms: None,
+			output: None,
+		});
+
+		let input = serde_json::json!({"orderId": "12345"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				// This will return StatefulPatternNotImplemented error
+				let _ = executor
+					.execute_pattern(&spec, black_box(input.clone()), &ctx)
+					.await;
+			})
+		});
+	}
+
+	#[divan::bench(args = [1, 5, 10, 20])]
+	fn saga_spec_serialization_varying_steps(bencher: Bencher, step_count: usize) {
+		let steps: Vec<SagaStep> = (0..step_count)
+			.map(|i| create_saga_step_with_compensation(&format!("step_{}", i), &format!("Step {}", i)))
+			.collect();
+
+		let spec = SagaSpec {
+			steps,
+			store: Some("saga_store".to_string()),
+			saga_id_path: Some("$.orderId".to_string()),
+			timeout_ms: Some(300000),
+			output: None,
+		};
+
+		bencher.bench_local(|| {
+			let json = serde_json::to_string(black_box(&spec)).unwrap();
+			black_box(json)
+		});
+	}
 }
