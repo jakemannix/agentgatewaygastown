@@ -116,6 +116,7 @@ export interface Policies {
   extAuthz?: any;
   timeout?: TimeoutPolicy | null;
   retry?: RetryPolicy | null;
+  enricher?: Enricher | null;
 }
 
 // Top-level applied policy entries from config dump
@@ -243,6 +244,35 @@ export interface RetryPolicy {
   attempts?: number; // uint8, 1-255, default: 1
   backoff?: string | null;
   codes: number[]; // uint8[], 1-255
+}
+
+// Enricher pattern - augment requests with data from parallel backend calls
+export interface Enricher {
+  enrichments: EnrichmentSource[];
+  merge: MergeStrategy;
+  ignoreFailures?: boolean;
+  timeoutMs?: number | null;
+}
+
+export interface EnrichmentSource {
+  field: string;
+  backend: BackendRef;
+  input?: string | null; // CEL expression
+}
+
+export type MergeStrategy =
+  | "spread"
+  | { nested: { key: string } }
+  | { schemaMap: SchemaMapSpec };
+
+export interface SchemaMapSpec {
+  mappings: Record<string, string>;
+}
+
+export interface BackendRef {
+  service?: { name: string; port: number };
+  host?: string;
+  backend?: string;
 }
 
 export interface Backend {
