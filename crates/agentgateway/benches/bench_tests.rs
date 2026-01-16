@@ -607,3 +607,257 @@ mod pipeline_benchmarks {
 		});
 	}
 }
+
+// =============================================================================
+// Filter Execution Benchmarks
+// =============================================================================
+
+#[cfg(feature = "internal_benches")]
+mod filter_benchmarks {
+	use agentgateway::mcp::registry::{FieldPredicate, FilterExecutor, FilterSpec, PredicateValue};
+	use divan::{black_box, Bencher};
+
+	/// Create an array of N items with a score field
+	fn create_scored_array(count: usize) -> serde_json::Value {
+		let items: Vec<serde_json::Value> = (0..count)
+			.map(|i| {
+				serde_json::json!({
+					"id": i,
+					"score": (i as f64) / (count as f64),
+					"type": if i % 3 == 0 { "pdf" } else if i % 3 == 1 { "html" } else { "txt" },
+					"name": format!("item_{}", i),
+					"active": i % 2 == 0
+				})
+			})
+			.collect();
+		serde_json::Value::Array(items)
+	}
+
+	// -------------------------------------------------------------------------
+	// Filter: Array Size Scaling
+	// -------------------------------------------------------------------------
+
+	#[divan::bench]
+	fn filter_10_items(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.score".to_string(),
+				op: "gt".to_string(),
+				value: PredicateValue::NumberValue(0.5),
+			},
+		};
+		let input = create_scored_array(10);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+
+	#[divan::bench]
+	fn filter_100_items(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.score".to_string(),
+				op: "gt".to_string(),
+				value: PredicateValue::NumberValue(0.5),
+			},
+		};
+		let input = create_scored_array(100);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+
+	#[divan::bench]
+	fn filter_1000_items(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.score".to_string(),
+				op: "gt".to_string(),
+				value: PredicateValue::NumberValue(0.5),
+			},
+		};
+		let input = create_scored_array(1000);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+
+	// -------------------------------------------------------------------------
+	// Filter: Predicate Type Comparison
+	// -------------------------------------------------------------------------
+
+	#[divan::bench]
+	fn filter_predicate_eq(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.type".to_string(),
+				op: "eq".to_string(),
+				value: PredicateValue::StringValue("pdf".to_string()),
+			},
+		};
+		let input = create_scored_array(100);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+
+	#[divan::bench]
+	fn filter_predicate_gt(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.score".to_string(),
+				op: "gt".to_string(),
+				value: PredicateValue::NumberValue(0.5),
+			},
+		};
+		let input = create_scored_array(100);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+
+	#[divan::bench]
+	fn filter_predicate_contains(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.name".to_string(),
+				op: "contains".to_string(),
+				value: PredicateValue::StringValue("_5".to_string()),
+			},
+		};
+		let input = create_scored_array(100);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+
+	#[divan::bench]
+	fn filter_predicate_in(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.type".to_string(),
+				op: "in".to_string(),
+				value: PredicateValue::ListValue(vec![
+					PredicateValue::StringValue("pdf".to_string()),
+					PredicateValue::StringValue("html".to_string()),
+				]),
+			},
+		};
+		let input = create_scored_array(100);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+
+	// -------------------------------------------------------------------------
+	// Filter: Match Rate Scaling (how many items pass the filter)
+	// -------------------------------------------------------------------------
+
+	#[divan::bench]
+	fn filter_match_rate_10pct(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		// score > 0.9 matches ~10% of items
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.score".to_string(),
+				op: "gt".to_string(),
+				value: PredicateValue::NumberValue(0.9),
+			},
+		};
+		let input = create_scored_array(100);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+
+	#[divan::bench]
+	fn filter_match_rate_50pct(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		// score > 0.5 matches ~50% of items
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.score".to_string(),
+				op: "gt".to_string(),
+				value: PredicateValue::NumberValue(0.5),
+			},
+		};
+		let input = create_scored_array(100);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+
+	#[divan::bench]
+	fn filter_match_rate_90pct(bencher: Bencher) {
+		let rt = tokio::runtime::Builder::new_current_thread()
+			.enable_all()
+			.build()
+			.unwrap();
+
+		// score > 0.1 matches ~90% of items
+		let spec = FilterSpec {
+			predicate: FieldPredicate {
+				field: "$.score".to_string(),
+				op: "gt".to_string(),
+				value: PredicateValue::NumberValue(0.1),
+			},
+		};
+		let input = create_scored_array(100);
+
+		bencher.bench_local(|| {
+			rt.block_on(async { FilterExecutor::execute(&spec, black_box(input.clone())).await })
+		});
+	}
+}
