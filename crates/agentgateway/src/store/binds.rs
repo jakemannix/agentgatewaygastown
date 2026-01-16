@@ -158,6 +158,7 @@ impl BackendPolicies {
 pub struct RoutePolicies {
 	pub local_rate_limit: Vec<http::localratelimit::RateLimit>,
 	pub remote_rate_limit: Option<remoteratelimit::RemoteRateLimit>,
+	pub idempotent: Option<http::idempotent::Idempotent>,
 	pub authorization: Option<http::authorization::HTTPAuthorizationSet>,
 	pub jwt: Option<http::jwt::Jwt>,
 	pub basic_auth: Option<http::basicauth::BasicAuthentication>,
@@ -215,6 +216,11 @@ impl RoutePolicies {
 		};
 		if let Some(rrl) = &self.remote_rate_limit {
 			for expr in rrl.expressions() {
+				ctx.register_expression(expr)
+			}
+		};
+		if let Some(idempotent) = &self.idempotent {
+			for expr in idempotent.expressions() {
 				ctx.register_expression(expr)
 			}
 		};
@@ -373,6 +379,9 @@ impl Store {
 				},
 				TrafficPolicy::RemoteRateLimit(p) => {
 					pol.remote_rate_limit.get_or_insert_with(|| p.clone());
+				},
+				TrafficPolicy::Idempotent(p) => {
+					pol.idempotent.get_or_insert_with(|| p.clone());
 				},
 				TrafficPolicy::JwtAuth(p) => {
 					pol.jwt.get_or_insert_with(|| p.clone());

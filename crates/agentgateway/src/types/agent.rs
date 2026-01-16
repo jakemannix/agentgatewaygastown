@@ -1872,6 +1872,7 @@ pub enum TrafficPolicy {
 	Authorization(Authorization),
 	LocalRateLimit(Vec<crate::http::localratelimit::RateLimit>),
 	RemoteRateLimit(remoteratelimit::RemoteRateLimit),
+	Idempotent(crate::http::idempotent::Idempotent),
 	ExtAuthz(ext_authz::ExtAuthz),
 	ExtProc(ext_proc::ExtProc),
 	JwtAuth(crate::http::jwt::Jwt),

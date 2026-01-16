@@ -96,6 +96,12 @@ export function getDefaultPolicyData(type: PolicyType) {
       };
     case "a2a":
       return {};
+    case "idempotent":
+      return {
+        keyPaths: [],
+        onDuplicate: "cached",
+        ttl: "5m",
+      };
     default:
       return {};
   }

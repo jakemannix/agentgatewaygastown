@@ -1557,3 +1557,55 @@ export function renderA2aForm({ data: _data, onChange: _onChange }: FormRenderer
     </div>
   );
 }
+
+export function renderIdempotentForm({ data, onChange }: FormRendererProps) {
+  return (
+    <div className="space-y-6">
+      <ArrayInput
+        id="keyPaths"
+        label="Key Paths (CEL expressions) *"
+        value={data.keyPaths}
+        onChange={(keyPaths) => onChange({ ...data, keyPaths })}
+        placeholder="request.headers['x-idempotency-key'], request.body.requestId"
+      />
+      <p className="text-xs text-muted-foreground">
+        CEL expressions to derive the idempotency key from the request. Multiple expressions are
+        concatenated.
+      </p>
+
+      <div className="space-y-3">
+        <Label htmlFor="onDuplicate">On Duplicate</Label>
+        <Select
+          value={data.onDuplicate || "cached"}
+          onValueChange={(value) => onChange({ ...data, onDuplicate: value })}
+        >
+          <SelectTrigger id="onDuplicate">
+            <SelectValue placeholder="Select behavior" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="cached">Cached - Return cached result</SelectItem>
+            <SelectItem value="skip">Skip - Return empty response</SelectItem>
+            <SelectItem value="error">Error - Return 409 Conflict</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          What to do when a duplicate request is detected.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <Label htmlFor="ttl">TTL (e.g., &quot;5m&quot;, &quot;1h&quot;) *</Label>
+        <Input
+          id="ttl"
+          value={data.ttl || ""}
+          onChange={(e) => onChange({ ...data, ttl: e.target.value })}
+          placeholder="5m"
+        />
+        <p className="text-xs text-muted-foreground">
+          Time-to-live for idempotency keys. After this duration, requests with the same key will be
+          processed again.
+        </p>
+      </div>
+    </div>
+  );
+}

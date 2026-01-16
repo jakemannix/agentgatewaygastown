@@ -124,6 +124,16 @@ async fn apply_request_policies(
 		lrl.check_request()?;
 	}
 
+	// Check idempotency - may return cached response or error
+	if let Some(idempotent) = &policies.idempotent {
+		let check_result = idempotent.check(build_ctx(&exec, log)?)?;
+		if let Some(policy_response) = check_result.to_policy_response() {
+			policy_response.apply(response_policies.headers())?;
+		}
+		// Store the idempotency key in request extensions for later use
+		req.extensions_mut().insert(check_result);
+	}
+
 	if let Some(rrl) = &policies.remote_rate_limit {
 		rrl.check(client, req, build_ctx(&exec, log)?).await?
 	} else {

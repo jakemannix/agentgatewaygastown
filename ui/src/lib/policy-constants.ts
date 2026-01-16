@@ -11,6 +11,7 @@ import {
   FileText,
   ArrowRight,
   Users,
+  Fingerprint,
 } from "lucide-react";
 
 export type PolicyType =
@@ -22,6 +23,7 @@ export type PolicyType =
   | "backendAuth"
   | "localRateLimit"
   | "remoteRateLimit"
+  | "idempotent"
   | "timeout"
   | "retry"
   | "requestHeaderModifier"
@@ -86,6 +88,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     name: "Remote Rate Limit",
     icon: Network,
     description: "Rate limiting using external service",
+    httpOnly: true,
+  },
+  idempotent: {
+    name: "Idempotent",
+    icon: Fingerprint,
+    description: "Prevent duplicate request processing",
     httpOnly: true,
   },
   timeout: {
