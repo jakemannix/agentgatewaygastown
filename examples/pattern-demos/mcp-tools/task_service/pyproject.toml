@@ -1,0 +1,22 @@
+[project]
+name = "mcp-task-service"
+version = "0.1.0"
+description = "SQLite-backed MCP task management service for demonstrating saga patterns"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+mcp-task-service = "server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../../../schema/config.json
+#
+# MCP Task Service Configuration
+#
+# This example demonstrates a SQLite-backed task management service
+# exposed via agentgateway. Useful for demonstrating saga patterns
+# (multi-step task workflows with state tracking).
+
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+          exposeHeaders:
+          - "Mcp-Session-Id"
+      backends:
+      - mcp:
+          targets:
+          - name: task-service
+            stdio:
+              cmd: uv
+              args: ["run", "python", "server.py"]
+              workdir: "examples/pattern-demos/mcp-tools/task_service"
