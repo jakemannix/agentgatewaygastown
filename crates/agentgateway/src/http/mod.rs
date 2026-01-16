@@ -1,3 +1,4 @@
+pub mod enricher;
 pub mod filters;
 pub mod timeout;
 

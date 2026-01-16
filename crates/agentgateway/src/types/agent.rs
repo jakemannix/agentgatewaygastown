@@ -1893,6 +1893,7 @@ pub enum TrafficPolicy {
 	DirectResponse(filters::DirectResponse),
 	#[serde(rename = "cors")]
 	CORS(http::cors::Cors),
+	Enricher(http::enricher::EnricherSpec),
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

@@ -933,6 +933,10 @@ struct FilterOrPolicy {
 	#[serde(default)]
 	csrf: Option<http::csrf::Csrf>,
 
+	/// Augment request body with data from parallel enrichment backend calls.
+	#[serde(default)]
+	enricher: Option<http::enricher::EnricherSpec>,
+
 	// TrafficPolicy
 	/// Timeout requests that exceed the configured duration.
 	#[serde(default)]
@@ -1390,6 +1394,7 @@ async fn split_policies(client: Client, pol: FilterOrPolicy) -> Result<ResolvedP
 		api_key,
 		transformations,
 		csrf,
+		enricher,
 		ext_authz,
 		ext_proc,
 		timeout,
@@ -1458,6 +1463,9 @@ async fn split_policies(client: Client, pol: FilterOrPolicy) -> Result<ResolvedP
 	}
 	if let Some(p) = csrf {
 		route_policies.push(TrafficPolicy::Csrf(p))
+	}
+	if let Some(p) = enricher {
+		route_policies.push(TrafficPolicy::Enricher(p))
 	}
 	if let Some(p) = authorization {
 		route_policies.push(TrafficPolicy::Authorization(p))
