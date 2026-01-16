@@ -266,4 +266,315 @@ mod composition_benchmarks {
 				.unwrap()
 		});
 	}
+
+	// =========================================================================
+	// Timeout Pattern Benchmarks
+	// =========================================================================
+
+	use agentgateway::mcp::registry::executor::{
+		CompositionExecutor, ExecutionContext, ExecutionError, ScatterGatherExecutor, TimeoutExecutor,
+		ToolInvoker,
+	};
+	use agentgateway::mcp::registry::patterns::TimeoutSpec;
+	use serde_json::Value;
+	use std::sync::Arc;
+
+	/// Fast mock invoker for benchmarking - returns immediately
+	struct FastMockInvoker;
+
+	#[async_trait::async_trait]
+	impl ToolInvoker for FastMockInvoker {
+		async fn invoke(&self, _tool_name: &str, args: Value) -> Result<Value, ExecutionError> {
+			// Minimal work - just return the input
+			Ok(args)
+		}
+	}
+
+	fn setup_timeout_benchmark() -> (ExecutionContext, CompositionExecutor) {
+		let registry = Registry::new();
+		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
+		let invoker = Arc::new(FastMockInvoker);
+
+		let ctx = ExecutionContext::new(serde_json::json!({}), compiled.clone(), invoker.clone());
+		let executor = CompositionExecutor::new(compiled, invoker);
+
+		(ctx, executor)
+	}
+
+	#[divan::bench]
+	fn timeout_pattern_success(bencher: Bencher) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let (ctx, executor) = setup_timeout_benchmark();
+
+		let spec = TimeoutSpec {
+			inner: Box::new(StepOperation::Tool(ToolCall {
+				name: "fast_tool".to_string(),
+			})),
+			duration_ms: 5000, // Long timeout - won't trigger
+			fallback: None,
+			message: None,
+		};
+
+		let input = serde_json::json!({"data": "test"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				TimeoutExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn timeout_pattern_with_fallback_spec(bencher: Bencher) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let (ctx, executor) = setup_timeout_benchmark();
+
+		// Spec with fallback configured (but won't trigger due to long timeout)
+		let spec = TimeoutSpec {
+			inner: Box::new(StepOperation::Tool(ToolCall {
+				name: "fast_tool".to_string(),
+			})),
+			duration_ms: 5000,
+			fallback: Some(Box::new(StepOperation::Tool(ToolCall {
+				name: "fallback_tool".to_string(),
+			}))),
+			message: Some("Custom timeout message".to_string()),
+		};
+
+		let input = serde_json::json!({"data": "test"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				TimeoutExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench(args = [1, 10, 100, 1000])]
+	fn timeout_pattern_varying_payload_size(bencher: Bencher, payload_fields: usize) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let (ctx, executor) = setup_timeout_benchmark();
+
+		let spec = TimeoutSpec {
+			inner: Box::new(StepOperation::Tool(ToolCall {
+				name: "fast_tool".to_string(),
+			})),
+			duration_ms: 5000,
+			fallback: None,
+			message: None,
+		};
+
+		// Create payload with varying number of fields
+		let mut payload = serde_json::Map::new();
+		for i in 0..payload_fields {
+			payload.insert(
+				format!("field_{}", i),
+				serde_json::json!(format!("value_{}", i)),
+			);
+		}
+		let input = Value::Object(payload);
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				TimeoutExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench(args = [100, 1000, 5000, 30000])]
+	fn timeout_spec_creation_varying_duration(bencher: Bencher, duration_ms: u32) {
+		bencher.bench_local(|| TimeoutSpec {
+			inner: Box::new(StepOperation::Tool(ToolCall {
+				name: black_box("tool".to_string()),
+			})),
+			duration_ms: black_box(duration_ms),
+			fallback: None,
+			message: None,
+		});
+	}
+
+	// =========================================================================
+	// ScatterGather Pattern Benchmarks
+	// =========================================================================
+
+	fn setup_scatter_gather_benchmark() -> (ExecutionContext, CompositionExecutor) {
+		let registry = Registry::new();
+		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
+		let invoker = Arc::new(FastMockInvoker);
+
+		let ctx = ExecutionContext::new(serde_json::json!({}), compiled.clone(), invoker.clone());
+		let executor = CompositionExecutor::new(compiled, invoker);
+
+		(ctx, executor)
+	}
+
+	#[divan::bench(args = [2, 5, 10, 20])]
+	fn scatter_gather_varying_targets(bencher: Bencher, target_count: usize) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let (ctx, executor) = setup_scatter_gather_benchmark();
+
+		// Create scatter-gather spec with varying number of targets
+		let targets: Vec<ScatterTarget> = (0..target_count)
+			.map(|i| ScatterTarget::Tool(format!("tool_{}", i)))
+			.collect();
+
+		let spec = ScatterGatherSpec {
+			targets,
+			aggregation: AggregationStrategy { ops: vec![] },
+			timeout_ms: None,
+			fail_fast: false,
+		};
+
+		let input = serde_json::json!({"query": "test"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				ScatterGatherExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn scatter_gather_with_flatten(bencher: Bencher) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let (ctx, executor) = setup_scatter_gather_benchmark();
+
+		let spec = ScatterGatherSpec {
+			targets: vec![
+				ScatterTarget::Tool("tool_1".to_string()),
+				ScatterTarget::Tool("tool_2".to_string()),
+				ScatterTarget::Tool("tool_3".to_string()),
+			],
+			aggregation: AggregationStrategy {
+				ops: vec![AggregationOp::Flatten(true)],
+			},
+			timeout_ms: None,
+			fail_fast: false,
+		};
+
+		let input = serde_json::json!({"query": "test"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				ScatterGatherExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn scatter_gather_with_sort_and_limit(bencher: Bencher) {
+		use agentgateway::mcp::registry::patterns::{LimitOp, SortOp};
+
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let (ctx, executor) = setup_scatter_gather_benchmark();
+
+		let spec = ScatterGatherSpec {
+			targets: vec![
+				ScatterTarget::Tool("tool_1".to_string()),
+				ScatterTarget::Tool("tool_2".to_string()),
+				ScatterTarget::Tool("tool_3".to_string()),
+			],
+			aggregation: AggregationStrategy {
+				ops: vec![
+					AggregationOp::Flatten(true),
+					AggregationOp::Sort(SortOp {
+						field: "$.score".to_string(),
+						order: "desc".to_string(),
+					}),
+					AggregationOp::Limit(LimitOp { count: 10 }),
+				],
+			},
+			timeout_ms: None,
+			fail_fast: false,
+		};
+
+		let input = serde_json::json!({"query": "test"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				ScatterGatherExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn scatter_gather_with_timeout(bencher: Bencher) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let (ctx, executor) = setup_scatter_gather_benchmark();
+
+		let spec = ScatterGatherSpec {
+			targets: vec![
+				ScatterTarget::Tool("tool_1".to_string()),
+				ScatterTarget::Tool("tool_2".to_string()),
+			],
+			aggregation: AggregationStrategy { ops: vec![] },
+			timeout_ms: Some(5000), // 5 second timeout
+			fail_fast: false,
+		};
+
+		let input = serde_json::json!({"query": "test"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				ScatterGatherExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench]
+	fn scatter_gather_fail_fast(bencher: Bencher) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let (ctx, executor) = setup_scatter_gather_benchmark();
+
+		let spec = ScatterGatherSpec {
+			targets: vec![
+				ScatterTarget::Tool("tool_1".to_string()),
+				ScatterTarget::Tool("tool_2".to_string()),
+				ScatterTarget::Tool("tool_3".to_string()),
+			],
+			aggregation: AggregationStrategy { ops: vec![] },
+			timeout_ms: None,
+			fail_fast: true, // Stop on first failure
+		};
+
+		let input = serde_json::json!({"query": "test"});
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				ScatterGatherExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
+
+	#[divan::bench(args = [1, 10, 100, 1000])]
+	fn scatter_gather_varying_payload_size(bencher: Bencher, payload_fields: usize) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		let (ctx, executor) = setup_scatter_gather_benchmark();
+
+		let spec = ScatterGatherSpec {
+			targets: vec![
+				ScatterTarget::Tool("tool_1".to_string()),
+				ScatterTarget::Tool("tool_2".to_string()),
+			],
+			aggregation: AggregationStrategy { ops: vec![] },
+			timeout_ms: None,
+			fail_fast: false,
+		};
+
+		// Create payload with varying number of fields
+		let mut payload = serde_json::Map::new();
+		for i in 0..payload_fields {
+			payload.insert(
+				format!("field_{}", i),
+				serde_json::json!(format!("value_{}", i)),
+			);
+		}
+		let input = Value::Object(payload);
+
+		bencher.bench_local(|| {
+			rt.block_on(async {
+				ScatterGatherExecutor::execute(&spec, black_box(input.clone()), &ctx, &executor).await
+			})
+		});
+	}
 }
