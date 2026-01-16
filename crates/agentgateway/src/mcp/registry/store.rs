@@ -150,7 +150,9 @@ impl RegistryStore {
 	}
 
 	/// Start file watcher (for file:// sources)
-	pub fn spawn_file_watcher(self: Arc<Self>) -> Result<Option<tokio::task::JoinHandle<()>>, RegistryError> {
+	pub fn spawn_file_watcher(
+		self: Arc<Self>,
+	) -> Result<Option<tokio::task::JoinHandle<()>>, RegistryError> {
 		let Some(client) = &self.client else {
 			return Ok(None);
 		};

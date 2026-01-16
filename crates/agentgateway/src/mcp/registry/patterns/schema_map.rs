@@ -20,18 +20,24 @@ impl SchemaMapSpec {
 
 	/// Create an empty schema map
 	pub fn empty() -> Self {
-		Self { mappings: HashMap::new() }
+		Self {
+			mappings: HashMap::new(),
+		}
 	}
 
 	/// Add a path mapping
 	pub fn with_path(mut self, field: impl Into<String>, path: impl Into<String>) -> Self {
-		self.mappings.insert(field.into(), FieldSource::Path(path.into()));
+		self
+			.mappings
+			.insert(field.into(), FieldSource::Path(path.into()));
 		self
 	}
 
 	/// Add a literal value mapping
 	pub fn with_literal(mut self, field: impl Into<String>, value: LiteralValue) -> Self {
-		self.mappings.insert(field.into(), FieldSource::Literal(value));
+		self
+			.mappings
+			.insert(field.into(), FieldSource::Literal(value));
 		self
 	}
 }
@@ -168,9 +174,18 @@ mod tests {
 
 		let schema_map: SchemaMapSpec = serde_json::from_str(json).unwrap();
 		assert_eq!(schema_map.mappings.len(), 4);
-		assert!(matches!(schema_map.mappings.get("title"), Some(FieldSource::Path(_))));
-		assert!(matches!(schema_map.mappings.get("url"), Some(FieldSource::Coalesce(_))));
-		assert!(matches!(schema_map.mappings.get("source"), Some(FieldSource::Literal(_))));
+		assert!(matches!(
+			schema_map.mappings.get("title"),
+			Some(FieldSource::Path(_))
+		));
+		assert!(matches!(
+			schema_map.mappings.get("url"),
+			Some(FieldSource::Coalesce(_))
+		));
+		assert!(matches!(
+			schema_map.mappings.get("source"),
+			Some(FieldSource::Literal(_))
+		));
 	}
 
 	#[test]
@@ -184,7 +199,9 @@ mod tests {
 	fn test_parse_field_source_literal() {
 		let json = r#"{ "literal": { "stringValue": "constant" } }"#;
 		let source: FieldSource = serde_json::from_str(json).unwrap();
-		assert!(matches!(source, FieldSource::Literal(LiteralValue::StringValue(ref s)) if s == "constant"));
+		assert!(
+			matches!(source, FieldSource::Literal(LiteralValue::StringValue(ref s)) if s == "constant")
+		);
 	}
 
 	#[test]
@@ -262,10 +279,21 @@ mod tests {
 
 	#[test]
 	fn test_literal_to_json() {
-		assert_eq!(LiteralValue::StringValue("test".to_string()).to_json_value(), serde_json::json!("test"));
-		assert_eq!(LiteralValue::NumberValue(42.0).to_json_value(), serde_json::json!(42.0));
-		assert_eq!(LiteralValue::BoolValue(true).to_json_value(), serde_json::json!(true));
-		assert_eq!(LiteralValue::NullValue(true).to_json_value(), serde_json::Value::Null);
+		assert_eq!(
+			LiteralValue::StringValue("test".to_string()).to_json_value(),
+			serde_json::json!("test")
+		);
+		assert_eq!(
+			LiteralValue::NumberValue(42.0).to_json_value(),
+			serde_json::json!(42.0)
+		);
+		assert_eq!(
+			LiteralValue::BoolValue(true).to_json_value(),
+			serde_json::json!(true)
+		);
+		assert_eq!(
+			LiteralValue::NullValue(true).to_json_value(),
+			serde_json::Value::Null
+		);
 	}
 }
-

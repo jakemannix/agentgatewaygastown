@@ -46,7 +46,9 @@ impl NormalizedLocalConfig {
 	}
 }
 
-use crate::mcp::registry::{AuthConfig, RegistryClient, RegistryStore, RegistryStoreRef, parse_duration};
+use crate::mcp::registry::{
+	AuthConfig, RegistryClient, RegistryStore, RegistryStoreRef, parse_duration,
+};
 
 #[derive(Debug, Clone)]
 pub struct NormalizedLocalConfig {
@@ -1040,9 +1042,7 @@ async fn convert(
 
 			let auth = reg_config.auth.map(|a| match a {
 				LocalRegistryAuth::Bearer { bearer } => AuthConfig::Bearer(bearer),
-				LocalRegistryAuth::Basic { username, password } => {
-					AuthConfig::Basic { username, password }
-				},
+				LocalRegistryAuth::Basic { username, password } => AuthConfig::Basic { username, password },
 			});
 
 			let registry_client = RegistryClient::from_uri(&reg_config.source, refresh_interval, auth)

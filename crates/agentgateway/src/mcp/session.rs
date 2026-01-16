@@ -307,13 +307,23 @@ impl Session {
 					},
 					ClientRequest::CallToolRequest(ctr) => {
 						let name = ctr.params.name.clone();
-						let args = ctr.params.arguments.clone().map(|v| serde_json::Value::Object(v)).unwrap_or(serde_json::Value::Object(Default::default()));
+						let args = ctr
+							.params
+							.arguments
+							.clone()
+							.map(|v| serde_json::Value::Object(v))
+							.unwrap_or(serde_json::Value::Object(Default::default()));
 
 						// Resolve the tool call - may be a backend tool, virtual tool, or composition
 						let resolved = self.relay.resolve_tool_call(&name, args)?;
 
 						match resolved {
-							ResolvedToolCall::Backend { target, tool_name, args: resolved_args, virtual_name } => {
+							ResolvedToolCall::Backend {
+								target,
+								tool_name,
+								args: resolved_args,
+								virtual_name,
+							} => {
 								log.non_atomic_mutate(|l| {
 									l.resource_name = Some(tool_name.clone());
 									l.target_name = Some(target.clone());
@@ -341,9 +351,15 @@ impl Session {
 								}
 
 								// Use send_single_with_output_transform to apply outputTransform
-								self.relay.send_single_with_output_transform(r, ctx, &target, virtual_name).await
+								self
+									.relay
+									.send_single_with_output_transform(r, ctx, &target, virtual_name)
+									.await
 							},
-							ResolvedToolCall::Composition { name: comp_name, args: comp_args } => {
+							ResolvedToolCall::Composition {
+								name: comp_name,
+								args: comp_args,
+							} => {
 								log.non_atomic_mutate(|l| {
 									l.resource_name = Some(comp_name.clone());
 									l.target_name = Some("_composition".to_string());
@@ -366,7 +382,9 @@ impl Session {
 
 								// Execute the composition using CompositionExecutor
 								let registry_ref = self.relay.registry().ok_or_else(|| {
-									UpstreamError::InvalidRequest("No registry configured for composition execution".to_string())
+									UpstreamError::InvalidRequest(
+										"No registry configured for composition execution".to_string(),
+									)
 								})?;
 
 								// Get an Arc to the compiled registry for the executor
@@ -375,33 +393,27 @@ impl Session {
 								})?;
 
 								// Create a ToolInvoker that uses the Relay to make real backend calls
-								let tool_invoker = Arc::new(RelayToolInvoker::new(
-									self.relay.clone(),
-									ctx.clone(),
-								));
+								let tool_invoker = Arc::new(RelayToolInvoker::new(self.relay.clone(), ctx.clone()));
 
 								// Create the executor and run the composition
 								// Spawn as a separate task to avoid scheduler starvation
 								let executor = CompositionExecutor::new(compiled_registry, tool_invoker);
 								let comp_name_clone = comp_name.clone();
 
-								let result = tokio::spawn(async move {
-									executor.execute(&comp_name_clone, comp_args).await
-								})
-								.await
-								.map_err(|e| UpstreamError::InvalidRequest(format!(
-									"Composition task panicked: {}",
-									e
-								)))?
-								.map_err(|e| UpstreamError::InvalidRequest(format!(
-									"Composition execution failed: {}",
-									e
-								)))?;
+								let result =
+									tokio::spawn(async move { executor.execute(&comp_name_clone, comp_args).await })
+										.await
+										.map_err(|e| {
+											UpstreamError::InvalidRequest(format!("Composition task panicked: {}", e))
+										})?
+										.map_err(|e| {
+											UpstreamError::InvalidRequest(format!("Composition execution failed: {}", e))
+										})?;
 
 								// Build a successful MCP CallToolResult response
 								let call_result = rmcp::model::CallToolResult {
 									content: vec![rmcp::model::Content::text(
-										serde_json::to_string(&result).unwrap_or_default()
+										serde_json::to_string(&result).unwrap_or_default(),
 									)],
 									structured_content: None,
 									is_error: None,
@@ -412,7 +424,7 @@ impl Session {
 								let id = r.id.clone();
 								crate::mcp::handler::messages_to_response(
 									id.clone(),
-									Messages::from_result(id, call_result)
+									Messages::from_result(id, call_result),
 								)
 							},
 						}

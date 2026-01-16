@@ -22,7 +22,7 @@ pub use map_each::MapEachExecutor;
 pub use pipeline::PipelineExecutor;
 pub use scatter_gather::ScatterGatherExecutor;
 pub use schema_map::SchemaMapExecutor;
-pub use throttle::{ThrottleExecutor, SharedRateLimiterRegistry, RateLimiterRegistry};
+pub use throttle::{RateLimiterRegistry, SharedRateLimiterRegistry, ThrottleExecutor};
 
 use std::sync::Arc;
 
@@ -87,11 +87,18 @@ pub trait ToolInvoker: Send + Sync {
 impl CompositionExecutor {
 	/// Create a new composition executor
 	pub fn new(registry: Arc<CompiledRegistry>, tool_invoker: Arc<dyn ToolInvoker>) -> Self {
-		Self { registry, tool_invoker }
+		Self {
+			registry,
+			tool_invoker,
+		}
 	}
 
 	/// Execute a composition by name
-	pub async fn execute(&self, composition_name: &str, input: Value) -> Result<Value, ExecutionError> {
+	pub async fn execute(
+		&self,
+		composition_name: &str,
+		input: Value,
+	) -> Result<Value, ExecutionError> {
 		debug!(target: "virtual_tools", composition = %composition_name, "executing composition");
 
 		let tool = self
@@ -99,9 +106,9 @@ impl CompositionExecutor {
 			.get_tool(composition_name)
 			.ok_or_else(|| ExecutionError::ToolNotFound(composition_name.to_string()))?;
 
-		let composition = tool
-			.composition_info()
-			.ok_or_else(|| ExecutionError::InvalidInput(format!("{} is not a composition", composition_name)))?;
+		let composition = tool.composition_info().ok_or_else(|| {
+			ExecutionError::InvalidInput(format!("{} is not a composition", composition_name))
+		})?;
 
 		self.execute_composition(tool, composition, input).await
 	}
@@ -113,13 +120,19 @@ impl CompositionExecutor {
 		composition: &CompiledComposition,
 		input: Value,
 	) -> Result<Value, ExecutionError> {
-		let ctx = ExecutionContext::new(input.clone(), self.registry.clone(), self.tool_invoker.clone());
+		let ctx = ExecutionContext::new(
+			input.clone(),
+			self.registry.clone(),
+			self.tool_invoker.clone(),
+		);
 
 		let result = self.execute_pattern(&composition.spec, input, &ctx).await?;
 
 		// Apply output transform if present
 		if let Some(ref transform) = composition.output_transform {
-			transform.apply(&result).map_err(|e| ExecutionError::PatternExecutionFailed(e.to_string()))
+			transform
+				.apply(&result)
+				.map_err(|e| ExecutionError::PatternExecutionFailed(e.to_string()))
 		} else {
 			Ok(result)
 		}
@@ -134,7 +147,8 @@ impl CompositionExecutor {
 		spec: &'a PatternSpec,
 		input: Value,
 		ctx: &'a ExecutionContext,
-	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, ExecutionError>> + Send + 'a>> {
+	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, ExecutionError>> + Send + 'a>>
+	{
 		Box::pin(async move {
 			match spec {
 				// Stateless patterns (implemented)
@@ -213,13 +227,14 @@ impl CompositionExecutor {
 		name: &'a str,
 		args: Value,
 		ctx: &'a ExecutionContext,
-	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, ExecutionError>> + Send + 'a>> {
+	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, ExecutionError>> + Send + 'a>>
+	{
 		Box::pin(async move {
 			// First, check if it's a composition in the registry
-			if let Some(tool) = self.registry.get_tool(name) {
-				if let Some(composition) = tool.composition_info() {
-					return self.execute_composition(tool, composition, args).await;
-				}
+			if let Some(tool) = self.registry.get_tool(name)
+				&& let Some(composition) = tool.composition_info()
+			{
+				return self.execute_composition(tool, composition, args).await;
 			}
 
 			// Otherwise, invoke via the tool invoker
@@ -237,11 +252,17 @@ pub struct MockToolInvoker {
 #[cfg(test)]
 impl MockToolInvoker {
 	pub fn new() -> Self {
-		Self { responses: std::sync::Mutex::new(std::collections::HashMap::new()) }
+		Self {
+			responses: std::sync::Mutex::new(std::collections::HashMap::new()),
+		}
 	}
 
 	pub fn with_response(self, tool_name: &str, response: Value) -> Self {
-		self.responses.lock().unwrap().insert(tool_name.to_string(), response);
+		self
+			.responses
+			.lock()
+			.unwrap()
+			.insert(tool_name.to_string(), response);
 		self
 	}
 }
@@ -250,7 +271,8 @@ impl MockToolInvoker {
 #[async_trait::async_trait]
 impl ToolInvoker for MockToolInvoker {
 	async fn invoke(&self, tool_name: &str, _args: Value) -> Result<Value, ExecutionError> {
-		self.responses
+		self
+			.responses
 			.lock()
 			.unwrap()
 			.get(tool_name)
@@ -263,7 +285,8 @@ impl ToolInvoker for MockToolInvoker {
 mod tests {
 	use super::*;
 	use crate::mcp::registry::patterns::{
-		BackoffStrategy, ExponentialBackoff, PipelineSpec, PipelineStep, RetrySpec, StepOperation, ToolCall,
+		BackoffStrategy, ExponentialBackoff, PipelineSpec, PipelineStep, RetrySpec, StepOperation,
+		ToolCall,
 	};
 	use crate::mcp::registry::types::{Registry, ToolDefinition};
 
@@ -275,7 +298,9 @@ mod tests {
 			PatternSpec::Pipeline(PipelineSpec {
 				steps: vec![PipelineStep {
 					id: "step1".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "echo".to_string() }),
+					operation: StepOperation::Tool(ToolCall {
+						name: "echo".to_string(),
+					}),
 					input: None,
 				}],
 			}),
@@ -288,7 +313,9 @@ mod tests {
 
 		let executor = CompositionExecutor::new(Arc::new(compiled), Arc::new(invoker));
 
-		let result = executor.execute("test_pipeline", serde_json::json!({"input": "test"})).await;
+		let result = executor
+			.execute("test_pipeline", serde_json::json!({"input": "test"}))
+			.await;
 
 		assert!(result.is_ok());
 		assert_eq!(result.unwrap()["echoed"], true);
@@ -305,7 +332,10 @@ mod tests {
 		let result = executor.execute("nonexistent", serde_json::json!({})).await;
 
 		assert!(result.is_err());
-		assert!(matches!(result.unwrap_err(), ExecutionError::ToolNotFound(_)));
+		assert!(matches!(
+			result.unwrap_err(),
+			ExecutionError::ToolNotFound(_)
+		));
 	}
 
 	#[tokio::test]
@@ -314,7 +344,9 @@ mod tests {
 		let composition = ToolDefinition::composition(
 			"retry_composition",
 			PatternSpec::Retry(RetrySpec {
-				inner: Box::new(StepOperation::Tool(ToolCall { name: "flaky_api".to_string() })),
+				inner: Box::new(StepOperation::Tool(ToolCall {
+					name: "flaky_api".to_string(),
+				})),
 				max_attempts: 3,
 				backoff: BackoffStrategy::Exponential(ExponentialBackoff {
 					initial_delay_ms: 100,
@@ -333,7 +365,9 @@ mod tests {
 
 		let executor = CompositionExecutor::new(Arc::new(compiled), Arc::new(invoker));
 
-		let result = executor.execute("retry_composition", serde_json::json!({})).await;
+		let result = executor
+			.execute("retry_composition", serde_json::json!({}))
+			.await;
 
 		assert!(result.is_err());
 		let err = result.unwrap_err();
@@ -342,9 +376,11 @@ mod tests {
 				assert_eq!(pattern, "retry");
 				assert!(details.contains("state store"));
 				assert!(details.contains("RetryExecutor"));
-			}
-			_ => panic!("Expected StatefulPatternNotImplemented error, got {:?}", err),
+			},
+			_ => panic!(
+				"Expected StatefulPatternNotImplemented error, got {:?}",
+				err
+			),
 		}
 	}
 }
-

@@ -10,8 +10,8 @@ use std::sync::{Arc, RwLock};
 use crate::http::auth::BackendAuth;
 use crate::http::authorization::RuleSet;
 use crate::http::{
-	HeaderOrPseudo, HeaderValue, deadletter, ext_authz, ext_proc, filters, remoteratelimit, retry, stateful,
-	timeout,
+	HeaderOrPseudo, HeaderValue, deadletter, ext_authz, ext_proc, filters, remoteratelimit, retry,
+	stateful, timeout,
 };
 use crate::mcp::McpAuthorization;
 use crate::telemetry::log::OrderedStringMap;

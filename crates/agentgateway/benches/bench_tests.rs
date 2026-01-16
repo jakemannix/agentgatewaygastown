@@ -8,11 +8,11 @@ fn main() {
 #[cfg(feature = "internal_benches")]
 mod composition_benchmarks {
 	use agentgateway::mcp::registry::{
-		AggregationOp, AggregationStrategy, CompiledRegistry, PatternSpec, PipelineSpec,
-		PipelineStep, Registry, ScatterGatherSpec, ScatterTarget, StepOperation, ToolCall,
-		ToolDefinition, VirtualToolDef,
+		AggregationOp, AggregationStrategy, CompiledRegistry, PatternSpec, PipelineSpec, PipelineStep,
+		Registry, ScatterGatherSpec, ScatterTarget, StepOperation, ToolCall, ToolDefinition,
+		VirtualToolDef,
 	};
-	use divan::{black_box, Bencher};
+	use divan::{Bencher, black_box};
 
 	// =========================================================================
 	// Compilation Benchmarks
@@ -40,7 +40,9 @@ mod composition_benchmarks {
 							},
 							PipelineStep {
 								id: "step2".to_string(),
-								operation: StepOperation::Tool(ToolCall { name: "process".to_string() }),
+								operation: StepOperation::Tool(ToolCall {
+									name: "process".to_string(),
+								}),
 								input: None,
 							},
 						],
@@ -129,9 +131,7 @@ mod composition_benchmarks {
 		let registry = Registry::with_tool_definitions(tools);
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
-		bencher.bench_local(|| {
-			compiled.get_tool(black_box("tool_50"))
-		});
+		bencher.bench_local(|| compiled.get_tool(black_box("tool_50")));
 	}
 
 	#[divan::bench]
@@ -140,9 +140,7 @@ mod composition_benchmarks {
 		let registry = Registry::with_tool_definitions(tools);
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
-		bencher.bench_local(|| {
-			compiled.get_tool(black_box("tool_500"))
-		});
+		bencher.bench_local(|| compiled.get_tool(black_box("tool_500")));
 	}
 
 	// =========================================================================
@@ -179,7 +177,9 @@ mod composition_benchmarks {
 		});
 
 		bencher.bench_local(|| {
-			compiled.transform_output("test", black_box(input.clone())).unwrap()
+			compiled
+				.transform_output("test", black_box(input.clone()))
+				.unwrap()
 		});
 	}
 
@@ -213,7 +213,9 @@ mod composition_benchmarks {
 		});
 
 		bencher.bench_local(|| {
-			compiled.transform_output("test", black_box(input.clone())).unwrap()
+			compiled
+				.transform_output("test", black_box(input.clone()))
+				.unwrap()
 		});
 	}
 
@@ -235,7 +237,9 @@ mod composition_benchmarks {
 		});
 
 		bencher.bench_local(|| {
-			compiled.prepare_call_args("test", black_box(args.clone())).unwrap()
+			compiled
+				.prepare_call_args("test", black_box(args.clone()))
+				.unwrap()
 		});
 	}
 
@@ -243,7 +247,10 @@ mod composition_benchmarks {
 	fn inject_defaults_many(bencher: Bencher) {
 		let mut tool = VirtualToolDef::new("test", "backend", "original");
 		for i in 0..20 {
-			tool = tool.with_default(format!("key{}", i), serde_json::json!(format!("value{}", i)));
+			tool = tool.with_default(
+				format!("key{}", i),
+				serde_json::json!(format!("value{}", i)),
+			);
 		}
 
 		let registry = Registry::with_tools(vec![tool]);
@@ -254,7 +261,9 @@ mod composition_benchmarks {
 		});
 
 		bencher.bench_local(|| {
-			compiled.prepare_call_args("test", black_box(args.clone())).unwrap()
+			compiled
+				.prepare_call_args("test", black_box(args.clone()))
+				.unwrap()
 		});
 	}
 }

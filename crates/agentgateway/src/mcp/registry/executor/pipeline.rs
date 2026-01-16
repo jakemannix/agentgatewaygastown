@@ -34,7 +34,9 @@ impl PipelineExecutor {
 				StepOperation::Tool(tc) => executor.execute_tool(&tc.name, step_input, ctx).await?,
 				StepOperation::Pattern(pattern) => {
 					let child_ctx = ctx.child(step_input.clone());
-					executor.execute_pattern(pattern, step_input, &child_ctx).await?
+					executor
+						.execute_pattern(pattern, step_input, &child_ctx)
+						.await?
 				},
 			};
 
@@ -47,7 +49,11 @@ impl PipelineExecutor {
 	}
 
 	/// Resolve a data binding to a value
-	async fn resolve_binding(binding: &DataBinding, input: &Value, ctx: &ExecutionContext) -> Result<Value, ExecutionError> {
+	async fn resolve_binding(
+		binding: &DataBinding,
+		input: &Value,
+		ctx: &ExecutionContext,
+	) -> Result<Value, ExecutionError> {
 		match binding {
 			DataBinding::Input(ib) => Self::apply_jsonpath(&ib.path, input),
 			DataBinding::Step(sb) => {
@@ -77,8 +83,8 @@ impl PipelineExecutor {
 			return Ok(value.clone());
 		}
 
-		let jsonpath =
-			JsonPath::parse(path).map_err(|e| ExecutionError::JsonPathError(format!("{}: {}", path, e)))?;
+		let jsonpath = JsonPath::parse(path)
+			.map_err(|e| ExecutionError::JsonPathError(format!("{}: {}", path, e)))?;
 
 		let nodes = jsonpath.query(value);
 		let results: Vec<_> = nodes.iter().map(|v| (*v).clone()).collect();
@@ -94,13 +100,15 @@ impl PipelineExecutor {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::mcp::registry::CompiledRegistry;
 	use crate::mcp::registry::executor::MockToolInvoker;
 	use crate::mcp::registry::patterns::{InputBinding, PipelineStep, StepBinding, ToolCall};
 	use crate::mcp::registry::types::Registry;
-	use crate::mcp::registry::CompiledRegistry;
 	use std::sync::Arc;
 
-	fn setup_context_and_executor(invoker: MockToolInvoker) -> (ExecutionContext, CompositionExecutor) {
+	fn setup_context_and_executor(
+		invoker: MockToolInvoker,
+	) -> (ExecutionContext, CompositionExecutor) {
 		let registry = Registry::new();
 		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
 		let invoker = Arc::new(invoker);
@@ -123,12 +131,16 @@ mod tests {
 			steps: vec![
 				PipelineStep {
 					id: "s1".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "step1_tool".to_string() }),
+					operation: StepOperation::Tool(ToolCall {
+						name: "step1_tool".to_string(),
+					}),
 					input: None,
 				},
 				PipelineStep {
 					id: "s2".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "step2_tool".to_string() }),
+					operation: StepOperation::Tool(ToolCall {
+						name: "step2_tool".to_string(),
+					}),
 					input: None,
 				},
 			],
@@ -142,15 +154,20 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_pipeline_with_input_binding() {
-		let invoker = MockToolInvoker::new().with_response("search", serde_json::json!({"results": ["a", "b"]}));
+		let invoker =
+			MockToolInvoker::new().with_response("search", serde_json::json!({"results": ["a", "b"]}));
 
 		let (ctx, executor) = setup_context_and_executor(invoker);
 
 		let spec = PipelineSpec {
 			steps: vec![PipelineStep {
 				id: "search".to_string(),
-				operation: StepOperation::Tool(ToolCall { name: "search".to_string() }),
-				input: Some(DataBinding::Input(InputBinding { path: "$.query".to_string() })),
+				operation: StepOperation::Tool(ToolCall {
+					name: "search".to_string(),
+				}),
+				input: Some(DataBinding::Input(InputBinding {
+					path: "$.query".to_string(),
+				})),
 			}],
 		};
 
@@ -172,12 +189,16 @@ mod tests {
 			steps: vec![
 				PipelineStep {
 					id: "search".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "search".to_string() }),
+					operation: StepOperation::Tool(ToolCall {
+						name: "search".to_string(),
+					}),
 					input: None,
 				},
 				PipelineStep {
 					id: "process".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "process".to_string() }),
+					operation: StepOperation::Tool(ToolCall {
+						name: "process".to_string(),
+					}),
 					input: Some(DataBinding::Step(StepBinding {
 						step_id: "search".to_string(),
 						path: "$.results".to_string(),
@@ -213,4 +234,3 @@ mod tests {
 		assert_eq!(result, serde_json::json!(1));
 	}
 }
-

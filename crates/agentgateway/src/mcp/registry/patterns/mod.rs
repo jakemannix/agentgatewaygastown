@@ -12,15 +12,20 @@ mod stateful;
 
 pub use filter::{FieldPredicate, FilterSpec, PredicateValue};
 pub use map_each::{MapEachInner, MapEachSpec};
-pub use pipeline::{ConstructBinding, DataBinding, InputBinding, PipelineSpec, PipelineStep, StepBinding, StepOperation, ToolCall};
+pub use pipeline::{
+	ConstructBinding, DataBinding, InputBinding, PipelineSpec, PipelineStep, StepBinding,
+	StepOperation, ToolCall,
+};
 pub use scatter_gather::{
 	AggregationOp, AggregationStrategy, DedupeOp, LimitOp, ScatterGatherSpec, ScatterTarget, SortOp,
 };
-pub use schema_map::{CoalesceSource, ConcatSource, FieldSource, LiteralValue, SchemaMapSpec, TemplateSource};
+pub use schema_map::{
+	CoalesceSource, ConcatSource, FieldSource, LiteralValue, SchemaMapSpec, TemplateSource,
+};
 pub use stateful::{
-	BackoffStrategy, CacheSpec, CircuitBreakerSpec, ClaimCheckSpec, DeadLetterSpec, ExponentialBackoff,
-	FixedBackoff, IdempotentSpec, LinearBackoff, OnDuplicate, OnExceeded, RetrySpec, SagaSpec, SagaStep,
-	ThrottleSpec, ThrottleStrategy, TimeoutSpec,
+	BackoffStrategy, CacheSpec, CircuitBreakerSpec, ClaimCheckSpec, DeadLetterSpec,
+	ExponentialBackoff, FixedBackoff, IdempotentSpec, LinearBackoff, OnDuplicate, OnExceeded,
+	RetrySpec, SagaSpec, SagaStep, ThrottleSpec, ThrottleStrategy, TimeoutSpec,
 };
 
 use serde::{Deserialize, Serialize};
@@ -237,4 +242,3 @@ mod tests {
 		assert!(spec.is_stateful_unimplemented());
 	}
 }
-

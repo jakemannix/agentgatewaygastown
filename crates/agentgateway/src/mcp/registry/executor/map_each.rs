@@ -64,15 +64,17 @@ impl MapEachExecutor {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::mcp::registry::CompiledRegistry;
 	use crate::mcp::registry::executor::MockToolInvoker;
 	use crate::mcp::registry::patterns::{FieldSource, LiteralValue, PatternSpec, SchemaMapSpec};
 	use crate::mcp::registry::types::Registry;
-	use crate::mcp::registry::CompiledRegistry;
 	use serde_json::json;
 	use std::collections::HashMap;
 	use std::sync::Arc;
 
-	fn setup_context_and_executor(invoker: MockToolInvoker) -> (ExecutionContext, CompositionExecutor) {
+	fn setup_context_and_executor(
+		invoker: MockToolInvoker,
+	) -> (ExecutionContext, CompositionExecutor) {
 		let registry = Registry::new();
 		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
 		let invoker = Arc::new(invoker);
@@ -86,12 +88,13 @@ mod tests {
 	#[tokio::test]
 	async fn test_map_each_tool() {
 		// Create invoker that echoes input with a marker
-		let invoker = MockToolInvoker::new()
-			.with_response("process", json!({"processed": true}));
+		let invoker = MockToolInvoker::new().with_response("process", json!({"processed": true}));
 
 		let (ctx, executor) = setup_context_and_executor(invoker);
 
-		let spec = MapEachSpec { inner: MapEachInner::Tool("process".to_string()) };
+		let spec = MapEachSpec {
+			inner: MapEachInner::Tool("process".to_string()),
+		};
 
 		let input = json!([{"id": 1}, {"id": 2}, {"id": 3}]);
 		let result = MapEachExecutor::execute(&spec, input, &ctx, &executor).await;
@@ -111,11 +114,16 @@ mod tests {
 		let inner_pattern = PatternSpec::SchemaMap(SchemaMapSpec {
 			mappings: HashMap::from([
 				("name".to_string(), FieldSource::Path("$.title".to_string())),
-				("source".to_string(), FieldSource::Literal(LiteralValue::StringValue("processed".to_string()))),
+				(
+					"source".to_string(),
+					FieldSource::Literal(LiteralValue::StringValue("processed".to_string())),
+				),
 			]),
 		});
 
-		let spec = MapEachSpec { inner: MapEachInner::Pattern(Box::new(inner_pattern)) };
+		let spec = MapEachSpec {
+			inner: MapEachInner::Pattern(Box::new(inner_pattern)),
+		};
 
 		let input = json!([
 			{"title": "Item 1"},
@@ -139,13 +147,18 @@ mod tests {
 		let invoker = MockToolInvoker::new();
 		let (ctx, executor) = setup_context_and_executor(invoker);
 
-		let spec = MapEachSpec { inner: MapEachInner::Tool("tool".to_string()) };
+		let spec = MapEachSpec {
+			inner: MapEachInner::Tool("tool".to_string()),
+		};
 
 		let input = json!({"not": "an array"});
 		let result = MapEachExecutor::execute(&spec, input, &ctx, &executor).await;
 
 		assert!(result.is_err());
-		assert!(matches!(result.unwrap_err(), ExecutionError::TypeError { .. }));
+		assert!(matches!(
+			result.unwrap_err(),
+			ExecutionError::TypeError { .. }
+		));
 	}
 
 	#[tokio::test]
@@ -153,7 +166,9 @@ mod tests {
 		let invoker = MockToolInvoker::new();
 		let (ctx, executor) = setup_context_and_executor(invoker);
 
-		let spec = MapEachSpec { inner: MapEachInner::Tool("tool".to_string()) };
+		let spec = MapEachSpec {
+			inner: MapEachInner::Tool("tool".to_string()),
+		};
 
 		let input = json!([]);
 		let result = MapEachExecutor::execute(&spec, input, &ctx, &executor).await;
@@ -163,4 +178,3 @@ mod tests {
 		assert!(arr.as_array().unwrap().is_empty());
 	}
 }
-

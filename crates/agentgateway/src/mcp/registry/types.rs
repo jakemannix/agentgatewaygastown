@@ -103,12 +103,16 @@ pub struct OutputTransform {
 impl OutputTransform {
 	/// Create from a SchemaMapSpec
 	pub fn from_schema_map(schema_map: SchemaMapSpec) -> Self {
-		Self { mappings: schema_map.mappings }
+		Self {
+			mappings: schema_map.mappings,
+		}
 	}
 
 	/// Create an empty output transform
 	pub fn empty() -> Self {
-		Self { mappings: HashMap::new() }
+		Self {
+			mappings: HashMap::new(),
+		}
 	}
 
 	/// Check if this transform has any mappings
@@ -222,7 +226,10 @@ impl Registry {
 
 	/// Create a registry with the given tools (unified format)
 	pub fn with_tool_definitions(tools: Vec<ToolDefinition>) -> Self {
-		Self { schema_version: default_schema_version(), tools }
+		Self {
+			schema_version: default_schema_version(),
+			tools,
+		}
 	}
 
 	/// Create a registry with legacy virtual tool definitions
@@ -388,14 +395,13 @@ impl SourceTool {
 // Legacy builder methods for VirtualToolDef
 impl LegacyVirtualToolDef {
 	/// Create a simple virtual tool mapping
-	pub fn new(
-		name: impl Into<String>,
-		target: impl Into<String>,
-		tool: impl Into<String>,
-	) -> Self {
+	pub fn new(name: impl Into<String>, target: impl Into<String>, tool: impl Into<String>) -> Self {
 		Self {
 			name: name.into(),
-			source: ToolSource { target: target.into(), tool: tool.into() },
+			source: ToolSource {
+				target: target.into(),
+				tool: tool.into(),
+			},
 			description: None,
 			input_schema: None,
 			defaults: HashMap::new(),
@@ -434,19 +440,30 @@ impl LegacyVirtualToolDef {
 impl OutputSchema {
 	/// Create an output schema with the given properties
 	pub fn new(properties: HashMap<String, OutputField>) -> Self {
-		Self { schema_type: default_object_type(), properties }
+		Self {
+			schema_type: default_object_type(),
+			properties,
+		}
 	}
 }
 
 impl OutputField {
 	/// Create a new output field with JSONPath source
 	pub fn new(field_type: impl Into<String>, source_field: impl Into<String>) -> Self {
-		Self { field_type: field_type.into(), source_field: Some(source_field.into()), description: None }
+		Self {
+			field_type: field_type.into(),
+			source_field: Some(source_field.into()),
+			description: None,
+		}
 	}
 
 	/// Create a field without JSONPath (passthrough)
 	pub fn passthrough(field_type: impl Into<String>) -> Self {
-		Self { field_type: field_type.into(), source_field: None, description: None }
+		Self {
+			field_type: field_type.into(),
+			source_field: None,
+			description: None,
+		}
 	}
 }
 
@@ -573,13 +590,16 @@ mod tests {
 
 		let source = unified.source_tool().unwrap();
 		assert_eq!(source.target, "weather");
-		assert_eq!(source.defaults.get("units"), Some(&serde_json::json!("metric")));
+		assert_eq!(
+			source.defaults.get("units"),
+			Some(&serde_json::json!("metric"))
+		);
 	}
 
 	#[test]
 	fn test_builder_source_tool() {
-		let tool = ToolDefinition::source("my_tool", "backend", "original")
-			.with_description("A test tool");
+		let tool =
+			ToolDefinition::source("my_tool", "backend", "original").with_description("A test tool");
 
 		assert_eq!(tool.name, "my_tool");
 		assert_eq!(tool.description, Some("A test tool".to_string()));
@@ -592,13 +612,15 @@ mod tests {
 		let spec = PatternSpec::Pipeline(PipelineSpec {
 			steps: vec![PipelineStep {
 				id: "step1".to_string(),
-				operation: StepOperation::Tool(ToolCall { name: "search".to_string() }),
+				operation: StepOperation::Tool(ToolCall {
+					name: "search".to_string(),
+				}),
 				input: None,
 			}],
 		});
 
-		let tool = ToolDefinition::composition("my_composition", spec)
-			.with_description("A composition");
+		let tool =
+			ToolDefinition::composition("my_composition", spec).with_description("A composition");
 
 		assert!(tool.is_composition());
 		assert_eq!(tool.referenced_tools(), vec!["search"]);

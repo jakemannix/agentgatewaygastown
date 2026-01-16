@@ -12,7 +12,9 @@ use crate::http::auth::BackendAuth;
 use crate::http::authorization::HTTPAuthorizationSet;
 use crate::http::backendtls::BackendTLS;
 use crate::http::ext_proc::InferenceRouting;
-use crate::http::{deadletter, ext_authz, ext_proc, filters, remoteratelimit, retry, stateful, timeout};
+use crate::http::{
+	deadletter, ext_authz, ext_proc, filters, remoteratelimit, retry, stateful, timeout,
+};
 use crate::llm::policy::ResponseGuard;
 use crate::mcp::McpAuthorizationSet;
 use crate::proxy::httpproxy::PolicyClient;
@@ -109,7 +111,6 @@ pub struct BackendPolicies {
 
 	pub session_persistence: Option<http::sessionpersistence::Policy>,
 	pub circuit_breaker: Option<stateful::CircuitBreakerSpec>,
-
 
 	/// Internal-only override for destination endpoint selection.
 	/// Used for stateful MCP routing (session affinity).

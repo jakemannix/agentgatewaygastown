@@ -101,7 +101,7 @@ where
 				{
 					tokio::time::sleep(backoff).await;
 				}
-			}
+			},
 		}
 	}
 

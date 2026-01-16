@@ -26,7 +26,11 @@ pub struct ScatterGatherSpec {
 impl ScatterGatherSpec {
 	/// Get the names of tools referenced by this scatter-gather
 	pub fn referenced_tools(&self) -> Vec<&str> {
-		self.targets.iter().flat_map(|t| t.referenced_tools()).collect()
+		self
+			.targets
+			.iter()
+			.flat_map(|t| t.referenced_tools())
+			.collect()
 	}
 }
 
@@ -61,7 +65,9 @@ pub struct AggregationStrategy {
 
 impl Default for AggregationStrategy {
 	fn default() -> Self {
-		Self { ops: vec![AggregationOp::Flatten(true)] }
+		Self {
+			ops: vec![AggregationOp::Flatten(true)],
+		}
 	}
 }
 
@@ -188,4 +194,3 @@ mod tests {
 		assert_eq!(refs, vec!["tool_a", "tool_b"]);
 	}
 }
-

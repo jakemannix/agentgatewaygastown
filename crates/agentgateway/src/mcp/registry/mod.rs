@@ -16,7 +16,7 @@ pub mod patterns;
 mod store;
 mod types;
 
-pub use client::{parse_duration, AuthConfig, RegistryClient, RegistrySource};
+pub use client::{AuthConfig, RegistryClient, RegistrySource, parse_duration};
 pub use compiled::{
 	CompiledComposition, CompiledFieldSource, CompiledImplementation, CompiledOutputField,
 	CompiledOutputTransform, CompiledRegistry, CompiledSourceTool, CompiledTool, CompiledVirtualTool,

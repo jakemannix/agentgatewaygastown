@@ -3,7 +3,6 @@
 // The execution graph is a DAG (Directed Acyclic Graph) representing
 // the flow of data through a composition's operations.
 
-
 use super::patterns::{
 	AggregationStrategy, DataBinding, FilterSpec, MapEachInner, PatternSpec, SchemaMapSpec,
 };
@@ -101,7 +100,10 @@ pub enum NodeInput {
 	/// From the composition input
 	CompositionInput,
 	/// From another node's output
-	Node { node_index: usize, path: Option<String> },
+	Node {
+		node_index: usize,
+		path: Option<String>,
+	},
 	/// Constant value
 	Constant(serde_json::Value),
 }
@@ -122,7 +124,10 @@ impl ExecutionGraph {
 		let main_node = ExecutionNode {
 			id: "_main".to_string(),
 			operation: Self::pattern_to_operation(spec),
-			inputs: vec![NodeInput::Node { node_index: 0, path: None }],
+			inputs: vec![NodeInput::Node {
+				node_index: 0,
+				path: None,
+			}],
 		};
 		nodes.push(main_node);
 
@@ -130,10 +135,17 @@ impl ExecutionGraph {
 		nodes.push(ExecutionNode {
 			id: "_output".to_string(),
 			operation: NodeOperation::Output,
-			inputs: vec![NodeInput::Node { node_index: 1, path: None }],
+			inputs: vec![NodeInput::Node {
+				node_index: 1,
+				path: None,
+			}],
 		});
 
-		Self { nodes, entry: 0, exit: 2 }
+		Self {
+			nodes,
+			entry: 0,
+			exit: 2,
+		}
 	}
 
 	/// Convert a pattern spec to a node operation
@@ -147,12 +159,10 @@ impl ExecutionGraph {
 					.map(|s| PipelineStepNode {
 						id: s.id.clone(),
 						operation: match &s.operation {
-							super::patterns::StepOperation::Tool(tc) => {
-								StepOperationNode::Tool { name: tc.name.clone() }
+							super::patterns::StepOperation::Tool(tc) => StepOperationNode::Tool {
+								name: tc.name.clone(),
 							},
-							super::patterns::StepOperation::Pattern(p) => {
-								StepOperationNode::Pattern(p.clone())
-							},
+							super::patterns::StepOperation::Pattern(p) => StepOperationNode::Pattern(p.clone()),
 						},
 						input: s.input.clone(),
 					})
@@ -177,7 +187,9 @@ impl ExecutionGraph {
 			},
 			PatternSpec::Filter(f) => NodeOperation::Filter(f.clone()),
 			PatternSpec::SchemaMap(sm) => NodeOperation::SchemaMap(sm.clone()),
-			PatternSpec::MapEach(me) => NodeOperation::MapEach { inner: me.inner.clone() },
+			PatternSpec::MapEach(me) => NodeOperation::MapEach {
+				inner: me.inner.clone(),
+			},
 
 			// Stateful patterns - wrap as Pattern for now (execution will error at runtime)
 			PatternSpec::Retry(_)
@@ -247,14 +259,20 @@ impl ExecutionGraph {
 				let inner_op = Self::pattern_to_operation(p);
 				Self::collect_tool_refs(&inner_op, refs);
 			},
-			NodeOperation::Filter(_) | NodeOperation::SchemaMap(_) | NodeOperation::Input | NodeOperation::Output => {},
+			NodeOperation::Filter(_)
+			| NodeOperation::SchemaMap(_)
+			| NodeOperation::Input
+			| NodeOperation::Output => {},
 		}
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use super::super::patterns::{AggregationOp, AggregationStrategy, PipelineSpec, PipelineStep, ScatterGatherSpec, StepOperation, ToolCall};
+	use super::super::patterns::{
+		AggregationOp, AggregationStrategy, PipelineSpec, PipelineStep, ScatterGatherSpec,
+		StepOperation, ToolCall,
+	};
 	use super::*;
 
 	#[test]
@@ -263,12 +281,16 @@ mod tests {
 			steps: vec![
 				PipelineStep {
 					id: "step1".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "search".to_string() }),
+					operation: StepOperation::Tool(ToolCall {
+						name: "search".to_string(),
+					}),
 					input: None,
 				},
 				PipelineStep {
 					id: "step2".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "summarize".to_string() }),
+					operation: StepOperation::Tool(ToolCall {
+						name: "summarize".to_string(),
+					}),
 					input: None,
 				},
 			],
@@ -292,7 +314,9 @@ mod tests {
 				super::super::patterns::ScatterTarget::Tool("tool_a".to_string()),
 				super::super::patterns::ScatterTarget::Tool("tool_b".to_string()),
 			],
-			aggregation: AggregationStrategy { ops: vec![AggregationOp::Flatten(true)] },
+			aggregation: AggregationStrategy {
+				ops: vec![AggregationOp::Flatten(true)],
+			},
 			timeout_ms: Some(5000),
 			fail_fast: false,
 		});
@@ -338,4 +362,3 @@ mod tests {
 		assert_eq!(refs, vec!["fetch"]);
 	}
 }
-

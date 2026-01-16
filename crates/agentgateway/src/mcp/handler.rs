@@ -242,9 +242,10 @@ impl Relay {
 		use futures_util::StreamExt;
 
 		// Get the upstream
-		let upstream = self.upstreams.get(target).map_err(|_| {
-			UpstreamError::InvalidRequest(format!("unknown service {}", target))
-		})?;
+		let upstream = self
+			.upstreams
+			.get(target)
+			.map_err(|_| UpstreamError::InvalidRequest(format!("unknown service {}", target)))?;
 
 		// Build the request
 		let call_params = rmcp::model::CallToolRequestParam {
@@ -272,7 +273,9 @@ impl Relay {
 		let mut stream = upstream.generic_stream(request, ctx).await?;
 
 		// Get the first message from the stream
-		let response = stream.next().await
+		let response = stream
+			.next()
+			.await
 			.ok_or_else(|| UpstreamError::InvalidRequest("No response from tool call".to_string()))?
 			.map_err(|e| UpstreamError::InvalidRequest(format!("Tool call error: {}", e)))?;
 
@@ -300,15 +303,19 @@ impl Relay {
 					},
 					other => {
 						// For other result types, serialize as-is
-						serde_json::to_value(&other)
-							.map_err(|e| UpstreamError::InvalidRequest(format!("Failed to serialize result: {}", e)))
-					}
+						serde_json::to_value(&other).map_err(|e| {
+							UpstreamError::InvalidRequest(format!("Failed to serialize result: {}", e))
+						})
+					},
 				}
 			},
-			ServerJsonRpcMessage::Error(err) => {
-				Err(UpstreamError::InvalidRequest(format!("Tool call failed: {}", err.error.message)))
-			},
-			_ => Err(UpstreamError::InvalidRequest("Unexpected response type from tool call".to_string()))
+			ServerJsonRpcMessage::Error(err) => Err(UpstreamError::InvalidRequest(format!(
+				"Tool call failed: {}",
+				err.error.message
+			))),
+			_ => Err(UpstreamError::InvalidRequest(
+				"Unexpected response type from tool call".to_string(),
+			)),
 		}
 	}
 }
@@ -335,7 +342,11 @@ impl RelayToolInvoker {
 
 #[async_trait::async_trait]
 impl ToolInvoker for RelayToolInvoker {
-	async fn invoke(&self, tool_name: &str, args: serde_json::Value) -> Result<serde_json::Value, ExecutionError> {
+	async fn invoke(
+		&self,
+		tool_name: &str,
+		args: serde_json::Value,
+	) -> Result<serde_json::Value, ExecutionError> {
 		// Resolve the tool call (handles virtual tools, compositions, and backend tools)
 		let resolved = self
 			.relay
@@ -343,7 +354,12 @@ impl ToolInvoker for RelayToolInvoker {
 			.map_err(|e| ExecutionError::ToolExecutionFailed(e.to_string()))?;
 
 		match resolved {
-			ResolvedToolCall::Backend { target, tool_name: backend_tool, args, virtual_name } => {
+			ResolvedToolCall::Backend {
+				target,
+				tool_name: backend_tool,
+				args,
+				virtual_name,
+			} => {
 				// Use the Relay's invoke_tool method which handles the MCP protocol properly
 				let result = self
 					.relay
@@ -353,7 +369,8 @@ impl ToolInvoker for RelayToolInvoker {
 
 				// Apply output transformation if this was a virtual tool
 				if let Some(vname) = virtual_name {
-					self.relay
+					self
+						.relay
 						.transform_tool_output(&vname, result)
 						.map_err(|e| ExecutionError::ToolExecutionFailed(e.to_string()))
 				} else {
@@ -649,9 +666,8 @@ impl Relay {
 		if let Some(vname) = virtual_name {
 			if let Some(ref reg) = self.registry {
 				let reg_clone = reg.clone();
-				let stream = stream.map(move |msg| {
-					msg.map(|m| transform_server_message(m, &vname, &reg_clone))
-				});
+				let stream =
+					stream.map(move |msg| msg.map(|m| transform_server_message(m, &vname, &reg_clone)));
 				return messages_to_response(id, stream);
 			}
 		}
@@ -924,7 +940,7 @@ fn transform_call_tool_result(
 				"failed to parse result as JSON"
 			);
 			return None;
-		}
+		},
 	};
 
 	// Transform using the tool's output transformation
@@ -937,7 +953,7 @@ fn transform_call_tool_result(
 				"output transformation failed"
 			);
 			return None;
-		}
+		},
 	};
 
 	tracing::debug!(

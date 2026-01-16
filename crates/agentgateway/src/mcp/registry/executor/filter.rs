@@ -43,28 +43,45 @@ impl FilterExecutor {
 		let target = predicate_value.to_json_value();
 
 		match op {
-			"eq" => Ok(field_value.map(|v| v == &target).unwrap_or(target.is_null())),
-			"ne" => Ok(field_value.map(|v| v != &target).unwrap_or(!target.is_null())),
+			"eq" => Ok(
+				field_value
+					.map(|v| v == &target)
+					.unwrap_or(target.is_null()),
+			),
+			"ne" => Ok(
+				field_value
+					.map(|v| v != &target)
+					.unwrap_or(!target.is_null()),
+			),
 			"gt" => Self::compare_numeric(field_value, &target, |a, b| a > b),
 			"gte" => Self::compare_numeric(field_value, &target, |a, b| a >= b),
 			"lt" => Self::compare_numeric(field_value, &target, |a, b| a < b),
 			"lte" => Self::compare_numeric(field_value, &target, |a, b| a <= b),
 			"contains" => Self::contains(field_value, &target),
 			"in" => Self::in_list(field_value, &target),
-			other => Err(ExecutionError::PredicateError(format!("unknown operator: {}", other))),
+			other => Err(ExecutionError::PredicateError(format!(
+				"unknown operator: {}",
+				other
+			))),
 		}
 	}
 
 	/// Numeric comparison
-	fn compare_numeric<F>(field_value: Option<&Value>, target: &Value, cmp: F) -> Result<bool, ExecutionError>
+	fn compare_numeric<F>(
+		field_value: Option<&Value>,
+		target: &Value,
+		cmp: F,
+	) -> Result<bool, ExecutionError>
 	where
 		F: Fn(f64, f64) -> bool,
 	{
-		let field_num =
-			field_value.and_then(|v| v.as_f64()).ok_or_else(|| ExecutionError::PredicateError("field is not a number".to_string()))?;
+		let field_num = field_value
+			.and_then(|v| v.as_f64())
+			.ok_or_else(|| ExecutionError::PredicateError("field is not a number".to_string()))?;
 
-		let target_num =
-			target.as_f64().ok_or_else(|| ExecutionError::PredicateError("target is not a number".to_string()))?;
+		let target_num = target
+			.as_f64()
+			.ok_or_else(|| ExecutionError::PredicateError("target is not a number".to_string()))?;
 
 		Ok(cmp(field_num, target_num))
 	}
@@ -75,18 +92,21 @@ impl FilterExecutor {
 			.and_then(|v| v.as_str())
 			.ok_or_else(|| ExecutionError::PredicateError("field is not a string".to_string()))?;
 
-		let target_str =
-			target.as_str().ok_or_else(|| ExecutionError::PredicateError("target is not a string".to_string()))?;
+		let target_str = target
+			.as_str()
+			.ok_or_else(|| ExecutionError::PredicateError("target is not a string".to_string()))?;
 
 		Ok(field_str.contains(target_str))
 	}
 
 	/// Check if value is in list
 	fn in_list(field_value: Option<&Value>, target: &Value) -> Result<bool, ExecutionError> {
-		let list =
-			target.as_array().ok_or_else(|| ExecutionError::PredicateError("target is not an array".to_string()))?;
+		let list = target
+			.as_array()
+			.ok_or_else(|| ExecutionError::PredicateError("target is not an array".to_string()))?;
 
-		let field_val = field_value.ok_or_else(|| ExecutionError::PredicateError("field is null".to_string()))?;
+		let field_val =
+			field_value.ok_or_else(|| ExecutionError::PredicateError("field is null".to_string()))?;
 
 		Ok(list.iter().any(|item| item == field_val))
 	}
@@ -264,7 +284,9 @@ mod tests {
 		let result = FilterExecutor::execute(&spec, input).await;
 
 		assert!(result.is_err());
-		assert!(matches!(result.unwrap_err(), ExecutionError::TypeError { .. }));
+		assert!(matches!(
+			result.unwrap_err(),
+			ExecutionError::TypeError { .. }
+		));
 	}
 }
-

@@ -33,8 +33,12 @@ impl SchemaMapExecutor {
 			FieldSource::Template(t) => Self::template(&t.template, &t.vars, input),
 			FieldSource::Concat(c) => Self::concat(&c.paths, c.separator.as_deref(), input),
 			FieldSource::Nested(nested) => {
-				let nested_spec = SchemaMapSpec { mappings: nested.mappings.clone() };
-				Box::pin(Self::execute(&nested_spec, input.clone())).now_or_never().unwrap()
+				let nested_spec = SchemaMapSpec {
+					mappings: nested.mappings.clone(),
+				};
+				Box::pin(Self::execute(&nested_spec, input.clone()))
+					.now_or_never()
+					.unwrap()
 			},
 		}
 	}
@@ -46,8 +50,8 @@ impl SchemaMapExecutor {
 			return Ok(input.clone());
 		}
 
-		let jsonpath =
-			JsonPath::parse(path).map_err(|e| ExecutionError::JsonPathError(format!("{}: {}", path, e)))?;
+		let jsonpath = JsonPath::parse(path)
+			.map_err(|e| ExecutionError::JsonPathError(format!("{}: {}", path, e)))?;
 
 		let nodes = jsonpath.query(input);
 		let results: Vec<_> = nodes.iter().map(|v| (*v).clone()).collect();
@@ -71,7 +75,11 @@ impl SchemaMapExecutor {
 	}
 
 	/// Template: string interpolation
-	fn template(template: &str, vars: &HashMap<String, String>, input: &Value) -> Result<Value, ExecutionError> {
+	fn template(
+		template: &str,
+		vars: &HashMap<String, String>,
+		input: &Value,
+	) -> Result<Value, ExecutionError> {
 		let mut result = template.to_string();
 
 		for (name, path) in vars {
@@ -90,7 +98,11 @@ impl SchemaMapExecutor {
 	}
 
 	/// Concatenate values from multiple paths
-	fn concat(paths: &[String], separator: Option<&str>, input: &Value) -> Result<Value, ExecutionError> {
+	fn concat(
+		paths: &[String],
+		separator: Option<&str>,
+		input: &Value,
+	) -> Result<Value, ExecutionError> {
 		let sep = separator.unwrap_or("");
 		let mut parts = Vec::new();
 
@@ -129,15 +141,23 @@ impl<F: std::future::Future> NowOrNever for F {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::mcp::registry::patterns::{CoalesceSource, ConcatSource, LiteralValue, TemplateSource};
+	use crate::mcp::registry::patterns::{
+		CoalesceSource, ConcatSource, LiteralValue, TemplateSource,
+	};
 	use serde_json::json;
 
 	#[tokio::test]
 	async fn test_schema_map_path() {
 		let spec = SchemaMapSpec {
 			mappings: HashMap::from([
-				("title".to_string(), FieldSource::Path("$.paper.title".to_string())),
-				("author".to_string(), FieldSource::Path("$.paper.author".to_string())),
+				(
+					"title".to_string(),
+					FieldSource::Path("$.paper.title".to_string()),
+				),
+				(
+					"author".to_string(),
+					FieldSource::Path("$.paper.author".to_string()),
+				),
 			]),
 		};
 
@@ -158,9 +178,18 @@ mod tests {
 	async fn test_schema_map_literal() {
 		let spec = SchemaMapSpec {
 			mappings: HashMap::from([
-				("source".to_string(), FieldSource::Literal(LiteralValue::StringValue("arxiv".to_string()))),
-				("relevance".to_string(), FieldSource::Literal(LiteralValue::NumberValue(0.95))),
-				("verified".to_string(), FieldSource::Literal(LiteralValue::BoolValue(true))),
+				(
+					"source".to_string(),
+					FieldSource::Literal(LiteralValue::StringValue("arxiv".to_string())),
+				),
+				(
+					"relevance".to_string(),
+					FieldSource::Literal(LiteralValue::NumberValue(0.95)),
+				),
+				(
+					"verified".to_string(),
+					FieldSource::Literal(LiteralValue::BoolValue(true)),
+				),
 			]),
 		};
 
@@ -177,7 +206,11 @@ mod tests {
 			mappings: HashMap::from([(
 				"url".to_string(),
 				FieldSource::Coalesce(CoalesceSource {
-					paths: vec!["$.pdf_url".to_string(), "$.web_url".to_string(), "$.fallback".to_string()],
+					paths: vec![
+						"$.pdf_url".to_string(),
+						"$.web_url".to_string(),
+						"$.fallback".to_string(),
+					],
 				}),
 			)]),
 		};
@@ -249,15 +282,27 @@ mod tests {
 	async fn test_schema_map_nested() {
 		let inner = SchemaMapSpec {
 			mappings: HashMap::from([
-				("name".to_string(), FieldSource::Path("$.author.name".to_string())),
-				("affiliation".to_string(), FieldSource::Path("$.author.org".to_string())),
+				(
+					"name".to_string(),
+					FieldSource::Path("$.author.name".to_string()),
+				),
+				(
+					"affiliation".to_string(),
+					FieldSource::Path("$.author.org".to_string()),
+				),
 			]),
 		};
 
 		let spec = SchemaMapSpec {
 			mappings: HashMap::from([
-				("title".to_string(), FieldSource::Path("$.title".to_string())),
-				("author_info".to_string(), FieldSource::Nested(Box::new(inner))),
+				(
+					"title".to_string(),
+					FieldSource::Path("$.title".to_string()),
+				),
+				(
+					"author_info".to_string(),
+					FieldSource::Nested(Box::new(inner)),
+				),
 			]),
 		};
 
@@ -275,4 +320,3 @@ mod tests {
 		assert_eq!(result["author_info"]["affiliation"], "University");
 	}
 }
-

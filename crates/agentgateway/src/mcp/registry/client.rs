@@ -62,7 +62,11 @@ impl RegistryClient {
 	}
 
 	/// Create a registry client from a source URI string
-	pub fn from_uri(uri: &str, refresh_interval: Duration, auth: Option<AuthConfig>) -> Result<Self, RegistryError> {
+	pub fn from_uri(
+		uri: &str,
+		refresh_interval: Duration,
+		auth: Option<AuthConfig>,
+	) -> Result<Self, RegistryError> {
 		let source = if uri.starts_with("file://") {
 			let path = uri.strip_prefix("file://").unwrap();
 			RegistrySource::File(PathBuf::from(path))
@@ -127,9 +131,10 @@ impl RegistryClient {
 		}
 
 		// Execute the request
-		let response = request.send().await.map_err(|e| {
-			RegistryError::FetchError(format!("HTTP request failed: {}", e))
-		})?;
+		let response = request
+			.send()
+			.await
+			.map_err(|e| RegistryError::FetchError(format!("HTTP request failed: {}", e)))?;
 
 		// Check status
 		if !response.status().is_success() {
@@ -140,9 +145,10 @@ impl RegistryClient {
 		}
 
 		// Parse response body
-		let body = response.text().await.map_err(|e| {
-			RegistryError::FetchError(format!("Failed to read response body: {}", e))
-		})?;
+		let body = response
+			.text()
+			.await
+			.map_err(|e| RegistryError::FetchError(format!("Failed to read response body: {}", e)))?;
 
 		let registry: Registry = serde_json::from_str(&body)?;
 		info!(target: "virtual_tools", "Fetched {} tools from registry URL", registry.len());
@@ -212,7 +218,7 @@ pub fn parse_duration(s: &str) -> Result<Duration, RegistryError> {
 			return Err(RegistryError::InvalidSource(format!(
 				"unknown duration unit: {}",
 				unit
-			)))
+			)));
 		},
 	};
 
@@ -271,7 +277,14 @@ mod tests {
 
 	#[test]
 	fn test_from_uri_invalid() {
-		assert!(RegistryClient::from_uri("ftp://example.com/registry.json", Duration::from_secs(300), None).is_err());
+		assert!(
+			RegistryClient::from_uri(
+				"ftp://example.com/registry.json",
+				Duration::from_secs(300),
+				None
+			)
+			.is_err()
+		);
 	}
 
 	#[test]

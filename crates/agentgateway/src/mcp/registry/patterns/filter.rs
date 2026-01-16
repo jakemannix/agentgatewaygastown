@@ -27,7 +27,11 @@ pub struct FieldPredicate {
 impl FieldPredicate {
 	/// Create a new predicate
 	pub fn new(field: impl Into<String>, op: impl Into<String>, value: PredicateValue) -> Self {
-		Self { field: field.into(), op: op.into(), value }
+		Self {
+			field: field.into(),
+			op: op.into(),
+			value,
+		}
 	}
 
 	/// Create an equality predicate
@@ -37,17 +41,17 @@ impl FieldPredicate {
 
 	/// Create a greater-than predicate
 	pub fn gt(field: impl Into<String>, value: f64) -> Self {
-		Self::new(field, "gt", PredicateValue::Number(value))
+		Self::new(field, "gt", PredicateValue::number(value))
 	}
 
 	/// Create a less-than predicate
 	pub fn lt(field: impl Into<String>, value: f64) -> Self {
-		Self::new(field, "lt", PredicateValue::Number(value))
+		Self::new(field, "lt", PredicateValue::number(value))
 	}
 
 	/// Create a contains predicate (for strings)
 	pub fn contains(field: impl Into<String>, value: impl Into<String>) -> Self {
-		Self::new(field, "contains", PredicateValue::String(value.into()))
+		Self::new(field, "contains", PredicateValue::string(value.into()))
 	}
 }
 
@@ -73,27 +77,27 @@ pub enum PredicateValue {
 
 impl PredicateValue {
 	/// Create a string value
-	pub fn String(s: impl Into<String>) -> Self {
+	pub fn string(s: impl Into<String>) -> Self {
 		PredicateValue::StringValue(s.into())
 	}
 
 	/// Create a number value
-	pub fn Number(n: f64) -> Self {
+	pub fn number(n: f64) -> Self {
 		PredicateValue::NumberValue(n)
 	}
 
 	/// Create a boolean value
-	pub fn Bool(b: bool) -> Self {
+	pub fn bool(b: bool) -> Self {
 		PredicateValue::BoolValue(b)
 	}
 
 	/// Create a null value
-	pub fn Null() -> Self {
+	pub fn null() -> Self {
 		PredicateValue::NullValue(true)
 	}
 
 	/// Create a list value
-	pub fn List(values: Vec<PredicateValue>) -> Self {
+	pub fn list(values: Vec<PredicateValue>) -> Self {
 		PredicateValue::ListValue(values)
 	}
 
@@ -158,7 +162,9 @@ mod tests {
 		let filter: FilterSpec = serde_json::from_str(json).unwrap();
 		assert_eq!(filter.predicate.field, "$.score");
 		assert_eq!(filter.predicate.op, "gt");
-		assert!(matches!(filter.predicate.value, PredicateValue::NumberValue(n) if (n - 0.7).abs() < f64::EPSILON));
+		assert!(
+			matches!(filter.predicate.value, PredicateValue::NumberValue(n) if (n - 0.7).abs() < f64::EPSILON)
+		);
 	}
 
 	#[test]
@@ -204,10 +210,21 @@ mod tests {
 
 	#[test]
 	fn test_predicate_value_to_json() {
-		assert_eq!(PredicateValue::String("hello").to_json_value(), serde_json::json!("hello"));
-		assert_eq!(PredicateValue::Number(42.0).to_json_value(), serde_json::json!(42.0));
-		assert_eq!(PredicateValue::Bool(true).to_json_value(), serde_json::json!(true));
-		assert_eq!(PredicateValue::Null().to_json_value(), serde_json::Value::Null);
+		assert_eq!(
+			PredicateValue::string("hello").to_json_value(),
+			serde_json::json!("hello")
+		);
+		assert_eq!(
+			PredicateValue::number(42.0).to_json_value(),
+			serde_json::json!(42.0)
+		);
+		assert_eq!(
+			PredicateValue::bool(true).to_json_value(),
+			serde_json::json!(true)
+		);
+		assert_eq!(
+			PredicateValue::null().to_json_value(),
+			serde_json::Value::Null
+		);
 	}
 }
-

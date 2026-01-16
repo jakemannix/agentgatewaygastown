@@ -15,7 +15,8 @@ pub struct PipelineSpec {
 impl PipelineSpec {
 	/// Get the names of tools referenced by this pipeline
 	pub fn referenced_tools(&self) -> Vec<&str> {
-		self.steps
+		self
+			.steps
 			.iter()
 			.flat_map(|step| step.operation.referenced_tools())
 			.collect()
@@ -86,7 +87,9 @@ pub enum DataBinding {
 
 impl Default for DataBinding {
 	fn default() -> Self {
-		DataBinding::Input(InputBinding { path: "$".to_string() })
+		DataBinding::Input(InputBinding {
+			path: "$".to_string(),
+		})
 	}
 }
 
@@ -196,4 +199,3 @@ mod tests {
 		assert_eq!(refs, vec!["tool_a", "tool_b"]);
 	}
 }
-

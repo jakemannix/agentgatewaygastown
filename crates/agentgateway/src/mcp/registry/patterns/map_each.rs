@@ -15,12 +15,16 @@ pub struct MapEachSpec {
 impl MapEachSpec {
 	/// Create a MapEach that calls a tool for each element
 	pub fn tool(name: impl Into<String>) -> Self {
-		Self { inner: MapEachInner::Tool(name.into()) }
+		Self {
+			inner: MapEachInner::Tool(name.into()),
+		}
 	}
 
 	/// Create a MapEach that applies a pattern for each element
 	pub fn pattern(spec: PatternSpec) -> Self {
-		Self { inner: MapEachInner::Pattern(Box::new(spec)) }
+		Self {
+			inner: MapEachInner::Pattern(Box::new(spec)),
+		}
 	}
 
 	/// Get the names of tools referenced by this map-each
@@ -95,4 +99,3 @@ mod tests {
 		assert_eq!(refs, vec!["fetch"]);
 	}
 }
-

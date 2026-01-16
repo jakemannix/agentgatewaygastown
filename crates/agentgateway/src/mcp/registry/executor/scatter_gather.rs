@@ -32,7 +32,9 @@ impl ScatterGatherExecutor {
 		// Execute with optional timeout
 		let results = if let Some(timeout_ms) = spec.timeout_ms {
 			let duration = Duration::from_millis(timeout_ms as u64);
-			timeout(duration, join_all(futures)).await.map_err(|_| ExecutionError::Timeout(timeout_ms))?
+			timeout(duration, join_all(futures))
+				.await
+				.map_err(|_| ExecutionError::Timeout(timeout_ms))?
 		} else {
 			join_all(futures).await
 		};
@@ -116,10 +118,10 @@ impl ScatterGatherExecutor {
 			actual: value_type_name(value),
 		})?;
 
-		let jsonpath =
-			JsonPath::parse(field).map_err(|e| ExecutionError::JsonPathError(format!("{}: {}", field, e)))?;
+		let jsonpath = JsonPath::parse(field)
+			.map_err(|e| ExecutionError::JsonPathError(format!("{}: {}", field, e)))?;
 
-		let mut items: Vec<_> = arr.iter().cloned().collect();
+		let mut items: Vec<_> = arr.to_vec();
 
 		items.sort_by(|a, b| {
 			let a_query = jsonpath.query(a);
@@ -128,11 +130,7 @@ impl ScatterGatherExecutor {
 			let b_val = b_query.iter().next().copied();
 
 			let cmp = compare_values(a_val, b_val);
-			if order == "desc" {
-				cmp.reverse()
-			} else {
-				cmp
-			}
+			if order == "desc" { cmp.reverse() } else { cmp }
 		});
 
 		Ok(Value::Array(items))
@@ -145,8 +143,8 @@ impl ScatterGatherExecutor {
 			actual: value_type_name(value),
 		})?;
 
-		let jsonpath =
-			JsonPath::parse(field).map_err(|e| ExecutionError::JsonPathError(format!("{}: {}", field, e)))?;
+		let jsonpath = JsonPath::parse(field)
+			.map_err(|e| ExecutionError::JsonPathError(format!("{}: {}", field, e)))?;
 
 		let mut seen = std::collections::HashSet::new();
 		let mut result = Vec::new();
@@ -213,7 +211,9 @@ fn compare_values(a: Option<&Value>, b: Option<&Value>) -> std::cmp::Ordering {
 		(Some(a), Some(b)) => {
 			// Try numeric comparison first
 			if let (Some(a_num), Some(b_num)) = (a.as_f64(), b.as_f64()) {
-				return a_num.partial_cmp(&b_num).unwrap_or(std::cmp::Ordering::Equal);
+				return a_num
+					.partial_cmp(&b_num)
+					.unwrap_or(std::cmp::Ordering::Equal);
 			}
 			// Fall back to string comparison
 			a.to_string().cmp(&b.to_string())
@@ -224,14 +224,16 @@ fn compare_values(a: Option<&Value>, b: Option<&Value>) -> std::cmp::Ordering {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::mcp::registry::CompiledRegistry;
 	use crate::mcp::registry::executor::MockToolInvoker;
 	use crate::mcp::registry::patterns::{AggregationStrategy, DedupeOp, LimitOp, SortOp};
 	use crate::mcp::registry::types::Registry;
-	use crate::mcp::registry::CompiledRegistry;
 	use serde_json::json;
 	use std::sync::Arc;
 
-	fn setup_context_and_executor(invoker: MockToolInvoker) -> (ExecutionContext, CompositionExecutor) {
+	fn setup_context_and_executor(
+		invoker: MockToolInvoker,
+	) -> (ExecutionContext, CompositionExecutor) {
 		let registry = Registry::new();
 		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
 		let invoker = Arc::new(invoker);
@@ -332,12 +334,20 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_aggregate_chain() {
-		let values = vec![json!([{"score": 3}, {"score": 1}]), json!([{"score": 2}, {"score": 1}])];
+		let values = vec![
+			json!([{"score": 3}, {"score": 1}]),
+			json!([{"score": 2}, {"score": 1}]),
+		];
 
 		let ops = vec![
 			AggregationOp::Flatten(true),
-			AggregationOp::Dedupe(DedupeOp { field: "$.score".to_string() }),
-			AggregationOp::Sort(SortOp { field: "$.score".to_string(), order: "desc".to_string() }),
+			AggregationOp::Dedupe(DedupeOp {
+				field: "$.score".to_string(),
+			}),
+			AggregationOp::Sort(SortOp {
+				field: "$.score".to_string(),
+				order: "desc".to_string(),
+			}),
 			AggregationOp::Limit(LimitOp { count: 2 }),
 		];
 
@@ -360,4 +370,3 @@ mod tests {
 		assert_eq!(result["c"], 3);
 	}
 }
-

@@ -82,7 +82,11 @@ impl IdempotencyStore {
 	/// Returns true if the key was set (first request), false if it already exists (duplicate).
 	fn set_if_not_exists(&self, key: &str, ttl: Duration) -> bool {
 		let now = Instant::now();
-		let mut entries = self.entries.write().unwrap();
+		let Ok(mut entries) = self.entries.write() else {
+			// Lock poisoned - treat as first request to avoid blocking
+			tracing::error!("idempotency store lock poisoned in set_if_not_exists");
+			return true;
+		};
 
 		// Check if key exists and is not expired
 		if let Some(entry) = entries.get(key)
@@ -105,7 +109,10 @@ impl IdempotencyStore {
 	/// Get the cached response for a key if it exists and hasn't expired.
 	fn get(&self, key: &str) -> Option<bytes::Bytes> {
 		let now = Instant::now();
-		let entries = self.entries.read().unwrap();
+		let Ok(entries) = self.entries.read() else {
+			tracing::error!("idempotency store lock poisoned in get");
+			return None;
+		};
 
 		entries.get(key).and_then(|entry| {
 			if entry.expires_at > now {
@@ -119,7 +126,10 @@ impl IdempotencyStore {
 	/// Store a response for a key.
 	fn set_response(&self, key: &str, response: bytes::Bytes, ttl: Duration) {
 		let now = Instant::now();
-		let mut entries = self.entries.write().unwrap();
+		let Ok(mut entries) = self.entries.write() else {
+			tracing::error!("idempotency store lock poisoned in set_response");
+			return;
+		};
 
 		entries.insert(
 			key.to_string(),
@@ -134,7 +144,10 @@ impl IdempotencyStore {
 	#[allow(dead_code)]
 	fn cleanup(&self) {
 		let now = Instant::now();
-		let mut entries = self.entries.write().unwrap();
+		let Ok(mut entries) = self.entries.write() else {
+			tracing::error!("idempotency store lock poisoned in cleanup");
+			return;
+		};
 		entries.retain(|_, entry| entry.expires_at > now);
 	}
 }
@@ -321,7 +334,11 @@ mod tests {
 
 	#[test]
 	fn test_idempotent_spec_creation() {
-		let spec = make_spec(vec!["request.headers['x-idempotency-key']"], OnDuplicate::Cached, 300);
+		let spec = make_spec(
+			vec!["request.headers['x-idempotency-key']"],
+			OnDuplicate::Cached,
+			300,
+		);
 		let idempotent = Idempotent::try_from(spec).unwrap();
 		assert_eq!(idempotent.spec.on_duplicate, OnDuplicate::Cached);
 	}
@@ -353,7 +370,11 @@ mod tests {
 	fn test_store_set_and_get_response() {
 		let store = IdempotencyStore::default();
 		store.set_if_not_exists("key1", Duration::from_secs(60));
-		store.set_response("key1", bytes::Bytes::from("response data"), Duration::from_secs(60));
+		store.set_response(
+			"key1",
+			bytes::Bytes::from("response data"),
+			Duration::from_secs(60),
+		);
 
 		let response = store.get("key1");
 		assert!(response.is_some());

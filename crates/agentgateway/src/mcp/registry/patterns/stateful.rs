@@ -15,61 +15,61 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RetrySpec {
-    /// The operation to retry
-    pub inner: Box<StepOperation>,
+	/// The operation to retry
+	pub inner: Box<StepOperation>,
 
-    /// Maximum attempts (including initial)
-    pub max_attempts: u32,
+	/// Maximum attempts (including initial)
+	pub max_attempts: u32,
 
-    /// Backoff strategy
-    pub backoff: BackoffStrategy,
+	/// Backoff strategy
+	pub backoff: BackoffStrategy,
 
-    /// Condition to retry (if absent, retry all errors)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retry_if: Option<FieldPredicate>,
+	/// Condition to retry (if absent, retry all errors)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry_if: Option<FieldPredicate>,
 
-    /// Jitter factor (0.0 - 1.0)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub jitter: Option<f32>,
+	/// Jitter factor (0.0 - 1.0)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub jitter: Option<f32>,
 
-    /// Per-attempt timeout in milliseconds
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attempt_timeout_ms: Option<u32>,
+	/// Per-attempt timeout in milliseconds
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub attempt_timeout_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BackoffStrategy {
-    Fixed(FixedBackoff),
-    Exponential(ExponentialBackoff),
-    Linear(LinearBackoff),
+	Fixed(FixedBackoff),
+	Exponential(ExponentialBackoff),
+	Linear(LinearBackoff),
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FixedBackoff {
-    pub delay_ms: u32,
+	pub delay_ms: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExponentialBackoff {
-    pub initial_delay_ms: u32,
-    pub max_delay_ms: u32,
-    #[serde(default = "default_multiplier")]
-    pub multiplier: f32,
+	pub initial_delay_ms: u32,
+	pub max_delay_ms: u32,
+	#[serde(default = "default_multiplier")]
+	pub multiplier: f32,
 }
 
 fn default_multiplier() -> f32 {
-    2.0
+	2.0
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinearBackoff {
-    pub initial_delay_ms: u32,
-    pub increment_ms: u32,
-    pub max_delay_ms: u32,
+	pub initial_delay_ms: u32,
+	pub increment_ms: u32,
+	pub max_delay_ms: u32,
 }
 
 // =============================================================================
@@ -80,19 +80,19 @@ pub struct LinearBackoff {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeoutSpec {
-    /// The operation to wrap
-    pub inner: Box<StepOperation>,
+	/// The operation to wrap
+	pub inner: Box<StepOperation>,
 
-    /// Timeout duration in milliseconds
-    pub duration_ms: u32,
+	/// Timeout duration in milliseconds
+	pub duration_ms: u32,
 
-    /// Fallback on timeout (optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback: Option<Box<StepOperation>>,
+	/// Fallback on timeout (optional)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub fallback: Option<Box<StepOperation>>,
 
-    /// Custom error message
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
+	/// Custom error message
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message: Option<String>,
 }
 
 // =============================================================================
@@ -103,25 +103,25 @@ pub struct TimeoutSpec {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CacheSpec {
-    /// JSONPath expressions to derive cache key
-    pub key_paths: Vec<String>,
+	/// JSONPath expressions to derive cache key
+	pub key_paths: Vec<String>,
 
-    /// The operation to cache
-    pub inner: Box<StepOperation>,
+	/// The operation to cache
+	pub inner: Box<StepOperation>,
 
-    /// Store reference name (configured in gateway)
-    pub store: String,
+	/// Store reference name (configured in gateway)
+	pub store: String,
 
-    /// TTL in seconds
-    pub ttl_seconds: u32,
+	/// TTL in seconds
+	pub ttl_seconds: u32,
 
-    /// Stale-while-revalidate window in seconds
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stale_while_revalidate_seconds: Option<u32>,
+	/// Stale-while-revalidate window in seconds
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub stale_while_revalidate_seconds: Option<u32>,
 
-    /// Condition to cache result (if absent, always cache)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cache_if: Option<FieldPredicate>,
+	/// Condition to cache result (if absent, always cache)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache_if: Option<FieldPredicate>,
 }
 
 // =============================================================================
@@ -132,31 +132,31 @@ pub struct CacheSpec {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdempotentSpec {
-    /// JSONPath expressions to derive idempotency key
-    pub key_paths: Vec<String>,
+	/// JSONPath expressions to derive idempotency key
+	pub key_paths: Vec<String>,
 
-    /// The operation to wrap
-    pub inner: Box<StepOperation>,
+	/// The operation to wrap
+	pub inner: Box<StepOperation>,
 
-    /// Store reference name (configured in gateway)
-    pub store: String,
+	/// Store reference name (configured in gateway)
+	pub store: String,
 
-    /// TTL in seconds (None = no expiry)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ttl_seconds: Option<u32>,
+	/// TTL in seconds (None = no expiry)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub ttl_seconds: Option<u32>,
 
-    /// Behavior on duplicate
-    #[serde(default)]
-    pub on_duplicate: OnDuplicate,
+	/// Behavior on duplicate
+	#[serde(default)]
+	pub on_duplicate: OnDuplicate,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OnDuplicate {
-    #[default]
-    Cached,
-    Skip,
-    Error,
+	#[default]
+	Cached,
+	Skip,
+	Error,
 }
 
 // =============================================================================
@@ -167,39 +167,39 @@ pub enum OnDuplicate {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CircuitBreakerSpec {
-    /// Unique name for this circuit (for state isolation)
-    pub name: String,
+	/// Unique name for this circuit (for state isolation)
+	pub name: String,
 
-    /// The protected operation
-    pub inner: Box<StepOperation>,
+	/// The protected operation
+	pub inner: Box<StepOperation>,
 
-    /// Store for circuit state
-    pub store: String,
+	/// Store for circuit state
+	pub store: String,
 
-    /// Number of failures to trip the circuit
-    pub failure_threshold: u32,
+	/// Number of failures to trip the circuit
+	pub failure_threshold: u32,
 
-    /// Window for counting failures (seconds)
-    pub failure_window_seconds: u32,
+	/// Window for counting failures (seconds)
+	pub failure_window_seconds: u32,
 
-    /// Time to wait before half-open (seconds)
-    pub reset_timeout_seconds: u32,
+	/// Time to wait before half-open (seconds)
+	pub reset_timeout_seconds: u32,
 
-    /// Successes needed in half-open to close (default: 1)
-    #[serde(default = "default_success_threshold")]
-    pub success_threshold: u32,
+	/// Successes needed in half-open to close (default: 1)
+	#[serde(default = "default_success_threshold")]
+	pub success_threshold: u32,
 
-    /// Fallback when circuit is open (optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback: Option<Box<StepOperation>>,
+	/// Fallback when circuit is open (optional)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub fallback: Option<Box<StepOperation>>,
 
-    /// Custom failure condition (if absent, any error)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub failure_if: Option<FieldPredicate>,
+	/// Custom failure condition (if absent, any error)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub failure_if: Option<FieldPredicate>,
 }
 
 fn default_success_threshold() -> u32 {
-    1
+	1
 }
 
 // =============================================================================
@@ -210,27 +210,27 @@ fn default_success_threshold() -> u32 {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeadLetterSpec {
-    /// The operation to wrap
-    pub inner: Box<StepOperation>,
+	/// The operation to wrap
+	pub inner: Box<StepOperation>,
 
-    /// Tool to invoke on failure
-    pub dead_letter_tool: String,
+	/// Tool to invoke on failure
+	pub dead_letter_tool: String,
 
-    /// Max attempts before dead-lettering (default: 1)
-    #[serde(default = "default_max_attempts")]
-    pub max_attempts: u32,
+	/// Max attempts before dead-lettering (default: 1)
+	#[serde(default = "default_max_attempts")]
+	pub max_attempts: u32,
 
-    /// Backoff between attempts
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub backoff: Option<BackoffStrategy>,
+	/// Backoff between attempts
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub backoff: Option<BackoffStrategy>,
 
-    /// Whether to rethrow after dead-lettering
-    #[serde(default)]
-    pub rethrow: bool,
+	/// Whether to rethrow after dead-lettering
+	#[serde(default)]
+	pub rethrow: bool,
 }
 
 fn default_max_attempts() -> u32 {
-    1
+	1
 }
 
 // =============================================================================
@@ -241,44 +241,44 @@ fn default_max_attempts() -> u32 {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SagaSpec {
-    /// Ordered list of saga steps
-    pub steps: Vec<SagaStep>,
+	/// Ordered list of saga steps
+	pub steps: Vec<SagaStep>,
 
-    /// Store for saga state (for recovery)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub store: Option<String>,
+	/// Store for saga state (for recovery)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<String>,
 
-    /// JSONPath to derive saga instance ID
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub saga_id_path: Option<String>,
+	/// JSONPath to derive saga instance ID
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub saga_id_path: Option<String>,
 
-    /// Timeout for entire saga in milliseconds
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timeout_ms: Option<u32>,
+	/// Timeout for entire saga in milliseconds
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub timeout_ms: Option<u32>,
 
-    /// Output binding
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output: Option<DataBinding>,
+	/// Output binding
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub output: Option<DataBinding>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SagaStep {
-    /// Step identifier
-    pub id: String,
+	/// Step identifier
+	pub id: String,
 
-    /// Human-readable name
-    pub name: String,
+	/// Human-readable name
+	pub name: String,
 
-    /// The action to perform
-    pub action: StepOperation,
+	/// The action to perform
+	pub action: StepOperation,
 
-    /// Compensating action (optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compensate: Option<StepOperation>,
+	/// Compensating action (optional)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub compensate: Option<StepOperation>,
 
-    /// Input binding for this step
-    pub input: DataBinding,
+	/// Input binding for this step
+	pub input: DataBinding,
 }
 
 // =============================================================================
@@ -289,18 +289,18 @@ pub struct SagaStep {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaimCheckSpec {
-    /// Tool to store payload and return reference
-    pub store_tool: String,
+	/// Tool to store payload and return reference
+	pub store_tool: String,
 
-    /// Tool to retrieve payload from reference
-    pub retrieve_tool: String,
+	/// Tool to retrieve payload from reference
+	pub retrieve_tool: String,
 
-    /// Inner operation operating on reference
-    pub inner: Box<StepOperation>,
+	/// Inner operation operating on reference
+	pub inner: Box<StepOperation>,
 
-    /// Whether to retrieve original at end
-    #[serde(default)]
-    pub retrieve_at_end: bool,
+	/// Whether to retrieve original at end
+	#[serde(default)]
+	pub retrieve_at_end: bool,
 }
 
 // =============================================================================
@@ -311,45 +311,45 @@ pub struct ClaimCheckSpec {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThrottleSpec {
-    /// The operation to throttle
-    pub inner: Box<StepOperation>,
+	/// The operation to throttle
+	pub inner: Box<StepOperation>,
 
-    /// Maximum requests per window
-    pub rate: u32,
+	/// Maximum requests per window
+	pub rate: u32,
 
-    /// Window size in milliseconds
-    pub window_ms: u32,
+	/// Window size in milliseconds
+	pub window_ms: u32,
 
-    /// Rate limiting strategy
-    #[serde(default)]
-    pub strategy: ThrottleStrategy,
+	/// Rate limiting strategy
+	#[serde(default)]
+	pub strategy: ThrottleStrategy,
 
-    /// Behavior when rate exceeded
-    #[serde(default)]
-    pub on_exceeded: OnExceeded,
+	/// Behavior when rate exceeded
+	#[serde(default)]
+	pub on_exceeded: OnExceeded,
 
-    /// State store for distributed throttling (optional for single-instance)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub store: Option<String>,
+	/// State store for distributed throttling (optional for single-instance)
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub store: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ThrottleStrategy {
-    #[default]
-    SlidingWindow,
-    TokenBucket,
-    FixedWindow,
-    LeakyBucket,
+	#[default]
+	SlidingWindow,
+	TokenBucket,
+	FixedWindow,
+	LeakyBucket,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OnExceeded {
-    #[default]
-    Wait,
-    Reject,
-    Queue,
+	#[default]
+	Wait,
+	Reject,
+	Queue,
 }
 
 // =============================================================================
@@ -358,11 +358,11 @@ pub enum OnExceeded {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[test]
-    fn test_parse_retry_spec() {
-        let json = r#"{
+	#[test]
+	fn test_parse_retry_spec() {
+		let json = r#"{
             "inner": { "tool": { "name": "flaky_api" } },
             "maxAttempts": 3,
             "backoff": {
@@ -375,43 +375,43 @@ mod tests {
             "jitter": 0.1
         }"#;
 
-        let spec: RetrySpec = serde_json::from_str(json).unwrap();
-        assert_eq!(spec.max_attempts, 3);
-        assert!(matches!(spec.backoff, BackoffStrategy::Exponential(_)));
-        assert_eq!(spec.jitter, Some(0.1));
-    }
+		let spec: RetrySpec = serde_json::from_str(json).unwrap();
+		assert_eq!(spec.max_attempts, 3);
+		assert!(matches!(spec.backoff, BackoffStrategy::Exponential(_)));
+		assert_eq!(spec.jitter, Some(0.1));
+	}
 
-    #[test]
-    fn test_parse_timeout_spec() {
-        let json = r#"{
+	#[test]
+	fn test_parse_timeout_spec() {
+		let json = r#"{
             "inner": { "tool": { "name": "slow_tool" } },
             "durationMs": 30000,
             "message": "Operation timed out"
         }"#;
 
-        let spec: TimeoutSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(spec.duration_ms, 30000);
-        assert_eq!(spec.message, Some("Operation timed out".to_string()));
-    }
+		let spec: TimeoutSpec = serde_json::from_str(json).unwrap();
+		assert_eq!(spec.duration_ms, 30000);
+		assert_eq!(spec.message, Some("Operation timed out".to_string()));
+	}
 
-    #[test]
-    fn test_parse_cache_spec() {
-        let json = r#"{
+	#[test]
+	fn test_parse_cache_spec() {
+		let json = r#"{
             "keyPaths": ["$.query", "$.filters"],
             "inner": { "tool": { "name": "search" } },
             "store": "result_cache",
             "ttlSeconds": 900
         }"#;
 
-        let spec: CacheSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(spec.key_paths.len(), 2);
-        assert_eq!(spec.store, "result_cache");
-        assert_eq!(spec.ttl_seconds, 900);
-    }
+		let spec: CacheSpec = serde_json::from_str(json).unwrap();
+		assert_eq!(spec.key_paths.len(), 2);
+		assert_eq!(spec.store, "result_cache");
+		assert_eq!(spec.ttl_seconds, 900);
+	}
 
-    #[test]
-    fn test_parse_circuit_breaker_spec() {
-        let json = r#"{
+	#[test]
+	fn test_parse_circuit_breaker_spec() {
+		let json = r#"{
             "name": "payment_api",
             "inner": { "tool": { "name": "payment_service" } },
             "store": "circuit_state",
@@ -420,15 +420,15 @@ mod tests {
             "resetTimeoutSeconds": 30
         }"#;
 
-        let spec: CircuitBreakerSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(spec.name, "payment_api");
-        assert_eq!(spec.failure_threshold, 5);
-        assert_eq!(spec.success_threshold, 1); // default
-    }
+		let spec: CircuitBreakerSpec = serde_json::from_str(json).unwrap();
+		assert_eq!(spec.name, "payment_api");
+		assert_eq!(spec.failure_threshold, 5);
+		assert_eq!(spec.success_threshold, 1); // default
+	}
 
-    #[test]
-    fn test_parse_saga_spec() {
-        let json = r#"{
+	#[test]
+	fn test_parse_saga_spec() {
+		let json = r#"{
             "steps": [
                 {
                     "id": "step_0",
@@ -442,14 +442,14 @@ mod tests {
             "timeoutMs": 300000
         }"#;
 
-        let spec: SagaSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(spec.steps.len(), 1);
-        assert_eq!(spec.saga_id_path, Some("$.orderId".to_string()));
-    }
+		let spec: SagaSpec = serde_json::from_str(json).unwrap();
+		assert_eq!(spec.steps.len(), 1);
+		assert_eq!(spec.saga_id_path, Some("$.orderId".to_string()));
+	}
 
-    #[test]
-    fn test_parse_throttle_spec() {
-        let json = r#"{
+	#[test]
+	fn test_parse_throttle_spec() {
+		let json = r#"{
             "inner": { "tool": { "name": "expensive_api" } },
             "rate": 100,
             "windowMs": 60000,
@@ -457,17 +457,17 @@ mod tests {
             "onExceeded": "wait"
         }"#;
 
-        let spec: ThrottleSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(spec.rate, 100);
-        assert_eq!(spec.window_ms, 60000);
-        assert_eq!(spec.strategy, ThrottleStrategy::SlidingWindow);
-        assert_eq!(spec.on_exceeded, OnExceeded::Wait);
-        assert!(spec.store.is_none());
-    }
+		let spec: ThrottleSpec = serde_json::from_str(json).unwrap();
+		assert_eq!(spec.rate, 100);
+		assert_eq!(spec.window_ms, 60000);
+		assert_eq!(spec.strategy, ThrottleStrategy::SlidingWindow);
+		assert_eq!(spec.on_exceeded, OnExceeded::Wait);
+		assert!(spec.store.is_none());
+	}
 
-    #[test]
-    fn test_parse_throttle_spec_with_store() {
-        let json = r#"{
+	#[test]
+	fn test_parse_throttle_spec_with_store() {
+		let json = r#"{
             "inner": { "tool": { "name": "api" } },
             "rate": 10,
             "windowMs": 1000,
@@ -476,70 +476,70 @@ mod tests {
             "store": "rate_limit_store"
         }"#;
 
-        let spec: ThrottleSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(spec.rate, 10);
-        assert_eq!(spec.strategy, ThrottleStrategy::TokenBucket);
-        assert_eq!(spec.on_exceeded, OnExceeded::Reject);
-        assert_eq!(spec.store, Some("rate_limit_store".to_string()));
-    }
+		let spec: ThrottleSpec = serde_json::from_str(json).unwrap();
+		assert_eq!(spec.rate, 10);
+		assert_eq!(spec.strategy, ThrottleStrategy::TokenBucket);
+		assert_eq!(spec.on_exceeded, OnExceeded::Reject);
+		assert_eq!(spec.store, Some("rate_limit_store".to_string()));
+	}
 
-    #[test]
-    fn test_parse_throttle_spec_defaults() {
-        let json = r#"{
+	#[test]
+	fn test_parse_throttle_spec_defaults() {
+		let json = r#"{
             "inner": { "tool": { "name": "api" } },
             "rate": 50,
             "windowMs": 30000
         }"#;
 
-        let spec: ThrottleSpec = serde_json::from_str(json).unwrap();
-        assert_eq!(spec.rate, 50);
-        assert_eq!(spec.window_ms, 30000);
-        // Defaults
-        assert_eq!(spec.strategy, ThrottleStrategy::SlidingWindow);
-        assert_eq!(spec.on_exceeded, OnExceeded::Wait);
-        assert!(spec.store.is_none());
-    }
+		let spec: ThrottleSpec = serde_json::from_str(json).unwrap();
+		assert_eq!(spec.rate, 50);
+		assert_eq!(spec.window_ms, 30000);
+		// Defaults
+		assert_eq!(spec.strategy, ThrottleStrategy::SlidingWindow);
+		assert_eq!(spec.on_exceeded, OnExceeded::Wait);
+		assert!(spec.store.is_none());
+	}
 
-    #[test]
-    fn test_throttle_all_strategies() {
-        for (strategy_str, expected) in [
-            ("sliding_window", ThrottleStrategy::SlidingWindow),
-            ("token_bucket", ThrottleStrategy::TokenBucket),
-            ("fixed_window", ThrottleStrategy::FixedWindow),
-            ("leaky_bucket", ThrottleStrategy::LeakyBucket),
-        ] {
-            let json = format!(
-                r#"{{
+	#[test]
+	fn test_throttle_all_strategies() {
+		for (strategy_str, expected) in [
+			("sliding_window", ThrottleStrategy::SlidingWindow),
+			("token_bucket", ThrottleStrategy::TokenBucket),
+			("fixed_window", ThrottleStrategy::FixedWindow),
+			("leaky_bucket", ThrottleStrategy::LeakyBucket),
+		] {
+			let json = format!(
+				r#"{{
                     "inner": {{ "tool": {{ "name": "api" }} }},
                     "rate": 10,
                     "windowMs": 1000,
                     "strategy": "{}"
                 }}"#,
-                strategy_str
-            );
-            let spec: ThrottleSpec = serde_json::from_str(&json).unwrap();
-            assert_eq!(spec.strategy, expected);
-        }
-    }
+				strategy_str
+			);
+			let spec: ThrottleSpec = serde_json::from_str(&json).unwrap();
+			assert_eq!(spec.strategy, expected);
+		}
+	}
 
-    #[test]
-    fn test_throttle_all_on_exceeded() {
-        for (on_exceeded_str, expected) in [
-            ("wait", OnExceeded::Wait),
-            ("reject", OnExceeded::Reject),
-            ("queue", OnExceeded::Queue),
-        ] {
-            let json = format!(
-                r#"{{
+	#[test]
+	fn test_throttle_all_on_exceeded() {
+		for (on_exceeded_str, expected) in [
+			("wait", OnExceeded::Wait),
+			("reject", OnExceeded::Reject),
+			("queue", OnExceeded::Queue),
+		] {
+			let json = format!(
+				r#"{{
                     "inner": {{ "tool": {{ "name": "api" }} }},
                     "rate": 10,
                     "windowMs": 1000,
                     "onExceeded": "{}"
                 }}"#,
-                on_exceeded_str
-            );
-            let spec: ThrottleSpec = serde_json::from_str(&json).unwrap();
-            assert_eq!(spec.on_exceeded, expected);
-        }
-    }
+				on_exceeded_str
+			);
+			let spec: ThrottleSpec = serde_json::from_str(&json).unwrap();
+			assert_eq!(spec.on_exceeded, expected);
+		}
+	}
 }

@@ -13,10 +13,7 @@ fn test_upstream_call_failed_is_retryable() {
 	// We need to create a HyperError, which is tricky. Let's test via the enum variant matching.
 	// Since HyperError is hard to construct directly, we'll verify the match logic.
 	let error = ProxyError::RequestTimeout;
-	assert!(
-		error.is_retryable(),
-		"RequestTimeout should be retryable"
-	);
+	assert!(error.is_retryable(), "RequestTimeout should be retryable");
 }
 
 #[test]

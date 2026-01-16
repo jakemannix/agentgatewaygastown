@@ -13,8 +13,7 @@ use serde_json_path::JsonPath;
 use super::error::RegistryError;
 use super::patterns::{FieldSource, PatternSpec};
 use super::types::{
-	OutputTransform, Registry, SourceTool, ToolDefinition, ToolImplementation,
-	VirtualToolDef,
+	OutputTransform, Registry, SourceTool, ToolDefinition, ToolImplementation, VirtualToolDef,
 };
 
 /// Maximum depth for reference resolution (safety limit)
@@ -80,15 +79,27 @@ pub struct CompiledOutputTransform {
 #[derive(Debug)]
 pub enum CompiledFieldSource {
 	/// JSONPath extraction
-	Path { jsonpath: JsonPath, original: String },
+	Path {
+		jsonpath: JsonPath,
+		original: String,
+	},
 	/// Literal value
 	Literal(serde_json::Value),
 	/// Coalesce: first non-null from paths
-	Coalesce { paths: Vec<JsonPath>, originals: Vec<String> },
+	Coalesce {
+		paths: Vec<JsonPath>,
+		originals: Vec<String>,
+	},
 	/// Template interpolation
-	Template { template: String, vars: HashMap<String, JsonPath> },
+	Template {
+		template: String,
+		vars: HashMap<String, JsonPath>,
+	},
 	/// Concatenation
-	Concat { paths: Vec<JsonPath>, separator: String },
+	Concat {
+		paths: Vec<JsonPath>,
+		separator: String,
+	},
 	/// Nested mapping
 	Nested(Box<CompiledOutputTransform>),
 }
@@ -140,18 +151,27 @@ impl CompiledRegistry {
 			// Index source-based tools by their source for reverse lookup
 			if let ToolImplementation::Source(ref source) = def.implementation {
 				let source_key = (source.target.clone(), source.tool.clone());
-				tools_by_source.entry(source_key).or_default().push(name.clone());
+				tools_by_source
+					.entry(source_key)
+					.or_default()
+					.push(name.clone());
 			}
 
 			tools_by_name.insert(name.clone(), Arc::new(compiled));
 		}
 
-		Ok(Self { tools_by_name, tools_by_source })
+		Ok(Self {
+			tools_by_name,
+			tools_by_source,
+		})
 	}
 
 	/// Create an empty compiled registry
 	pub fn empty() -> Self {
-		Self { tools_by_name: HashMap::new(), tools_by_source: HashMap::new() }
+		Self {
+			tools_by_name: HashMap::new(),
+			tools_by_source: HashMap::new(),
+		}
 	}
 
 	/// Look up tool by name
@@ -161,22 +181,34 @@ impl CompiledRegistry {
 
 	/// Check if a tool is a composition
 	pub fn is_composition(&self, name: &str) -> bool {
-		self.tools_by_name.get(name).map(|t| t.is_composition()).unwrap_or(false)
+		self
+			.tools_by_name
+			.get(name)
+			.map(|t| t.is_composition())
+			.unwrap_or(false)
 	}
 
 	/// Check if a tool is a source-based (virtual) tool
 	pub fn is_source_tool(&self, name: &str) -> bool {
-		self.tools_by_name.get(name).map(|t| t.is_source()).unwrap_or(false)
+		self
+			.tools_by_name
+			.get(name)
+			.map(|t| t.is_source())
+			.unwrap_or(false)
 	}
 
 	/// Check if a backend tool is virtualized
 	pub fn is_virtualized(&self, target: &str, tool: &str) -> bool {
-		self.tools_by_source.contains_key(&(target.to_string(), tool.to_string()))
+		self
+			.tools_by_source
+			.contains_key(&(target.to_string(), tool.to_string()))
 	}
 
 	/// Get virtual tool names for a given source tool
 	pub fn get_virtual_names(&self, target: &str, tool: &str) -> Option<&Vec<String>> {
-		self.tools_by_source.get(&(target.to_string(), tool.to_string()))
+		self
+			.tools_by_source
+			.get(&(target.to_string(), tool.to_string()))
 	}
 
 	/// Transform backend tool list to virtual tool list
@@ -260,7 +292,9 @@ impl CompiledRegistry {
 		virtual_name: &str,
 		args: serde_json::Value,
 	) -> Result<(String, String, serde_json::Value), RegistryError> {
-		let tool = self.get_tool(virtual_name).ok_or_else(|| RegistryError::tool_not_found(virtual_name))?;
+		let tool = self
+			.get_tool(virtual_name)
+			.ok_or_else(|| RegistryError::tool_not_found(virtual_name))?;
 
 		match &tool.compiled {
 			CompiledImplementation::Source(source) => {
@@ -269,9 +303,9 @@ impl CompiledRegistry {
 				let transformed_args = tool.inject_defaults(args)?;
 				Ok((target, tool_name, transformed_args))
 			},
-			CompiledImplementation::Composition(_) => {
-				Err(RegistryError::CompositionRequiresExecutor(virtual_name.to_string()))
-			},
+			CompiledImplementation::Composition(_) => Err(RegistryError::CompositionRequiresExecutor(
+				virtual_name.to_string(),
+			)),
 		}
 	}
 
@@ -281,7 +315,9 @@ impl CompiledRegistry {
 		virtual_name: &str,
 		response: serde_json::Value,
 	) -> Result<serde_json::Value, RegistryError> {
-		let tool = self.get_tool(virtual_name).ok_or_else(|| RegistryError::tool_not_found(virtual_name))?;
+		let tool = self
+			.get_tool(virtual_name)
+			.ok_or_else(|| RegistryError::tool_not_found(virtual_name))?;
 
 		tool.transform_output(response)
 	}
@@ -360,7 +396,10 @@ impl CompiledTool {
 			},
 		};
 
-		Ok(Self { def: def.clone(), compiled })
+		Ok(Self {
+			def: def.clone(),
+			compiled,
+		})
 	}
 
 	/// Legacy: compile from VirtualToolDef
@@ -412,7 +451,12 @@ impl CompiledTool {
 		Some(Tool {
 			name: Cow::Owned(self.def.name.clone()),
 			title: source.title.clone(),
-			description: self.def.description.clone().map(Cow::Owned).or_else(|| source.description.clone()),
+			description: self
+				.def
+				.description
+				.clone()
+				.map(Cow::Owned)
+				.or_else(|| source.description.clone()),
 			input_schema: self.compute_effective_schema(source, source_tool),
 			output_schema,
 			annotations: source.annotations.clone(),
@@ -435,7 +479,8 @@ impl CompiledTool {
 		}
 
 		// Start with source schema (clone the inner Map)
-		let mut schema: serde_json::Map<String, serde_json::Value> = source.input_schema.as_ref().clone();
+		let mut schema: serde_json::Map<String, serde_json::Value> =
+			source.input_schema.as_ref().clone();
 
 		// Apply hideFields
 		if !source_tool.source.hide_fields.is_empty() {
@@ -450,7 +495,9 @@ impl CompiledTool {
 			if let Some(required) = schema.get_mut("required") {
 				if let Some(arr) = required.as_array_mut() {
 					arr.retain(|v| {
-						v.as_str().map(|s| !source_tool.source.hide_fields.contains(&s.to_string())).unwrap_or(true)
+						v.as_str()
+							.map(|s| !source_tool.source.hide_fields.contains(&s.to_string()))
+							.unwrap_or(true)
 					});
 				}
 			}
@@ -460,7 +507,10 @@ impl CompiledTool {
 	}
 
 	/// Inject default values into arguments
-	pub fn inject_defaults(&self, mut args: serde_json::Value) -> Result<serde_json::Value, RegistryError> {
+	pub fn inject_defaults(
+		&self,
+		mut args: serde_json::Value,
+	) -> Result<serde_json::Value, RegistryError> {
 		let defaults = match &self.compiled {
 			CompiledImplementation::Source(s) => &s.source.defaults,
 			CompiledImplementation::Composition(_) => return Ok(args), // No defaults for compositions
@@ -470,8 +520,9 @@ impl CompiledTool {
 			return Ok(args);
 		}
 
-		let obj =
-			args.as_object_mut().ok_or_else(|| RegistryError::SchemaValidation("arguments must be an object".into()))?;
+		let obj = args
+			.as_object_mut()
+			.ok_or_else(|| RegistryError::SchemaValidation("arguments must be an object".into()))?;
 
 		for (key, value) in defaults {
 			// Don't override if already provided
@@ -488,7 +539,10 @@ impl CompiledTool {
 	}
 
 	/// Transform output using the output transform
-	pub fn transform_output(&self, response: serde_json::Value) -> Result<serde_json::Value, RegistryError> {
+	pub fn transform_output(
+		&self,
+		response: serde_json::Value,
+	) -> Result<serde_json::Value, RegistryError> {
 		let transform = match &self.compiled {
 			CompiledImplementation::Source(s) => s.output_transform.as_ref(),
 			CompiledImplementation::Composition(c) => c.output_transform.as_ref(),
@@ -554,7 +608,10 @@ impl CompiledOutputTransform {
 				// This is an array item mapping like "repos[*].name"
 				let base_array = &field_name[..bracket_pos];
 				let item_field = &field_name[bracket_pos + 4..]; // Skip "[*]."
-				array_item_mappings.entry(base_array).or_default().push((item_field, field_source));
+				array_item_mappings
+					.entry(base_array)
+					.or_default()
+					.push((item_field, field_source));
 			} else {
 				base_fields.insert(field_name.as_str(), field_source);
 			}
@@ -579,7 +636,10 @@ impl CompiledOutputTransform {
 							Ok(serde_json::Value::Object(obj))
 						})
 						.collect();
-					result.insert((*field_name).to_string(), serde_json::Value::Array(transformed?));
+					result.insert(
+						(*field_name).to_string(),
+						serde_json::Value::Array(transformed?),
+					);
 				} else {
 					// Not an array, just insert as-is
 					result.insert((*field_name).to_string(), value);
@@ -607,17 +667,20 @@ impl CompiledFieldSource {
 	pub fn compile(source: &FieldSource) -> Result<Self, RegistryError> {
 		match source {
 			FieldSource::Path(path) => {
-				let jsonpath =
-					JsonPath::parse(path).map_err(|e| RegistryError::invalid_jsonpath(path, e.to_string()))?;
-				Ok(CompiledFieldSource::Path { jsonpath, original: path.clone() })
+				let jsonpath = JsonPath::parse(path)
+					.map_err(|e| RegistryError::invalid_jsonpath(path, e.to_string()))?;
+				Ok(CompiledFieldSource::Path {
+					jsonpath,
+					original: path.clone(),
+				})
 			},
 			FieldSource::Literal(lit) => Ok(CompiledFieldSource::Literal(lit.to_json_value())),
 			FieldSource::Coalesce(c) => {
 				let mut paths = Vec::new();
 				let mut originals = Vec::new();
 				for path in &c.paths {
-					let jsonpath =
-						JsonPath::parse(path).map_err(|e| RegistryError::invalid_jsonpath(path, e.to_string()))?;
+					let jsonpath = JsonPath::parse(path)
+						.map_err(|e| RegistryError::invalid_jsonpath(path, e.to_string()))?;
 					paths.push(jsonpath);
 					originals.push(path.clone());
 				}
@@ -626,23 +689,31 @@ impl CompiledFieldSource {
 			FieldSource::Template(t) => {
 				let mut vars = HashMap::new();
 				for (name, path) in &t.vars {
-					let jsonpath =
-						JsonPath::parse(path).map_err(|e| RegistryError::invalid_jsonpath(path, e.to_string()))?;
+					let jsonpath = JsonPath::parse(path)
+						.map_err(|e| RegistryError::invalid_jsonpath(path, e.to_string()))?;
 					vars.insert(name.clone(), jsonpath);
 				}
-				Ok(CompiledFieldSource::Template { template: t.template.clone(), vars })
+				Ok(CompiledFieldSource::Template {
+					template: t.template.clone(),
+					vars,
+				})
 			},
 			FieldSource::Concat(c) => {
 				let mut paths = Vec::new();
 				for path in &c.paths {
-					let jsonpath =
-						JsonPath::parse(path).map_err(|e| RegistryError::invalid_jsonpath(path, e.to_string()))?;
+					let jsonpath = JsonPath::parse(path)
+						.map_err(|e| RegistryError::invalid_jsonpath(path, e.to_string()))?;
 					paths.push(jsonpath);
 				}
-				Ok(CompiledFieldSource::Concat { paths, separator: c.separator.clone().unwrap_or_default() })
+				Ok(CompiledFieldSource::Concat {
+					paths,
+					separator: c.separator.clone().unwrap_or_default(),
+				})
 			},
 			FieldSource::Nested(nested) => {
-				let compiled = CompiledOutputTransform::compile(&OutputTransform { mappings: nested.mappings.clone() })?;
+				let compiled = CompiledOutputTransform::compile(&OutputTransform {
+					mappings: nested.mappings.clone(),
+				})?;
 				Ok(CompiledFieldSource::Nested(Box::new(compiled)))
 			},
 		}
@@ -731,8 +802,9 @@ fn resolve_env_string(s: &str) -> Result<String, RegistryError> {
 
 	for cap in re.captures_iter(s) {
 		let var_name = &cap[1];
-		let value =
-			std::env::var(var_name).map_err(|_| RegistryError::EnvVarNotFound { name: var_name.to_string() })?;
+		let value = std::env::var(var_name).map_err(|_| RegistryError::EnvVarNotFound {
+			name: var_name.to_string(),
+		})?;
 		result = result.replace(&cap[0], &value);
 	}
 
@@ -740,7 +812,9 @@ fn resolve_env_string(s: &str) -> Result<String, RegistryError> {
 }
 
 /// Extract JSON from response (handles JSON embedded in text)
-fn extract_json_from_response(response: &serde_json::Value) -> Result<serde_json::Value, RegistryError> {
+fn extract_json_from_response(
+	response: &serde_json::Value,
+) -> Result<serde_json::Value, RegistryError> {
 	match response {
 		serde_json::Value::Object(_) | serde_json::Value::Array(_) => Ok(response.clone()),
 		serde_json::Value::String(s) => {
@@ -826,7 +900,10 @@ impl CompiledTool {
 		if let ToolImplementation::Source(source) = &self.def.implementation {
 			Some(VirtualToolDef {
 				name: self.def.name.clone(),
-				source: super::types::ToolSource { target: source.target.clone(), tool: source.tool.clone() },
+				source: super::types::ToolSource {
+					target: source.target.clone(),
+					tool: source.tool.clone(),
+				},
 				description: self.def.description.clone(),
 				input_schema: self.def.input_schema.clone(),
 				defaults: source.defaults.clone(),
@@ -850,7 +927,10 @@ mod tests {
 	use serde_json::json;
 
 	use super::*;
-	use crate::mcp::registry::patterns::{PipelineSpec, PipelineStep, ScatterGatherSpec, ScatterTarget, StepOperation, ToolCall, AggregationStrategy, AggregationOp};
+	use crate::mcp::registry::patterns::{
+		AggregationOp, AggregationStrategy, PipelineSpec, PipelineStep, ScatterGatherSpec,
+		ScatterTarget, StepOperation, ToolCall,
+	};
 	use crate::mcp::registry::types::OutputField;
 
 	fn create_source_tool(name: &str, description: &str) -> Tool {
@@ -907,7 +987,9 @@ mod tests {
 			PatternSpec::Pipeline(PipelineSpec {
 				steps: vec![PipelineStep {
 					id: "search".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "web_search".to_string() }),
+					operation: StepOperation::Tool(ToolCall {
+						name: "web_search".to_string(),
+					}),
 					input: None,
 				}],
 			}),
@@ -969,7 +1051,8 @@ mod tests {
 
 	#[test]
 	fn test_transform_tools_replaces_virtualized() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather").with_description("Get weather info");
+		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
+			.with_description("Get weather info");
 		let registry = Registry::with_tools(vec![tool]);
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
@@ -982,7 +1065,10 @@ mod tests {
 		let virtual_tools: Vec<_> = result.iter().filter(|(t, _)| t == "weather").collect();
 		assert_eq!(virtual_tools.len(), 1);
 		assert_eq!(virtual_tools[0].1.name.as_ref(), "get_weather");
-		assert_eq!(virtual_tools[0].1.description.as_deref(), Some("Get weather info"));
+		assert_eq!(
+			virtual_tools[0].1.description.as_deref(),
+			Some("Get weather info")
+		);
 	}
 
 	#[test]
@@ -993,7 +1079,10 @@ mod tests {
 
 		let source_tool = create_source_tool("fetch_weather", "Weather");
 		let other_tool = create_source_tool("other_tool", "Other");
-		let backend_tools = vec![("weather".to_string(), source_tool), ("weather".to_string(), other_tool)];
+		let backend_tools = vec![
+			("weather".to_string(), source_tool),
+			("weather".to_string(), other_tool),
+		];
 
 		let result = compiled.transform_tools(backend_tools);
 
@@ -1040,7 +1129,8 @@ mod tests {
 
 	#[test]
 	fn test_inject_defaults_does_not_override() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather").with_default("units", json!("metric"));
+		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
+			.with_default("units", json!("metric"));
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
@@ -1059,7 +1149,9 @@ mod tests {
 		}
 
 		let mut tool = VirtualToolDef::new("test", "backend", "tool");
-		tool.defaults.insert("api_key".to_string(), json!("${TEST_API_KEY_COMPILED}"));
+		tool
+			.defaults
+			.insert("api_key".to_string(), json!("${TEST_API_KEY_COMPILED}"));
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
@@ -1078,8 +1170,14 @@ mod tests {
 	#[test]
 	fn test_output_transformation_simple() {
 		let mut props = HashMap::new();
-		props.insert("temp".to_string(), OutputField::new("number", "$.temperature"));
-		props.insert("city".to_string(), OutputField::new("string", "$.location.city"));
+		props.insert(
+			"temp".to_string(),
+			OutputField::new("number", "$.temperature"),
+		);
+		props.insert(
+			"city".to_string(),
+			OutputField::new("string", "$.location.city"),
+		);
 
 		let output_schema = super::super::types::OutputSchema::new(props);
 		let tool = VirtualToolDef::new("test", "backend", "tool").with_output_schema(output_schema);
@@ -1227,7 +1325,8 @@ mod tests {
 
 	#[test]
 	fn test_prepare_call_args() {
-		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather").with_default("units", json!("metric"));
+		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
+			.with_default("units", json!("metric"));
 		let registry = Registry::with_tools(vec![tool]);
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
@@ -1264,13 +1363,17 @@ mod tests {
 
 	#[test]
 	fn test_multiple_virtual_tools_same_source() {
-		let tool1 = VirtualToolDef::new("weather_metric", "weather", "fetch_weather").with_default("units", json!("metric"));
-		let tool2 = VirtualToolDef::new("weather_imperial", "weather", "fetch_weather").with_default("units", json!("imperial"));
+		let tool1 = VirtualToolDef::new("weather_metric", "weather", "fetch_weather")
+			.with_default("units", json!("metric"));
+		let tool2 = VirtualToolDef::new("weather_imperial", "weather", "fetch_weather")
+			.with_default("units", json!("imperial"));
 
 		let registry = Registry::with_tools(vec![tool1, tool2]);
 		let compiled = CompiledRegistry::compile(registry).unwrap();
 
-		let names = compiled.get_virtual_names("weather", "fetch_weather").unwrap();
+		let names = compiled
+			.get_virtual_names("weather", "fetch_weather")
+			.unwrap();
 		assert_eq!(names.len(), 2);
 		assert!(names.contains(&"weather_metric".to_string()));
 		assert!(names.contains(&"weather_imperial".to_string()));
@@ -1299,7 +1402,9 @@ mod tests {
 					ScatterTarget::Tool("tool_a".to_string()),
 					ScatterTarget::Tool("tool_b".to_string()),
 				],
-				aggregation: AggregationStrategy { ops: vec![AggregationOp::Flatten(true)] },
+				aggregation: AggregationStrategy {
+					ops: vec![AggregationOp::Flatten(true)],
+				},
 				timeout_ms: None,
 				fail_fast: false,
 			}),

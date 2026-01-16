@@ -230,19 +230,15 @@ impl UpstreamGroup {
 		self.by_name.iter().map(|(k, v)| (k.clone(), v.clone()))
 	}
 	pub(crate) fn get(&self, name: &str) -> anyhow::Result<&upstream::Upstream> {
-		self
-			.by_name
-			.get(name)
-			.map(|v| v.as_ref())
-			.ok_or_else(|| {
-				tracing::warn!(
-					target: "connections",
-					requested = name,
-					available = ?self.by_name.keys().collect::<Vec<_>>(),
-					"target not found in upstream group"
-				);
-				anyhow::anyhow!("requested target {name} is not initialized")
-			})
+		self.by_name.get(name).map(|v| v.as_ref()).ok_or_else(|| {
+			tracing::warn!(
+				target: "connections",
+				requested = name,
+				available = ?self.by_name.keys().collect::<Vec<_>>(),
+				"target not found in upstream group"
+			);
+			anyhow::anyhow!("requested target {name} is not initialized")
+		})
 	}
 
 	fn setup_upstream(&self, target: &McpTarget) -> Result<upstream::Upstream, anyhow::Error> {

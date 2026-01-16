@@ -26,13 +26,26 @@ pub struct ExecutionContext {
 
 impl ExecutionContext {
 	/// Create a new execution context
-	pub fn new(input: Value, registry: Arc<CompiledRegistry>, tool_invoker: Arc<dyn ToolInvoker>) -> Self {
-		Self { input, step_results: Arc::new(RwLock::new(HashMap::new())), registry, tool_invoker }
+	pub fn new(
+		input: Value,
+		registry: Arc<CompiledRegistry>,
+		tool_invoker: Arc<dyn ToolInvoker>,
+	) -> Self {
+		Self {
+			input,
+			step_results: Arc::new(RwLock::new(HashMap::new())),
+			registry,
+			tool_invoker,
+		}
 	}
 
 	/// Store a step result
 	pub async fn store_step_result(&self, step_id: &str, result: Value) {
-		self.step_results.write().await.insert(step_id.to_string(), result);
+		self
+			.step_results
+			.write()
+			.await
+			.insert(step_id.to_string(), result);
 	}
 
 	/// Get a step result
@@ -60,12 +73,15 @@ mod tests {
 	#[tokio::test]
 	async fn test_store_and_get_step_result() {
 		let registry = Registry::new();
-		let compiled = Arc::new(crate::mcp::registry::compiled::CompiledRegistry::compile(registry).unwrap());
+		let compiled =
+			Arc::new(crate::mcp::registry::compiled::CompiledRegistry::compile(registry).unwrap());
 		let invoker = Arc::new(MockToolInvoker::new());
 
 		let ctx = ExecutionContext::new(serde_json::json!({}), compiled, invoker);
 
-		ctx.store_step_result("step1", serde_json::json!({"result": 42})).await;
+		ctx
+			.store_step_result("step1", serde_json::json!({"result": 42}))
+			.await;
 
 		let result = ctx.get_step_result("step1").await;
 		assert!(result.is_some());
@@ -75,12 +91,19 @@ mod tests {
 	#[tokio::test]
 	async fn test_child_context() {
 		let registry = Registry::new();
-		let compiled = Arc::new(crate::mcp::registry::compiled::CompiledRegistry::compile(registry).unwrap());
+		let compiled =
+			Arc::new(crate::mcp::registry::compiled::CompiledRegistry::compile(registry).unwrap());
 		let invoker = Arc::new(MockToolInvoker::new());
 
-		let parent_ctx = ExecutionContext::new(serde_json::json!({"parent": true}), compiled.clone(), invoker);
+		let parent_ctx = ExecutionContext::new(
+			serde_json::json!({"parent": true}),
+			compiled.clone(),
+			invoker,
+		);
 
-		parent_ctx.store_step_result("parent_step", serde_json::json!({})).await;
+		parent_ctx
+			.store_step_result("parent_step", serde_json::json!({}))
+			.await;
 
 		let child_ctx = parent_ctx.child(serde_json::json!({"child": true}));
 
@@ -91,4 +114,3 @@ mod tests {
 		assert_eq!(child_ctx.input["child"], true);
 	}
 }
-
