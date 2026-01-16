@@ -1,0 +1,218 @@
+{
+  "$comment": "Progressive Virtual Tools Showcase - demonstrating features step by step",
+  "schemaVersion": "1.0",
+
+  "tools": [
+    {
+      "$comment": "=== LEVEL 1: Basic Tool Exposure ===",
+      "name": "fetch",
+      "description": "Fetch content from a URL",
+      "source": {"target": "fetch-server", "tool": "fetch"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string", "description": "URL to fetch"},
+          "max_length": {"type": "integer", "description": "Maximum content length to return"}
+        },
+        "required": ["url"]
+      }
+    },
+
+    {
+      "$comment": "=== LEVEL 2: Renaming (Semantic Aliases) ===",
+      "name": "get_webpage",
+      "description": "Retrieve webpage content (alias for fetch with clearer intent)",
+      "source": {"target": "fetch-server", "tool": "fetch"}
+    },
+
+    {
+      "$comment": "=== LEVEL 3: Setting Defaults ===",
+      "name": "fetch_summary",
+      "description": "Fetch a short summary of a page (max 5000 chars)",
+      "source": {"target": "fetch-server", "tool": "fetch"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string", "description": "URL to fetch"}
+        },
+        "required": ["url"]
+      },
+      "defaults": {
+        "max_length": 5000
+      }
+    },
+
+    {
+      "$comment": "=== LEVEL 4: Output Transform (Simple Projection) ===",
+      "name": "search_repositories",
+      "description": "Search GitHub repositories (raw output)",
+      "source": {"target": "github-server", "tool": "search_repositories"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"},
+          "perPage": {"type": "number", "description": "Results per page (max 100)"}
+        },
+        "required": ["query"]
+      }
+    },
+
+    {
+      "$comment": "=== LEVEL 5: Output Transform (Array Item Mapping) ===",
+      "name": "search_repos",
+      "description": "Search GitHub with clean output - extracts name, description, url, stars",
+      "source": {"target": "github-server", "tool": "search_repositories"},
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total": {"type": "integer", "description": "Total matching repositories"},
+          "repos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "url": {"type": "string"},
+                "stars": {"type": "integer"}
+              }
+            }
+          }
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "total": {"path": "$.total_count"},
+          "repos": {"path": "$.items[*]"},
+          "repos[*].name": {"path": "$.full_name"},
+          "repos[*].description": {"path": "$.description"},
+          "repos[*].url": {"path": "$.html_url"},
+          "repos[*].stars": {"path": "$.stargazers_count"}
+        }
+      }
+    },
+
+    {
+      "$comment": "=== LEVEL 6: Defaults + Output Transform Combined ===",
+      "name": "quick_search",
+      "description": "Quick GitHub search - returns top 3 repos with essential info",
+      "source": {"target": "github-server", "tool": "search_repositories"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"}
+        },
+        "required": ["query"]
+      },
+      "defaults": {
+        "perPage": 3
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "repos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "url": {"type": "string"},
+                "stars": {"type": "integer"}
+              }
+            }
+          }
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "repos": {"path": "$.items[*]"},
+          "repos[*].name": {"path": "$.full_name"},
+          "repos[*].url": {"path": "$.html_url"},
+          "repos[*].stars": {"path": "$.stargazers_count"}
+        }
+      }
+    },
+
+    {
+      "$comment": "=== LEVEL 7: Minimal Projection (Just Names) ===",
+      "name": "list_repos",
+      "description": "Search and return just repository names",
+      "source": {"target": "github-server", "tool": "search_repositories"},
+      "defaults": {
+        "perPage": 10
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "names": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "names": {"path": "$.items[*].full_name"}
+        }
+      }
+    },
+
+    {
+      "$comment": "=== LEVEL 8: Single Value Extraction ===",
+      "name": "top_repo",
+      "description": "Find the top repository for a query",
+      "source": {"target": "github-server", "tool": "search_repositories"},
+      "defaults": {
+        "perPage": 1
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "url": {"type": "string"},
+          "stars": {"type": "integer"}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "name": {"path": "$.items[0].full_name"},
+          "description": {"path": "$.items[0].description"},
+          "url": {"path": "$.items[0].html_url"},
+          "stars": {"path": "$.items[0].stargazers_count"}
+        }
+      }
+    },
+
+    {
+      "$comment": "=== LEVEL 9: Tool Chaining (Pipeline Composition) ===",
+      "name": "search_and_fetch",
+      "description": "Search GitHub, then fetch the top result's webpage",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "search",
+              "operation": {"tool": {"name": "search_repos"}}
+            },
+            {
+              "id": "fetch_top",
+              "operation": {"tool": {"name": "fetch"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "url": {"step": {"stepId": "search", "path": "$.repos[0].url"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "GitHub search query"}
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}

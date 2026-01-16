@@ -1,5 +1,9 @@
 mod body;
 
+#[cfg(test)]
+#[path = "policy_tests.rs"]
+mod policy_tests;
+
 use std::num::NonZeroU8;
 use std::time::Duration;
 

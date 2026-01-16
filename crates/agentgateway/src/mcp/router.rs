@@ -168,6 +168,7 @@ impl App {
 				// if mcp authn is configured, has a validator, and has no claims yet, validate
 				(Some(auth), false) => {
 					debug!(
+						target: "connections",
 						"MCP auth configured; validating Authorization header (mode={:?})",
 						auth.mode
 					);
@@ -176,17 +177,17 @@ impl App {
 						.await
 					{
 						Ok(TypedHeader(Authorization(bearer))) => {
-							debug!("Authorization header present; validating JWT token");
+							debug!(target: "connections", "Authorization header present; validating JWT token");
 							match auth.jwt_validator.validate_claims(bearer.token()) {
 								Ok(claims) => {
-									debug!("JWT validation succeeded; inserting verified claims into context");
+									debug!(target: "connections", "JWT validation succeeded; inserting verified claims into context");
 									// Populate context with verified JWT claims before continuing
 									ctx.with_jwt(&claims);
 									req.headers_mut().remove(http::header::AUTHORIZATION);
 									req.extensions_mut().insert(claims);
 								},
 								Err(_e) => {
-									warn!("JWT validation failed; returning 401 (error: {:?})", _e);
+									warn!(target: "connections", "JWT validation failed; returning 401 (error: {:?})", _e);
 									return Self::create_auth_required_response(&req, auth).into_response();
 								},
 							}
@@ -194,11 +195,12 @@ impl App {
 						Err(_missing_header) => {
 							// Enforce strict mode when Authorization header is missing
 							if matches!(auth.mode, jwt::Mode::Strict) {
-								debug!("Missing Authorization header and MCP auth is STRICT; returning 401");
+								debug!(target: "connections", "Missing Authorization header and MCP auth is STRICT; returning 401");
 								return Self::create_auth_required_response(&req, auth).into_response();
 							}
 							// Optional/Permissive: continue without JWT
 							debug!(
+								target: "connections",
 								"Missing Authorization header but MCP auth not STRICT; continuing without JWT"
 							);
 						},
@@ -208,6 +210,7 @@ impl App {
 				// reject because we cannot validate MCP-specific auth requirements
 				(Some(auth), true) => {
 					warn!(
+						target: "connections",
 						"MCP backend authentication configured but JWT token already validated and stripped by Gateway or Route level policy"
 					);
 					return Self::create_auth_required_response(&req, auth).into_response();
@@ -215,6 +218,7 @@ impl App {
 				// if no mcp authn is configured, do nothing
 				(None, _) => {
 					debug!(
+						target: "connections",
 						"No MCP authentication configured for backend; continuing without JWT enforcement"
 					);
 				},
@@ -224,17 +228,28 @@ impl App {
 		// Insert the finalized context (now potentially including verified JWT claims)
 		req.extensions_mut().insert(Arc::new(ctx));
 
+		// Get the registry from stores if configured
+		let registry = self.state.get_registry();
+
 		match (req.uri().path(), req.method(), authn) {
 			("/sse", _, _) => {
 				// Assume this is streamable HTTP otherwise
+				let reg = registry.clone();
 				let sse = LegacySSEService::new(
 					move || {
-						Relay::new(
+						let mut relay = Relay::new(
 							backends.clone(),
 							authorization_policies.clone(),
 							client.clone(),
 						)
-						.map_err(|e| Error::new(e.to_string()))
+						.map_err(|e| Error::new(e.to_string()))?;
+
+						// Apply registry if configured
+						if let Some(r) = reg.clone() {
+							relay = relay.with_registry(r);
+						}
+
+						Ok(relay)
 					},
 					sm,
 				);
@@ -244,7 +259,7 @@ impl App {
 				.client_registration(req, auth, client.clone())
 				.await
 				.map_err(|e| {
-					warn!("client_registration error: {}", e);
+					warn!(target: "connections", "client_registration error: {}", e);
 					StatusCode::INTERNAL_SERVER_ERROR
 				})
 				.into_response(),
@@ -256,20 +271,28 @@ impl App {
 				.authorization_server_metadata(req, auth, client.clone())
 				.await
 				.map_err(|e| {
-					warn!("authorization_server_metadata error: {}", e);
+					warn!(target: "connections", "authorization_server_metadata error: {}", e);
 					StatusCode::INTERNAL_SERVER_ERROR
 				})
 				.into_response(),
 			_ => {
 				// Assume this is streamable HTTP otherwise
+				let reg = registry;
 				let streamable = StreamableHttpService::new(
 					move || {
-						Relay::new(
+						let mut relay = Relay::new(
 							backends.clone(),
 							authorization_policies.clone(),
 							client.clone(),
 						)
-						.map_err(|e| Error::new(e.to_string()))
+						.map_err(|e| Error::new(e.to_string()))?;
+
+						// Apply registry if configured
+						if let Some(r) = reg.clone() {
+							relay = relay.with_registry(r);
+						}
+
+						Ok(relay)
 					},
 					sm,
 					StreamableHttpServerConfig {
