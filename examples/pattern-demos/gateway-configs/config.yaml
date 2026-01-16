@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=../../../schema/config.json
+#
+# Pattern Demos Gateway Configuration
+#
+# This configuration demonstrates agentgateway's composition patterns by:
+# 1. Loading a registry of virtual tools with pattern compositions
+# 2. Configuring mock MCP backend servers
+#
+# Start with: ./start.sh or agentgateway --config config.yaml
+#
+# Patterns demonstrated:
+# - Pipeline: search_and_summarize (sequential document search → LLM summarize)
+# - Saga: create_project (distributed transaction with compensation)
+# - ScatterGather: multi_search (parallel fan-out with aggregation)
+# - Cache: cached_user_lookup (read-through caching)
+# - Retry: reliable_notification (exponential backoff)
+# - CircuitBreaker: protected_external_call (fail-fast protection)
+# - Timeout: time_bounded_search (deadline enforcement)
+
+# Virtual tool registry - loads pattern compositions
+registry:
+  source: file://./patterns_registry.json
+  refresh_interval: 30s
+
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - backends:
+      - mcp:
+          targets:
+          # Search server - provides document_search
+          - name: search-server
+            stdio:
+              cmd: npx
+              args: ["@pattern-demos/mock-search-server"]
+              env:
+                MOCK_DELAY_MS: "100"
+
+          # LLM server - provides summarize
+          - name: llm-server
+            stdio:
+              cmd: npx
+              args: ["@pattern-demos/mock-llm-server"]
+
+          # Project server - provides task management
+          - name: project-server
+            stdio:
+              cmd: npx
+              args: ["@pattern-demos/mock-project-server"]
+
+          # Notification server - provides send notification
+          - name: notification-server
+            stdio:
+              cmd: npx
+              args: ["@pattern-demos/mock-notification-server"]
+
+          # User server - provides user lookup and search
+          - name: user-server
+            stdio:
+              cmd: npx
+              args: ["@pattern-demos/mock-user-server"]
+
+          # Docs server - provides document search
+          - name: docs-server
+            stdio:
+              cmd: npx
+              args: ["@pattern-demos/mock-docs-server"]
+
+          # External server - simulates external API
+          - name: external-server
+            stdio:
+              cmd: npx
+              args: ["@pattern-demos/mock-external-server"]
+              env:
+                FAILURE_RATE: "0.3"
+
+# Alternative configuration using the everything server for testing
+# Uncomment to use a real MCP server for basic testing
+#
+# binds:
+# - port: 3000
+#   listeners:
+#   - routes:
+#     - backends:
+#       - mcp:
+#           targets:
+#           - name: everything
+#             stdio:
+#               cmd: npx
+#               args: ["@modelcontextprotocol/server-everything"]
