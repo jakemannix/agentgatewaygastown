@@ -96,6 +96,11 @@ export function getDefaultPolicyData(type: PolicyType) {
       };
     case "a2a":
       return {};
+    case "wireTap":
+      return {
+        targets: [],
+        tapPoint: "after",
+      };
     default:
       return {};
   }

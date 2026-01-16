@@ -11,6 +11,7 @@ import {
   FileText,
   ArrowRight,
   Users,
+  Copy,
 } from "lucide-react";
 
 export type PolicyType =
@@ -31,7 +32,8 @@ export type PolicyType =
   | "directResponse"
   | "extAuthz"
   | "ai"
-  | "a2a";
+  | "a2a"
+  | "wireTap";
 
 export interface PolicyTypeInfo {
   name: string;
@@ -146,6 +148,12 @@ export const POLICY_TYPES: Record<PolicyType, PolicyTypeInfo> = {
     name: "Agent-to-Agent",
     icon: Users,
     description: "Mark this traffic as A2A to enable A2A processing and telemetry",
+    httpOnly: true,
+  },
+  wireTap: {
+    name: "Wire Tap",
+    icon: Copy,
+    description: "Send copies of requests to side channels for logging, auditing, or debugging",
     httpOnly: true,
   },
 };
