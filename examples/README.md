@@ -30,3 +30,11 @@ The `a2a` example shows how to use agentgateway to serve an [A2A](https://a2apro
 ### [HTTP](http/README.md)
 
 The `http` example shows how to use agentgateway to serve generic HTTP traffic.
+
+## Agent Examples
+
+These examples demonstrate building AI agents that connect to agentgateway.
+
+### [LangGraph ReAct Agent](agents/langgraph_agent/README.md)
+
+A LangGraph-based ReAct agent that connects to agentgateway's MCP endpoint for dynamic tool discovery and orchestration. Demonstrates state management, tool orchestration, and execution visualization.
