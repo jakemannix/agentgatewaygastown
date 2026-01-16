@@ -1050,6 +1050,28 @@ impl TryFrom<&proto::agent::BackendPolicySpec> for BackendPolicy {
 					.collect::<Result<Vec<_>, _>>()?;
 				BackendPolicy::RequestMirror(mirrors)
 			},
+			Some(bps::Kind::WireTap(w)) => {
+				let taps = w
+					.targets
+					.iter()
+					.map(|t| {
+						let backend = resolve_simple_reference(t.backend.as_ref())?;
+						Ok::<_, ProtoError>(http::wiretap::TapTarget {
+							backend,
+							percentage: t.percentage / 100.0,
+						})
+					})
+					.collect::<Result<Vec<_>, _>>()?;
+				let tap_point = match proto::agent::wire_taps::TapPoint::try_from(w.tap_point) {
+					Ok(proto::agent::wire_taps::TapPoint::Before) => http::wiretap::TapPoint::Before,
+					Ok(proto::agent::wire_taps::TapPoint::Both) => http::wiretap::TapPoint::Both,
+					_ => http::wiretap::TapPoint::After, // Default to After
+				};
+				BackendPolicy::WireTap(vec![http::wiretap::WireTap {
+					targets: taps,
+					tap_point,
+				}])
+			},
 			None => return Err(ProtoError::MissingRequiredField),
 		})
 	}
@@ -1405,6 +1427,28 @@ impl TryFrom<&proto::agent::TrafficPolicySpec> for TrafficPolicy {
 					})
 					.collect::<Result<Vec<_>, _>>()?;
 				TrafficPolicy::RequestMirror(mirrors)
+			},
+			Some(tps::Kind::WireTap(w)) => {
+				let taps = w
+					.targets
+					.iter()
+					.map(|t| {
+						let backend = resolve_simple_reference(t.backend.as_ref())?;
+						Ok::<_, ProtoError>(http::wiretap::TapTarget {
+							backend,
+							percentage: t.percentage / 100.0,
+						})
+					})
+					.collect::<Result<Vec<_>, _>>()?;
+				let tap_point = match proto::agent::wire_taps::TapPoint::try_from(w.tap_point) {
+					Ok(proto::agent::wire_taps::TapPoint::Before) => http::wiretap::TapPoint::Before,
+					Ok(proto::agent::wire_taps::TapPoint::Both) => http::wiretap::TapPoint::Both,
+					_ => http::wiretap::TapPoint::After, // Default to After
+				};
+				TrafficPolicy::WireTap(vec![http::wiretap::WireTap {
+					targets: taps,
+					tap_point,
+				}])
 			},
 			Some(tps::Kind::DirectResponse(dr)) => {
 				TrafficPolicy::DirectResponse(http::filters::DirectResponse {

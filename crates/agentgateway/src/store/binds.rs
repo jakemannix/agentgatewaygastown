@@ -12,7 +12,7 @@ use crate::http::auth::BackendAuth;
 use crate::http::authorization::HTTPAuthorizationSet;
 use crate::http::backendtls::BackendTLS;
 use crate::http::ext_proc::InferenceRouting;
-use crate::http::{ext_authz, ext_proc, filters, remoteratelimit, retry, timeout};
+use crate::http::{deadletter, ext_authz, ext_proc, filters, remoteratelimit, retry, timeout};
 use crate::llm::policy::ResponseGuard;
 use crate::mcp::McpAuthorizationSet;
 use crate::proxy::httpproxy::PolicyClient;
@@ -105,8 +105,10 @@ pub struct BackendPolicies {
 	pub response_header_modifier: Option<filters::HeaderModifier>,
 	pub request_redirect: Option<filters::RequestRedirect>,
 	pub request_mirror: Vec<filters::RequestMirror>,
+	pub wire_tap: Vec<http::wiretap::WireTap>,
 
 	pub session_persistence: Option<http::sessionpersistence::Policy>,
+
 
 	/// Internal-only override for destination endpoint selection.
 	/// Used for stateful MCP routing (session affinity).
@@ -140,6 +142,11 @@ impl BackendPolicies {
 			} else {
 				other.request_mirror
 			},
+			wire_tap: if other.wire_tap.is_empty() {
+				self.wire_tap
+			} else {
+				other.wire_tap
+			},
 			session_persistence: other.session_persistence.or(self.session_persistence),
 			override_dest: other.override_dest.or(self.override_dest),
 		}
@@ -158,6 +165,7 @@ impl BackendPolicies {
 pub struct RoutePolicies {
 	pub local_rate_limit: Vec<http::localratelimit::RateLimit>,
 	pub remote_rate_limit: Option<remoteratelimit::RemoteRateLimit>,
+	pub idempotent: Option<http::idempotent::Idempotent>,
 	pub authorization: Option<http::authorization::HTTPAuthorizationSet>,
 	pub jwt: Option<http::jwt::Jwt>,
 	pub basic_auth: Option<http::basicauth::BasicAuthentication>,
@@ -170,12 +178,14 @@ pub struct RoutePolicies {
 
 	pub timeout: Option<timeout::Policy>,
 	pub retry: Option<retry::Policy>,
+	pub dead_letter: Option<deadletter::Policy>,
 	pub request_header_modifier: Option<filters::HeaderModifier>,
 	pub response_header_modifier: Option<filters::HeaderModifier>,
 	pub request_redirect: Option<filters::RequestRedirect>,
 	pub url_rewrite: Option<filters::UrlRewrite>,
 	pub hostname_rewrite: Option<agent::HostRedirectOverride>,
 	pub request_mirror: Vec<filters::RequestMirror>,
+	pub wire_tap: Vec<http::wiretap::WireTap>,
 	pub direct_response: Option<filters::DirectResponse>,
 	pub cors: Option<http::cors::Cors>,
 }
@@ -215,6 +225,11 @@ impl RoutePolicies {
 		};
 		if let Some(rrl) = &self.remote_rate_limit {
 			for expr in rrl.expressions() {
+				ctx.register_expression(expr)
+			}
+		};
+		if let Some(idempotent) = &self.idempotent {
+			for expr in idempotent.expressions() {
 				ctx.register_expression(expr)
 			}
 		};
@@ -374,6 +389,9 @@ impl Store {
 				TrafficPolicy::RemoteRateLimit(p) => {
 					pol.remote_rate_limit.get_or_insert_with(|| p.clone());
 				},
+				TrafficPolicy::Idempotent(p) => {
+					pol.idempotent.get_or_insert_with(|| p.clone());
+				},
 				TrafficPolicy::JwtAuth(p) => {
 					pol.jwt.get_or_insert_with(|| p.clone());
 				},
@@ -403,6 +421,9 @@ impl Store {
 				TrafficPolicy::Retry(p) => {
 					pol.retry.get_or_insert_with(|| p.clone());
 				},
+				TrafficPolicy::DeadLetter(p) => {
+					pol.dead_letter.get_or_insert_with(|| p.clone());
+				},
 				TrafficPolicy::RequestHeaderModifier(p) => {
 					pol.request_header_modifier.get_or_insert_with(|| p.clone());
 				},
@@ -423,6 +444,11 @@ impl Store {
 				TrafficPolicy::RequestMirror(p) => {
 					if pol.request_mirror.is_empty() {
 						pol.request_mirror = p.clone();
+					}
+				},
+				TrafficPolicy::WireTap(p) => {
+					if pol.wire_tap.is_empty() {
+						pol.wire_tap = p.clone();
 					}
 				},
 				TrafficPolicy::DirectResponse(p) => {
@@ -616,6 +642,11 @@ impl Store {
 				BackendPolicy::RequestMirror(p) => {
 					if pol.request_mirror.is_empty() {
 						pol.request_mirror = p.clone();
+					}
+				},
+				BackendPolicy::WireTap(p) => {
+					if pol.wire_tap.is_empty() {
+						pol.wire_tap = p.clone();
 					}
 				},
 				BackendPolicy::McpAuthorization(p) => {

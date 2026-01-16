@@ -55,6 +55,7 @@ import {
   renderUrlRewriteForm,
   renderAiForm,
   renderA2aForm,
+  renderIdempotentForm,
 } from "@/components/policy/form-renderers";
 import { POLICY_TYPES, PolicyType } from "@/lib/policy-constants";
 import { getDefaultPolicyData } from "@/lib/policy-defaults";
@@ -652,6 +653,9 @@ function renderPolicyForm(type: PolicyType, data: any, onChange: (data: any) => 
 
     case "a2a":
       return renderA2aForm({ data, onChange });
+
+    case "idempotent":
+      return renderIdempotentForm({ data, onChange });
 
     default:
       return (

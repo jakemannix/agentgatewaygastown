@@ -19,6 +19,13 @@ export function getDefaultPolicyData(type: PolicyType) {
       return {
         rules: [],
       };
+    case "claimCheck":
+      return {
+        storeTool: "",
+        retrieveTool: "",
+        inner: { passthrough: {} },
+        retrieveAtEnd: false,
+      };
     case "cors":
       return {
         allowCredentials: false,
@@ -58,6 +65,13 @@ export function getDefaultPolicyData(type: PolicyType) {
         backoff: null,
         codes: [],
       };
+    case "deadLetter":
+      return {
+        deadLetterTool: "",
+        maxAttempts: 1,
+        backoff: null,
+        rethrow: false,
+      };
     case "requestHeaderModifier":
     case "responseHeaderModifier":
       return {
@@ -96,6 +110,17 @@ export function getDefaultPolicyData(type: PolicyType) {
       };
     case "a2a":
       return {};
+    case "idempotent":
+      return {
+        keyPaths: [],
+        onDuplicate: "cached",
+        ttl: "5m",
+      };
+    case "wireTap":
+      return {
+        targets: [],
+        tapPoint: "after",
+      };
     default:
       return {};
   }

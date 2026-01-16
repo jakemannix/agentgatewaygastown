@@ -33,8 +33,10 @@ pub mod mcp;
 pub mod parse;
 pub mod patterns;
 pub mod proxy;
+pub mod saga;
 pub mod serdes;
 pub mod state_manager;
+pub mod stateful;
 pub mod store;
 mod telemetry;
 #[cfg(any(test, feature = "internal_benches"))]
