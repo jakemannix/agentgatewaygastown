@@ -16,6 +16,7 @@ struct TestCase {
 	name: &'static str,
 	expression: &'static str,
 	request_builder: fn() -> crate::http::Request,
+	#[cfg_attr(not(test), allow(dead_code))]
 	expected: serde_json::Value,
 }
 
