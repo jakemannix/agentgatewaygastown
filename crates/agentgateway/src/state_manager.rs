@@ -204,6 +204,9 @@ impl LocalClient {
 				.discovery
 				.sync_local(config.services, config.workloads, prev.discovery)?;
 
+		// Update registry if configured
+		self.stores.set_registry(config.registry);
+
 		Ok(PreviousState {
 			binds: next_binds,
 			discovery: next_discovery,

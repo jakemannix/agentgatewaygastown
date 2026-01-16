@@ -18,8 +18,9 @@ use sse_stream::{KeepAlive, Sse, SseBody, SseStream};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::http::Response;
-use crate::mcp::handler::Relay;
+use crate::mcp::handler::{Relay, RelayToolInvoker, ResolvedToolCall};
 use crate::mcp::mergestream::Messages;
+use crate::mcp::registry::executor::CompositionExecutor;
 use crate::mcp::streamablehttp::{ServerSseMessage, StreamableHttpPostResponse};
 use crate::mcp::upstream::{IncomingRequestContext, UpstreamError};
 use crate::mcp::{ClientError, MCPOperation, rbac};
@@ -306,28 +307,115 @@ impl Session {
 					},
 					ClientRequest::CallToolRequest(ctr) => {
 						let name = ctr.params.name.clone();
-						let (service_name, tool) = self.relay.parse_resource_name(&name)?;
-						log.non_atomic_mutate(|l| {
-							l.resource_name = Some(tool.to_string());
-							l.target_name = Some(service_name.to_string());
-							l.resource = Some(MCPOperation::Tool);
-						});
-						if !self.relay.policies.validate(
-							&rbac::ResourceType::Tool(rbac::ResourceId::new(
-								service_name.to_string(),
-								tool.to_string(),
-							)),
-							cel.as_ref(),
-						) {
-							return Err(UpstreamError::Authorization {
-								resource_type: "tool".to_string(),
-								resource_name: name.to_string(),
-							});
-						}
+						let args = ctr.params.arguments.clone().map(|v| serde_json::Value::Object(v)).unwrap_or(serde_json::Value::Object(Default::default()));
 
-						let tn = tool.to_string();
-						ctr.params.name = tn.into();
-						self.relay.send_single(r, ctx, service_name).await
+						// Resolve the tool call - may be a backend tool, virtual tool, or composition
+						let resolved = self.relay.resolve_tool_call(&name, args)?;
+
+						match resolved {
+							ResolvedToolCall::Backend { target, tool_name, args: resolved_args, virtual_name } => {
+								log.non_atomic_mutate(|l| {
+									l.resource_name = Some(tool_name.clone());
+									l.target_name = Some(target.clone());
+									l.resource = Some(MCPOperation::Tool);
+								});
+
+								// Validate policies against the resolved tool
+								if !self.relay.policies.validate(
+									&rbac::ResourceType::Tool(rbac::ResourceId::new(
+										target.clone(),
+										tool_name.clone(),
+									)),
+									cel.as_ref(),
+								) {
+									return Err(UpstreamError::Authorization {
+										resource_type: "tool".to_string(),
+										resource_name: name.to_string(),
+									});
+								}
+
+								// Update the request with resolved tool name and args
+								ctr.params.name = tool_name.clone().into();
+								if let Some(obj) = resolved_args.as_object() {
+									ctr.params.arguments = Some(obj.clone());
+								}
+
+								// Use send_single_with_output_transform to apply outputTransform
+								self.relay.send_single_with_output_transform(r, ctx, &target, virtual_name).await
+							},
+							ResolvedToolCall::Composition { name: comp_name, args: comp_args } => {
+								log.non_atomic_mutate(|l| {
+									l.resource_name = Some(comp_name.clone());
+									l.target_name = Some("_composition".to_string());
+									l.resource = Some(MCPOperation::Tool);
+								});
+
+								// Validate policies for the composition
+								if !self.relay.policies.validate(
+									&rbac::ResourceType::Tool(rbac::ResourceId::new(
+										"_composition".to_string(),
+										comp_name.clone(),
+									)),
+									cel.as_ref(),
+								) {
+									return Err(UpstreamError::Authorization {
+										resource_type: "tool".to_string(),
+										resource_name: comp_name.to_string(),
+									});
+								}
+
+								// Execute the composition using CompositionExecutor
+								let registry_ref = self.relay.registry().ok_or_else(|| {
+									UpstreamError::InvalidRequest("No registry configured for composition execution".to_string())
+								})?;
+
+								// Get an Arc to the compiled registry for the executor
+								let compiled_registry = registry_ref.get_arc().ok_or_else(|| {
+									UpstreamError::InvalidRequest("Registry not loaded".to_string())
+								})?;
+
+								// Create a ToolInvoker that uses the Relay to make real backend calls
+								let tool_invoker = Arc::new(RelayToolInvoker::new(
+									self.relay.clone(),
+									ctx.clone(),
+								));
+
+								// Create the executor and run the composition
+								// Spawn as a separate task to avoid scheduler starvation
+								let executor = CompositionExecutor::new(compiled_registry, tool_invoker);
+								let comp_name_clone = comp_name.clone();
+
+								let result = tokio::spawn(async move {
+									executor.execute(&comp_name_clone, comp_args).await
+								})
+								.await
+								.map_err(|e| UpstreamError::InvalidRequest(format!(
+									"Composition task panicked: {}",
+									e
+								)))?
+								.map_err(|e| UpstreamError::InvalidRequest(format!(
+									"Composition execution failed: {}",
+									e
+								)))?;
+
+								// Build a successful MCP CallToolResult response
+								let call_result = rmcp::model::CallToolResult {
+									content: vec![rmcp::model::Content::text(
+										serde_json::to_string(&result).unwrap_or_default()
+									)],
+									structured_content: None,
+									is_error: None,
+									meta: None,
+								};
+
+								// Convert to Response using the same pattern as regular tool calls
+								let id = r.id.clone();
+								crate::mcp::handler::messages_to_response(
+									id.clone(),
+									Messages::from_result(id, call_result)
+								)
+							},
+						}
 					},
 					ClientRequest::GetPromptRequest(gpr) => {
 						let name = gpr.params.name.clone();
