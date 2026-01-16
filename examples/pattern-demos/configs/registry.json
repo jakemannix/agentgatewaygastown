@@ -1,0 +1,221 @@
+{
+  "$comment": "Pattern Demo Registry - Virtual tools showcasing key agentgateway patterns",
+  "schemaVersion": "1.0",
+
+  "tools": [
+    {
+      "$comment": "=== Pattern 1: Tool Aliasing ===",
+      "$pattern": "aliasing",
+      "name": "get_webpage",
+      "description": "Semantic alias for fetch - retrieve content from a URL",
+      "source": {"target": "fetch-server", "tool": "fetch"}
+    },
+    {
+      "name": "browse",
+      "description": "Another semantic alias for fetch - browse a website",
+      "source": {"target": "fetch-server", "tool": "fetch"}
+    },
+
+    {
+      "$comment": "=== Pattern 2: Output Projection ===",
+      "$pattern": "projection",
+      "name": "list_entity_names",
+      "description": "Get just the names of all entities from the knowledge graph",
+      "source": {"target": "memory-server", "tool": "read_graph"},
+      "inputSchema": {"type": "object", "properties": {}},
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "names": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "names": {"path": "$.entities[*].name"}
+        }
+      }
+    },
+    {
+      "name": "what_day_is_it",
+      "description": "Just the day name - minimal projection from time server",
+      "source": {"target": "time-server", "tool": "get_current_time"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "timezone": {"type": "string", "description": "IANA timezone"}
+        },
+        "required": ["timezone"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "day": {"type": "string"}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "day": {"path": "$.day_of_week"}
+        }
+      }
+    },
+
+    {
+      "$comment": "=== Pattern 3: Output Transformation/Flattening ===",
+      "$pattern": "transformation",
+      "name": "get_time_structured",
+      "description": "Get current time with structured output - extracts from nested JSON",
+      "source": {"target": "time-server", "tool": "get_current_time"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "timezone": {"type": "string", "description": "IANA timezone"}
+        },
+        "required": ["timezone"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "timezone": {"type": "string"},
+          "datetime": {"type": "string"},
+          "day_of_week": {"type": "string"},
+          "is_dst": {"type": "boolean"}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "timezone": {"path": "$.timezone"},
+          "datetime": {"path": "$.datetime"},
+          "day_of_week": {"path": "$.day_of_week"},
+          "is_dst": {"path": "$.is_dst"}
+        }
+      }
+    },
+    {
+      "name": "get_connections",
+      "description": "Get simplified connection info as RDF-style triples",
+      "source": {"target": "memory-server", "tool": "read_graph"},
+      "inputSchema": {"type": "object", "properties": {}},
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subject": {"type": "string"},
+                "predicate": {"type": "string"},
+                "object": {"type": "string"}
+              }
+            }
+          }
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "connections": {"path": "$.relations[*]"},
+          "connections[*].subject": {"path": "$.from"},
+          "connections[*].predicate": {"path": "$.relationType"},
+          "connections[*].object": {"path": "$.to"}
+        }
+      }
+    },
+
+    {
+      "$comment": "=== Pattern 4: Tool Composition (Pipeline) ===",
+      "$pattern": "composition",
+      "name": "fetch_and_remember",
+      "description": "Pipeline: fetch a URL, then store a note about it in the knowledge graph",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "fetch_content",
+              "operation": {"tool": {"name": "fetch"}}
+            },
+            {
+              "id": "store_note",
+              "operation": {"tool": {"name": "create_entities"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "entities": {
+                      "constant": [{
+                        "name": "fetched_page",
+                        "entityType": "webpage",
+                        "observations": ["Page was fetched via pipeline"]
+                      }]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string", "description": "URL to fetch"}
+        },
+        "required": ["url"]
+      }
+    },
+
+    {
+      "$comment": "=== Base tools (passthrough) ===",
+      "name": "fetch",
+      "description": "Fetch content from a URL",
+      "source": {"target": "fetch-server", "tool": "fetch"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string", "description": "URL to fetch"},
+          "max_length": {"type": "integer", "description": "Max content length"}
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "read_graph",
+      "description": "Read the entire knowledge graph",
+      "source": {"target": "memory-server", "tool": "read_graph"},
+      "inputSchema": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "create_entities",
+      "description": "Create new entities in the knowledge graph",
+      "source": {"target": "memory-server", "tool": "create_entities"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "entityType": {"type": "string"},
+                "observations": {"type": "array", "items": {"type": "string"}}
+              },
+              "required": ["name", "entityType", "observations"]
+            }
+          }
+        },
+        "required": ["entities"]
+      }
+    },
+    {
+      "name": "get_current_time",
+      "description": "Get current time in a timezone",
+      "source": {"target": "time-server", "tool": "get_current_time"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "timezone": {"type": "string", "description": "IANA timezone"}
+        },
+        "required": ["timezone"]
+      }
+    }
+  ]
+}
