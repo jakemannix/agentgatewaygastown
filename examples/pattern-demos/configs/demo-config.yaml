@@ -15,6 +15,7 @@
 #   - Admin UI: http://localhost:15000/ui
 
 config:
+  adminAddr: "127.0.0.1:15000"
   logging:
     format: json
     fields:
@@ -27,7 +28,10 @@ binds:
   listeners:
   - routes:
     # Route 1: MCP traffic with virtual tools
-    - policies:
+    - matches:
+      - path:
+          pathPrefix: /mcp
+      policies:
         cors:
           allowOrigins:
           - "*"
@@ -36,8 +40,6 @@ binds:
           - content-type
           - cache-control
           - mcp-session-id
-      match:
-        prefix: /mcp
       backends:
       - mcp:
           targets:
@@ -66,15 +68,16 @@ binds:
               args: ["-y", "@modelcontextprotocol/server-everything"]
 
     # Route 2: SSE transport (same backends)
-    - policies:
+    - matches:
+      - path:
+          pathPrefix: /sse
+      policies:
         cors:
           allowOrigins:
           - "*"
           allowHeaders:
           - content-type
           - cache-control
-      match:
-        prefix: /sse
       backends:
       - mcp:
           targets:
@@ -92,7 +95,10 @@ binds:
               args: ["mcp-server-time"]
 
     # Route 3: A2A agent proxy
-    - policies:
+    - matches:
+      - path:
+          pathPrefix: /a2a
+      policies:
         cors:
           allowOrigins:
           - "*"
@@ -100,17 +106,8 @@ binds:
           - content-type
           - cache-control
         a2a: {}
-      match:
-        prefix: /a2a
       backends:
       - host: localhost:9999
-
-# Admin UI port
-- port: 15000
-  listeners:
-  - routes:
-    - backends:
-      - admin: {}
 
 # Registry for virtual tool mappings
 # This provides tool renaming, output projection, compositions, etc.

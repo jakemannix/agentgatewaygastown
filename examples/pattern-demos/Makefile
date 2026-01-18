@@ -13,7 +13,7 @@
 #   make run-adk        # Demo with Google ADK
 #   make demo-a2a       # Demo A2A protocol
 
-.PHONY: help setup start-services stop-services demo \
+.PHONY: help setup start-services stop-services demo demo-debug \
         run-claude run-langgraph run-adk demo-a2a \
         build clean docker-up docker-down
 
@@ -53,20 +53,29 @@ help: ## Show this help message
 # Setup & Build
 # =============================================================================
 
-setup: ## Install all dependencies (Python, Node, Rust build)
-	@echo "$(BLUE)Setting up dependencies...$(NC)"
-	@# Python dependencies for demo script
-	pip install httpx rich 2>/dev/null || pip3 install httpx rich
-	@# Check for Node.js (needed for MCP servers)
-	@command -v npx >/dev/null 2>&1 || { echo "$(YELLOW)Warning: npx not found. Install Node.js for MCP servers.$(NC)"; }
-	@# Check for uv (needed for Python MCP servers)
-	@command -v uvx >/dev/null 2>&1 || { echo "$(YELLOW)Warning: uvx not found. Install uv for Python MCP servers.$(NC)"; }
-	@# Build agentgateway if needed
-	@if [ ! -f "$(PROJECT_ROOT)/target/release/agentgateway" ]; then \
-		echo "Building agentgateway..."; \
-		cd $(PROJECT_ROOT) && make build; \
+setup: ## Install Python dependencies via uv
+	@echo "$(BLUE)Setting up Python dependencies...$(NC)"
+	@# Check for uv (required for Python dependencies)
+	@command -v uv >/dev/null 2>&1 || { echo "$(YELLOW)Error: uv not found. Install from https://docs.astral.sh/uv/$(NC)"; exit 1; }
+	@# Install Python dependencies via uv
+	uv sync
+	@echo "$(GREEN)Python setup complete!$(NC)"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  make build-all    # Build UI and agentgateway (requires Node.js, ~16GB RAM)"
+	@echo "  make start-services  # Start the gateway"
+
+build-all: build-ui build ## Build UI and agentgateway
+
+build-ui: ## Build the admin UI (requires Node.js)
+	@command -v npm >/dev/null 2>&1 || { echo "$(YELLOW)Error: npm not found. Install Node.js.$(NC)"; exit 1; }
+	@if [ ! -d "$(PROJECT_ROOT)/ui/out" ]; then \
+		echo "$(BLUE)Building UI...$(NC)"; \
+		cd $(PROJECT_ROOT)/ui && npm install && npm run build; \
+		echo "$(GREEN)UI build complete!$(NC)"; \
+	else \
+		echo "UI already built ($(PROJECT_ROOT)/ui/out exists)"; \
 	fi
-	@echo "$(GREEN)Setup complete!$(NC)"
 
 build: ## Build agentgateway from source
 	@echo "$(BLUE)Building agentgateway...$(NC)"
@@ -105,22 +114,27 @@ stop-services: ## Stop background services
 
 demo: ## Run interactive demo (all patterns)
 	@echo "$(BLUE)Starting interactive demo...$(NC)"
-	python3 run_demo.py
+	@echo "$(YELLOW)Tip: Use 'make demo-debug' for verbose output$(NC)"
+	uv run python run_demo.py
+
+demo-debug: ## Run demo with debug output
+	@echo "$(BLUE)Starting interactive demo (debug mode)...$(NC)"
+	uv run python run_demo.py --debug
 
 demo-multiplexing: ## Demo: MCP multiplexing pattern
-	python3 run_demo.py --demo multiplexing
+	uv run python run_demo.py --demo multiplexing
 
 demo-aliasing: ## Demo: Tool aliasing pattern
-	python3 run_demo.py --demo aliasing
+	uv run python run_demo.py --demo aliasing
 
 demo-projection: ## Demo: Output projection pattern
-	python3 run_demo.py --demo projection
+	uv run python run_demo.py --demo projection
 
 demo-transformation: ## Demo: Output transformation pattern
-	python3 run_demo.py --demo transformation
+	uv run python run_demo.py --demo transformation
 
 demo-composition: ## Demo: Tool composition pattern
-	python3 run_demo.py --demo composition
+	uv run python run_demo.py --demo composition
 
 demo-a2a: ## Demo: A2A protocol proxying
 	@echo "$(BLUE)Starting A2A demo...$(NC)"
@@ -130,7 +144,7 @@ demo-a2a: ## Demo: A2A protocol proxying
 		(uv run . > /tmp/a2a-agent.log 2>&1 &) || \
 		echo "$(YELLOW)Could not start Strands agent. Try manual setup.$(NC)"
 	@sleep 3
-	python3 run_demo.py --demo a2a
+	uv run python run_demo.py --demo a2a
 
 # =============================================================================
 # Framework-Specific Demos
@@ -176,7 +190,7 @@ run-langgraph: ## Demo with LangGraph agent
 	@echo ""
 	@if [ -f langgraph_demo.py ]; then \
 		echo "Running LangGraph demo..."; \
-		python3 langgraph_demo.py; \
+		uv run python langgraph_demo.py; \
 	else \
 		echo "$(YELLOW)langgraph_demo.py not found. Create it to run a full demo.$(NC)"; \
 	fi
@@ -200,7 +214,7 @@ run-adk: ## Demo with Google Agent Development Kit
 	@echo ""
 	@if [ -f adk_demo.py ]; then \
 		echo "Running ADK demo..."; \
-		python3 adk_demo.py; \
+		uv run python adk_demo.py; \
 	else \
 		echo "$(YELLOW)adk_demo.py not found. Create it to run a full demo.$(NC)"; \
 	fi
@@ -237,7 +251,7 @@ list-tools: ## List available tools from gateway
 	@curl -s -X POST http://localhost:$(GATEWAY_PORT)/mcp \
 		-H "Content-Type: application/json" \
 		-d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}' | \
-		python3 -c "import sys,json; tools=json.load(sys.stdin).get('result',{}).get('tools',[]); print('\n'.join(t['name'] for t in tools))"
+		uv run python -c "import sys,json; tools=json.load(sys.stdin).get('result',{}).get('tools',[]); print('\n'.join(t['name'] for t in tools))"
 
 inspector: ## Open MCP Inspector
 	@echo "$(BLUE)Starting MCP Inspector...$(NC)"

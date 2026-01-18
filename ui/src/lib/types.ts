@@ -106,6 +106,9 @@ export interface Policies {
   cors?: CorsPolicy | null;
   mcpAuthorization?: McpAuthorization | null;
   mcpAuthentication?: McpAuthentication | null;
+  claimCheck?: any | null;
+  idempotent?: any | null;
+  wireTap?: any | null;
   a2a?: any | null;
   ai?: any;
   backendTLS?: BackendTLS | null;
@@ -268,10 +271,7 @@ export interface EnrichmentSource {
   input?: string | null; // CEL expression
 }
 
-export type MergeStrategy =
-  | "spread"
-  | { nested: { key: string } }
-  | { schemaMap: SchemaMapSpec };
+export type MergeStrategy = "spread" | { nested: { key: string } } | { schemaMap: SchemaMapSpec };
 
 export interface SchemaMapSpec {
   mappings: Record<string, string>;
@@ -403,11 +403,6 @@ export interface OpenApiTarget {
   host: string;
   port?: number;
   schema: any; // OpenAPI schema
-}
-
-export interface BackendRef {
-  service?: ServiceBackend;
-  host?: HostBackend;
 }
 
 // Legacy types for backward compatibility
