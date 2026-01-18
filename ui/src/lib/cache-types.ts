@@ -132,26 +132,26 @@ export function deriveCacheKey(keyPaths: string[], input: Record<string, unknown
       throw new Error(`Cache key path '${path}' not found in input`);
     }
 
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       parts.push(value);
-    } else if (typeof value === 'number' || typeof value === 'boolean') {
+    } else if (typeof value === "number" || typeof value === "boolean") {
       parts.push(String(value));
     } else if (value === null) {
-      parts.push('null');
+      parts.push("null");
     } else {
       // For arrays/objects, use JSON serialization
       parts.push(JSON.stringify(value));
     }
   }
 
-  return parts.join(':');
+  return parts.join(":");
 }
 
 /**
  * Get a value from an object using a dot-separated path.
  */
 function getJsonPath(obj: Record<string, unknown>, path: string): unknown {
-  const segments = path.split('.');
+  const segments = path.split(".");
   let current: unknown = obj;
 
   for (const segment of segments) {
@@ -159,7 +159,7 @@ function getJsonPath(obj: Record<string, unknown>, path: string): unknown {
       return undefined;
     }
 
-    if (typeof current === 'object') {
+    if (typeof current === "object") {
       if (Array.isArray(current)) {
         const index = parseInt(segment, 10);
         if (isNaN(index)) {
@@ -180,7 +180,10 @@ function getJsonPath(obj: Record<string, unknown>, path: string): unknown {
 /**
  * Evaluate a cache predicate against a result value.
  */
-export function evaluatePredicate(predicate: CachePredicate, result: Record<string, unknown>): boolean {
+export function evaluatePredicate(
+  predicate: CachePredicate,
+  result: Record<string, unknown>
+): boolean {
   const value = getJsonPath(result, predicate.field);
   return JSON.stringify(value) === JSON.stringify(predicate.equals);
 }
