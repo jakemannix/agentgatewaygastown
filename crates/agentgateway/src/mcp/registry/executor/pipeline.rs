@@ -231,4 +231,119 @@ mod tests {
 		let result = PipelineExecutor::apply_jsonpath("$.data.items[0]", &value).unwrap();
 		assert_eq!(result, serde_json::json!(1));
 	}
+
+	#[tokio::test]
+	async fn test_dag_pattern_with_parallel_branches() {
+		// This test demonstrates that the IR already supports DAG structures.
+		// Steps "prefs" and "embed" both only depend on the original input,
+		// so they COULD run in parallel. Step "search" depends on BOTH of them.
+		//
+		// DAG structure:
+		//
+		//     input
+		//     /   \
+		//    v     v
+		// prefs   embed
+		//    \     /
+		//     v   v
+		//    search
+		//
+		// Currently executes sequentially, but produces correct results.
+		// A future DAG-aware executor could run prefs and embed in parallel.
+
+		use crate::mcp::registry::patterns::ConstructBinding;
+		use std::collections::HashMap;
+
+		let invoker = MockToolInvoker::new()
+			.with_response("get_user_prefs", serde_json::json!({
+				"category_weights": {"tech": 2.0, "news": 1.0},
+				"content_filter": "recent"
+			}))
+			.with_response("generate_embedding", serde_json::json!({
+				"embedding": [0.1, 0.2, 0.3, 0.4]
+			}))
+			.with_response("vector_search", serde_json::json!({
+				"results": [
+					{"id": "doc1", "score": 0.95},
+					{"id": "doc2", "score": 0.87}
+				]
+			}));
+
+		let (ctx, executor) = setup_context_and_executor(invoker);
+
+		let spec = PipelineSpec {
+			steps: vec![
+				// Branch 1: get user preferences (depends only on input)
+				PipelineStep {
+					id: "prefs".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("get_user_prefs")),
+					input: Some(DataBinding::Input(InputBinding {
+						path: "$.user_id".to_string(),
+					})),
+				},
+				// Branch 2: generate embedding (depends only on input)
+				PipelineStep {
+					id: "embed".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("generate_embedding")),
+					input: Some(DataBinding::Input(InputBinding {
+						path: "$.query".to_string(),
+					})),
+				},
+				// Join: vector search (depends on BOTH prefs and embed)
+				PipelineStep {
+					id: "search".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("vector_search")),
+					input: Some(DataBinding::Construct(ConstructBinding {
+						fields: HashMap::from([
+							(
+								"embedding".to_string(),
+								DataBinding::Step(StepBinding {
+									step_id: "embed".to_string(),
+									path: "$.embedding".to_string(),
+								}),
+							),
+							(
+								"filter".to_string(),
+								DataBinding::Step(StepBinding {
+									step_id: "prefs".to_string(),
+									path: "$.content_filter".to_string(),
+								}),
+							),
+							(
+								"boost".to_string(),
+								DataBinding::Step(StepBinding {
+									step_id: "prefs".to_string(),
+									path: "$.category_weights".to_string(),
+								}),
+							),
+						]),
+					})),
+				},
+			],
+		};
+
+		let input = serde_json::json!({
+			"user_id": "user_123",
+			"query": "rust async programming"
+		});
+
+		let result = PipelineExecutor::execute(&spec, input, &ctx, &executor).await;
+
+		assert!(result.is_ok(), "DAG execution should succeed");
+		let output = result.unwrap();
+
+		// Verify the final search results came through
+		assert_eq!(output["results"][0]["id"], "doc1");
+		assert_eq!(output["results"][0]["score"], 0.95);
+		assert_eq!(output["results"][1]["id"], "doc2");
+
+		// Verify intermediate results were stored and accessible
+		let prefs_result = ctx.get_step_result("prefs").await;
+		assert!(prefs_result.is_some(), "prefs step result should be stored");
+		assert_eq!(prefs_result.unwrap()["content_filter"], "recent");
+
+		let embed_result = ctx.get_step_result("embed").await;
+		assert!(embed_result.is_some(), "embed step result should be stored");
+		assert_eq!(embed_result.unwrap()["embedding"], serde_json::json!([0.1, 0.2, 0.3, 0.4]));
+	}
 }

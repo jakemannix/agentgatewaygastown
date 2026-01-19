@@ -506,6 +506,110 @@ Input ──┬──────────▶│   [1,2,3]    │────
       <li><span class="highlight">Enricher</span> - Parallel data augmentation</li>
     </ul>
   </section>
+
+  <section>
+    <h2>Example: Personalized Search DAG</h2>
+    <pre style="text-align: center; font-size: 0.5em;">
+                         ┌──────────────────┐
+                         │  (query, user)   │
+                         └────────┬─────────┘
+           ┌──────────────────────┼──────────────────────┐
+           ▼                      ▼                      ▼
+┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
+│  get_user_prefs  │   │ generate_embed   │   │ build_solr_query │
+└────────┬─────────┘   └────────┬─────────┘   └────────┬─────────┘
+         │                      │                      │
+         ▼                      ▼                      ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │                    prefs + embed + solr_q               │
+    └───────────┬───────────────┬───────────────┬─────────────┘
+                ▼               ▼               ▼
+         ┌───────────┐   ┌───────────┐   ┌───────────┐
+         │search_solr│   │search_vec │   │ search_kg │
+         └─────┬─────┘   └─────┬─────┘   └─────┬─────┘
+               └───────────────┼───────────────┘
+                               ▼
+                        ┌─────────────┐
+                        │   rerank    │
+                        └─────────────┘
+    </pre>
+  </section>
+
+  <section>
+    <h2>Today: Nested Compositions</h2>
+    <pre><code class="language-json" style="font-size: 0.45em;">{
+  "name": "personalized_search",
+  "spec": {
+    "pipeline": {
+      "steps": [
+        {
+          "id": "prep",
+          "operation": {
+            "pattern": {
+              "scatterGather": {
+                "targets": [
+                  { "tool": "get_user_prefs" },
+                  { "tool": "generate_embedding" },
+                  { "tool": "build_solr_query" }
+                ]
+              }
+            }
+          }
+        },
+        { "id": "retrieve", "operation": { "tool": "multi_source_search" } },
+        { "id": "rerank", "operation": { "tool": "rerank_results" } }
+      ]
+    }
+  }
+}</code></pre>
+    <p class="fragment small warning">Problem: scatter-gather merges results; loses named outputs</p>
+  </section>
+
+  <section>
+    <h2>Future: Native DAG Pattern</h2>
+    <pre><code class="language-json" style="font-size: 0.42em;">{
+  "name": "personalized_search",
+  "spec": {
+    "dag": {
+      "steps": [
+        { "id": "prefs", "op": { "tool": "get_user_prefs" },
+          "input": { "construct": { "user_id": { "path": "$.user_id" } } } },
+        { "id": "embed", "op": { "tool": "generate_embedding" },
+          "input": { "construct": { "text": { "path": "$.query" } } } },
+        { "id": "solr_q", "op": { "tool": "build_solr_query" },
+          "input": { "construct": { "query": { "path": "$.query" } } } },
+        { "id": "solr", "op": { "tool": "search_solr" }, "after": ["prefs", "solr_q"],
+          "input": { "construct": {
+            "query": { "step": "solr_q", "path": "$.query" },
+            "boost": { "step": "prefs", "path": "$.category_weights" }
+          }}},
+        { "id": "vec", "op": { "tool": "search_vector" }, "after": ["prefs", "embed"],
+          "input": { "construct": {
+            "embedding": { "step": "embed", "path": "$" },
+            "filter": { "step": "prefs", "path": "$.content_filter" }
+          }}},
+        { "id": "rerank", "op": { "tool": "rerank" }, "after": ["solr", "vec"],
+          "input": { "construct": {
+            "results": { "merge": ["solr", "vec"] },
+            "prefs": { "step": "prefs", "path": "$" }
+          }}}
+      ]
+    }
+  }
+}</code></pre>
+  </section>
+
+  <section>
+    <h2>DAG Pattern: Key Features</h2>
+    <ul>
+      <li class="fragment"><code class="highlight">after: [...]</code> - explicit dependencies</li>
+      <li class="fragment">Steps with no deps run immediately in parallel</li>
+      <li class="fragment">Each step output stored by <code class="highlight">id</code></li>
+      <li class="fragment"><code class="highlight">construct</code> pulls from multiple predecessors</li>
+      <li class="fragment">Topological sort determines execution order</li>
+    </ul>
+    <p class="fragment small warning">Future work: requires dependency-aware executor</p>
+  </section>
 </section>
 
 <!-- 3e: Stateful Composition -->
