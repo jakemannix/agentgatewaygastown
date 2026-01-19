@@ -63,6 +63,13 @@ impl TimeoutExecutor {
 				let child_ctx = ctx.child(input.clone());
 				executor.execute_pattern(pattern, input, &child_ctx).await
 			},
+			StepOperation::Agent(ac) => {
+				// Agent execution not yet implemented - return error
+				Err(ExecutionError::Internal(format!(
+					"Agent execution not yet implemented: {}",
+					ac.name
+				)))
+			}
 		}
 	}
 }
@@ -98,9 +105,7 @@ mod tests {
 		let (ctx, executor) = setup_context_and_executor(invoker);
 
 		let spec = TimeoutSpec {
-			inner: Box::new(StepOperation::Tool(ToolCall {
-				name: "fast_tool".to_string(),
-			})),
+			inner: Box::new(StepOperation::Tool(ToolCall::new("fast_tool"))),
 			duration_ms: 5000, // 5 second timeout
 			fallback: None,
 			message: None,
@@ -124,9 +129,7 @@ mod tests {
 
 		// Create a spec with extremely short timeout (1ms)
 		let spec = TimeoutSpec {
-			inner: Box::new(StepOperation::Tool(ToolCall {
-				name: "slow_tool".to_string(),
-			})),
+			inner: Box::new(StepOperation::Tool(ToolCall::new("slow_tool"))),
 			duration_ms: 1, // 1ms timeout - will definitely timeout with slow mock
 			fallback: None,
 			message: None,
@@ -152,13 +155,9 @@ mod tests {
 		let (ctx, executor) = setup_context_and_executor(invoker);
 
 		let spec = TimeoutSpec {
-			inner: Box::new(StepOperation::Tool(ToolCall {
-				name: "slow_tool".to_string(), // Not configured, will timeout
-			})),
+			inner: Box::new(StepOperation::Tool(ToolCall::new("slow_tool"))), // Not configured, will timeout
 			duration_ms: 1, // Very short timeout
-			fallback: Some(Box::new(StepOperation::Tool(ToolCall {
-				name: "fallback_tool".to_string(),
-			}))),
+			fallback: Some(Box::new(StepOperation::Tool(ToolCall::new("fallback_tool")))),
 			message: None,
 		};
 
@@ -179,9 +178,7 @@ mod tests {
 		let (ctx, executor) = setup_context_and_executor(invoker);
 
 		let spec = TimeoutSpec {
-			inner: Box::new(StepOperation::Tool(ToolCall {
-				name: "slow_tool".to_string(),
-			})),
+			inner: Box::new(StepOperation::Tool(ToolCall::new("slow_tool"))),
 			duration_ms: 30000,
 			fallback: None,
 			message: Some("Operation timed out - please try again later".to_string()),
