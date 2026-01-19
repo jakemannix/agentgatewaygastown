@@ -25,6 +25,7 @@ Focus on enabling agents to access versioned MCP tools with dependency tracking.
 - WP10: Caller Identity
 - WP11: Dependency-Scoped Discovery
 - WP14: Discovery Endpoints (MCP only)
+- WP16: Version-Aware Server Routing
 
 ### Phase 2 (Future): Agent-as-Tool
 Extend the gateway to invoke A2A agents within compositions.
@@ -1846,6 +1847,155 @@ mod tests {
 
 ---
 
+## WP16: Version-Aware Server Routing
+
+**Status**: Not Started
+**Owner**: TBD
+**Estimated Effort**: 3-4 days
+**Dependencies**: WP2
+
+### Objective
+
+Update routing to use versioned server keys for dispatch. YAML targets embed version in name, registry `source.server` + `source.serverVersion` constructs the lookup key.
+
+### Design
+
+**YAML config targets:**
+```yaml
+targets:
+- name: document-service:1.2.0
+  stdio:
+    cmd: npx
+    args: ["@agentgateway/document-service@1.2.0"]
+- name: document-service:1.1.0  # Previous version still available
+  stdio:
+    cmd: npx
+    args: ["@agentgateway/document-service@1.1.0"]
+```
+
+**Registry tool definition:**
+```json
+{
+  "name": "search_documents",
+  "version": "1.0.0",
+  "source": {
+    "server": "document-service",
+    "serverVersion": "1.2.0",
+    "tool": "search_documents"
+  }
+}
+```
+
+**Routing logic:**
+```rust
+// In handler.rs resolve_tool_call()
+let target_key = match &source.server_version {
+    Some(version) => format!("{}:{}", source.server, version),
+    None => source.server.clone(),  // v1 fallback
+};
+
+// target_key = "document-service:1.2.0"
+let upstream = upstream_group.get(&target_key)?;
+```
+
+### Files to Modify
+
+- `crates/agentgateway/src/mcp/handler.rs` (resolve_tool_call routing)
+- `crates/agentgateway/src/mcp/registry/types.rs` (add server_version to SourceTool)
+- `crates/agentgateway/src/mcp/registry/compiled.rs` (update source key construction)
+
+### Test Stubs
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_versioned_target_key_construction() {
+        let source = SourceToolV2 {
+            server: "doc-service".into(),
+            server_version: Some("1.2.0".into()),
+            tool: "search".into(),
+            ..Default::default()
+        };
+
+        let key = build_target_key(&source);
+        assert_eq!(key, "doc-service:1.2.0");
+    }
+
+    #[test]
+    fn test_unversioned_fallback() {
+        let source = SourceToolV2 {
+            server: "doc-service".into(),
+            server_version: None,  // v1 style
+            tool: "search".into(),
+            ..Default::default()
+        };
+
+        let key = build_target_key(&source);
+        assert_eq!(key, "doc-service");  // No version suffix
+    }
+
+    #[tokio::test]
+    async fn test_route_to_versioned_target() {
+        let handler = create_test_handler_with_targets(vec![
+            ("doc-service:1.2.0", mock_upstream_v1_2()),
+            ("doc-service:1.1.0", mock_upstream_v1_1()),
+        ]);
+
+        // Tool configured for 1.2.0
+        let result = handler.resolve_tool_call("search_documents", json!({})).await;
+
+        assert!(matches!(result, ResolvedToolCall::Backend { target, .. } if target == "doc-service:1.2.0"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_registry_server_matches_yaml_target() {
+        let registry = RegistryV2 {
+            servers: vec![ServerDefinition {
+                name: "doc-service".into(),
+                version: "1.2.0".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let yaml_targets = vec!["doc-service:1.2.0"];
+
+        let result = validate_servers_have_targets(&registry, &yaml_targets);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_missing_target_for_server_version() {
+        let registry = RegistryV2 {
+            servers: vec![ServerDefinition {
+                name: "doc-service".into(),
+                version: "2.0.0".into(),  // Version not in YAML
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let yaml_targets = vec!["doc-service:1.2.0"];  // Only has 1.2.0
+
+        let result = validate_servers_have_targets(&registry, &yaml_targets);
+        assert!(result.is_err());  // Missing target for 2.0.0
+    }
+}
+```
+
+### Acceptance Criteria
+
+- [ ] `source.server` + `source.serverVersion` constructs `server:version` key
+- [ ] YAML targets with embedded version work
+- [ ] v1 tools without serverVersion fall back to unversioned key
+- [ ] Startup validation: registry servers have matching YAML targets
+- [ ] All test stubs pass
+
+---
+
 ## Updated Dependency Graph
 
 ### Phase 1 (MVP) Dependencies
@@ -1856,16 +2006,17 @@ WP1 (Proto) ─────┬────────────────�
                  ▼                                                ▼
         WP2 (Rust Types) ───────────────────────────────  WP5 (TS Types)
                  │                                                │
-        ┌────────┼────────┬────────────┐                         ▼
-        ▼        ▼        ▼            ▼                  WP6 (TS Validation)
-   WP3 (Rust  WP7 (SBOM) WP10       WP14
-   Validation)           (Identity)  (MCP Discovery)
+        ┌────────┼────────┬────────────┬──────────┐              ▼
+        ▼        ▼        ▼            ▼          ▼       WP6 (TS Validation)
+   WP3 (Rust  WP7 (SBOM) WP10       WP14       WP16
+   Validation)           (Identity)  (Discovery) (Routing)
         │                    │
         ▼                    ▼
    WP4 (Runtime) ◄───── WP11 (Scoped Discovery)
 
 WP8 (Tests) can start immediately with stubs
 WP9 (Docs) runs last
+WP16 (Routing) is runtime critical - version-aware dispatch
 ```
 
 ### Phase 2 (Future) Dependencies
