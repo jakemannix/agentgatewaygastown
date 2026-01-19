@@ -29,6 +29,7 @@
  * const json = compile(weatherTool, researchPipeline);
  */
 export * from './types.js';
+export * from './builder.js';
 export * from './path-builder.js';
 export { tool, ToolBuilder, SourceToolBuilder, CompositionBuilder } from './tool.js';
 export { pipeline, step, PipelineBuilder, StepBuilder, scatterGather, agg, ScatterGatherBuilder, AggregationBuilder, filter, filterBy, FilterBuilder, schemaMap, outputTransform, SchemaMapBuilder, mapEach, mapEachTool, mapEachPattern, MapEachBuilder, } from './patterns/index.js';

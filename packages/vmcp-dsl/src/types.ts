@@ -4,13 +4,143 @@
  */
 
 // =============================================================================
-// Registry and Tool Definitions
+// Registry v1 (Legacy)
 // =============================================================================
 
-/** Registry containing tool definitions */
+/** Registry containing tool definitions (v1 - legacy) */
 export interface Registry {
   schemaVersion: string;
   tools: ToolDefinition[];
+}
+
+// =============================================================================
+// Registry v2 Types
+// =============================================================================
+
+/** Registry v2 with schemas, servers, tools, and agents */
+export interface RegistryV2 {
+  schemaVersion: '2.0';
+  schemas: SchemaDefinition[];
+  servers: ServerDefinition[];
+  tools: ToolDefinitionV2[];
+  agents: AgentDefinition[];
+}
+
+/** Schema definition with versioning */
+export interface SchemaDefinition {
+  name: string;
+  version: string;
+  description?: string;
+  schema: JSONSchema;
+  metadata?: Record<string, unknown>;
+}
+
+/** Reference to a schema by name and version: "#SchemaName:Version" */
+export interface SchemaRef {
+  $ref: string;
+}
+
+/** Server (MCP backend) registration */
+export interface ServerDefinition {
+  name: string;
+  version: string;
+  description?: string;
+  provides: ToolProvision[];
+  deprecated?: boolean;
+  deprecationMessage?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Tool provision - what tools a server provides */
+export interface ToolProvision {
+  tool: string;
+  version: string;
+}
+
+/** Typed dependency reference */
+export interface Dependency {
+  type: 'tool' | 'agent';
+  name: string;
+  version: string;
+  skill?: string; // For agent dependencies
+}
+
+/** Tool definition v2 with versioned source and dependencies */
+export interface ToolDefinitionV2 {
+  name: string;
+  version: string;
+  description?: string;
+  source?: ToolSourceV2;
+  spec?: PatternSpec;
+  depends?: Dependency[];
+  inputSchema?: JSONSchema | SchemaRef;
+  outputSchema?: JSONSchema | SchemaRef;
+  outputTransform?: OutputTransform;
+  metadata?: Record<string, unknown>;
+}
+
+/** Source tool v2 - references server by name and version */
+export interface ToolSourceV2 {
+  server: string;
+  serverVersion: string;
+  tool: string;
+  defaults?: Record<string, unknown>;
+  hideFields?: string[];
+}
+
+/** Agent definition (A2A compatible) */
+export interface AgentDefinition {
+  name: string;
+  version: string;
+  description: string;
+  url: string;
+  protocolVersion: string;
+  defaultInputModes: string[];
+  defaultOutputModes: string[];
+  skills: AgentSkill[];
+  capabilities: AgentCapabilities;
+  provider?: AgentProvider;
+}
+
+/** Agent skill definition */
+export interface AgentSkill {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  examples?: string[];
+  inputModes: string[];
+  outputModes: string[];
+  inputSchema?: JSONSchema | SchemaRef;
+  outputSchema?: JSONSchema | SchemaRef;
+}
+
+/** Agent capabilities */
+export interface AgentCapabilities {
+  streaming?: boolean;
+  pushNotifications?: boolean;
+  stateTransitionHistory?: boolean;
+  extensions?: AgentExtension[];
+}
+
+/** Agent extension */
+export interface AgentExtension {
+  uri: string;
+  description?: string;
+  required?: boolean;
+  params?: Record<string, unknown>;
+}
+
+/** Agent provider information */
+export interface AgentProvider {
+  organization: string;
+  url?: string;
+}
+
+/** Agent call in a pipeline step (Phase 2) */
+export interface AgentCall {
+  name: string;
+  skill: string;
 }
 
 /** A tool definition - either source-based or composition */
@@ -73,7 +203,8 @@ export interface PipelineStep {
 
 export type StepOperation =
   | { tool: ToolCall }
-  | { pattern: PatternSpec };
+  | { pattern: PatternSpec }
+  | { agent: AgentCall };
 
 export interface ToolCall {
   name: string;
@@ -403,5 +534,61 @@ export function isSaga(spec: PatternSpec): spec is { saga: SagaSpec } {
 
 export function isClaimCheck(spec: PatternSpec): spec is { claimCheck: ClaimCheckSpec } {
   return 'claimCheck' in spec;
+}
+
+export function isThrottle(spec: PatternSpec): spec is { throttle: ThrottleSpec } {
+  return 'throttle' in spec;
+}
+
+// =============================================================================
+// Registry v2 Type Guards
+// =============================================================================
+
+/** Check if schema or inline schema is a reference */
+export function isSchemaRef(schema: JSONSchema | SchemaRef): schema is SchemaRef {
+  return '$ref' in schema && typeof (schema as SchemaRef).$ref === 'string';
+}
+
+/** Check if a tool definition v2 has a source (vs composition) */
+export function hasSourceV2(tool: ToolDefinitionV2): tool is ToolDefinitionV2 & { source: ToolSourceV2 } {
+  return tool.source !== undefined;
+}
+
+/** Check if a tool definition v2 has a spec (composition) */
+export function hasSpecV2(tool: ToolDefinitionV2): tool is ToolDefinitionV2 & { spec: PatternSpec } {
+  return tool.spec !== undefined;
+}
+
+/** Check if a step operation is a tool call */
+export function isToolOperation(op: StepOperation): op is { tool: ToolCall } {
+  return 'tool' in op;
+}
+
+/** Check if a step operation is a pattern */
+export function isPatternOperation(op: StepOperation): op is { pattern: PatternSpec } {
+  return 'pattern' in op;
+}
+
+/** Check if a step operation is an agent call */
+export function isAgentOperation(op: StepOperation): op is { agent: AgentCall } {
+  return 'agent' in op;
+}
+
+/** Check if a dependency is a tool dependency */
+export function isToolDependency(dep: Dependency): boolean {
+  return dep.type === 'tool';
+}
+
+/** Check if a dependency is an agent dependency */
+export function isAgentDependency(dep: Dependency): boolean {
+  return dep.type === 'agent';
+}
+
+/** Parse a schema reference string into name and version */
+export function parseSchemaRef(ref: string): { name: string; version: string } | null {
+  // Format: "#SchemaName:Version"
+  const match = ref.match(/^#([^:]+):(.+)$/);
+  if (!match) return null;
+  return { name: match[1], version: match[2] };
 }
 

@@ -13,18 +13,312 @@ use super::patterns::{FieldSource, PatternSpec, SchemaMapSpec};
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Registry {
-	/// Schema version for compatibility
+	/// Schema version for compatibility (e.g., "2.0")
 	#[serde(default = "default_schema_version")]
 	pub schema_version: String,
 
 	/// List of tool definitions (virtual tools and compositions)
 	#[serde(default)]
 	pub tools: Vec<ToolDefinition>,
+
+	/// Reusable JSON Schema definitions that can be referenced by $ref (v2)
+	#[serde(default)]
+	pub schemas: Vec<Schema>,
+
+	/// Backend server declarations with version information (v2)
+	#[serde(default)]
+	pub servers: Vec<Server>,
+
+	/// A2A agent definitions with capabilities and dependencies (v2)
+	#[serde(default)]
+	pub agents: Vec<AgentDefinition>,
+
+	/// Registry-level metadata (owner, classification, etc.)
+	#[serde(default)]
+	pub metadata: HashMap<String, serde_json::Value>,
 }
 
 fn default_schema_version() -> String {
 	"1.0".to_string()
 }
+
+// =============================================================================
+// Schema Definitions (v2)
+// =============================================================================
+
+/// Schema defines a reusable, versioned JSON Schema that tools can reference.
+/// Reference format: "#/schemas/<name>" or "#<name>:<version>"
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Schema {
+	/// Schema name (used in $ref, e.g., "SearchQuery")
+	pub name: String,
+
+	/// Semantic version of this schema (e.g., "1.0.0")
+	#[serde(default)]
+	pub version: Option<String>,
+
+	/// Human-readable description
+	#[serde(default)]
+	pub description: Option<String>,
+
+	/// The JSON Schema definition
+	pub schema: serde_json::Value,
+
+	/// Schema metadata (owner, data classification, etc.)
+	#[serde(default)]
+	pub metadata: HashMap<String, serde_json::Value>,
+}
+
+/// SchemaRef allows referencing either an inline schema or a $ref to a named schema
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SchemaRef {
+	/// Inline JSON Schema definition
+	Inline(serde_json::Value),
+
+	/// Reference to a named schema (e.g., "#/schemas/SearchQuery" or "#SearchQuery:1.0.0")
+	#[serde(rename = "$ref")]
+	Ref(String),
+}
+
+// =============================================================================
+// Server Definitions (v2)
+// =============================================================================
+
+/// Server declares a backend MCP server with version information for routing.
+/// The server name + version forms the lookup key (e.g., "doc-service:1.2.0").
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Server {
+	/// Server name (must match YAML target name without version suffix)
+	pub name: String,
+
+	/// Semantic version of this server (e.g., "1.2.0")
+	#[serde(default)]
+	pub version: Option<String>,
+
+	/// Human-readable description
+	#[serde(default)]
+	pub description: Option<String>,
+
+	/// Tools provided by this server (tool name -> version)
+	#[serde(default)]
+	pub provides: Vec<ToolProvision>,
+
+	/// Whether this server is deprecated
+	#[serde(default)]
+	pub deprecated: bool,
+
+	/// Deprecation message explaining migration path
+	#[serde(default)]
+	pub deprecation_message: Option<String>,
+
+	/// Server metadata (owner, SLA, health endpoint, etc.)
+	#[serde(default)]
+	pub metadata: HashMap<String, serde_json::Value>,
+}
+
+/// ToolProvision declares a tool provided by a server
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolProvision {
+	/// Tool name as exposed by the server
+	pub tool: String,
+
+	/// Tool version
+	#[serde(default)]
+	pub version: Option<String>,
+}
+
+// =============================================================================
+// Agent Definitions (v2) - A2A AgentCard Compatible
+// =============================================================================
+
+/// AgentDefinition matches the A2A AgentCard structure for interoperability.
+/// Agents can be invoked as tools in compositions or delegate to other agents.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDefinition {
+	/// Unique agent name/identifier
+	pub name: String,
+
+	/// Semantic version of this agent
+	#[serde(default)]
+	pub version: Option<String>,
+
+	/// Human-readable description of the agent's purpose
+	#[serde(default)]
+	pub description: Option<String>,
+
+	/// A2A endpoint URL (direct connection)
+	#[serde(default)]
+	pub url: Option<String>,
+
+	/// A2A protocol version supported (e.g., "0.2.1")
+	#[serde(default)]
+	pub protocol_version: Option<String>,
+
+	/// Default input content types accepted (e.g., "text", "application/json")
+	#[serde(default)]
+	pub default_input_modes: Vec<String>,
+
+	/// Default output content types produced
+	#[serde(default)]
+	pub default_output_modes: Vec<String>,
+
+	/// Skills/capabilities this agent exposes
+	#[serde(default)]
+	pub skills: Vec<AgentSkillDefinition>,
+
+	/// Agent capabilities
+	#[serde(default)]
+	pub capabilities: Option<AgentCapabilities>,
+
+	/// Provider information (optional)
+	#[serde(default)]
+	pub provider: Option<AgentProvider>,
+
+	/// Agent metadata (owner, model, cost tier, etc.)
+	#[serde(default)]
+	pub metadata: HashMap<String, serde_json::Value>,
+}
+
+/// AgentSkillDefinition describes a capability that an agent exposes
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSkillDefinition {
+	/// Skill identifier (unique within agent, e.g., "research_topic")
+	pub id: String,
+
+	/// Human-readable skill name
+	#[serde(default)]
+	pub name: Option<String>,
+
+	/// Skill description
+	#[serde(default)]
+	pub description: Option<String>,
+
+	/// Tags for categorization/discovery
+	#[serde(default)]
+	pub tags: Vec<String>,
+
+	/// Example prompts demonstrating usage
+	#[serde(default)]
+	pub examples: Vec<String>,
+
+	/// Input content types for this skill
+	#[serde(default)]
+	pub input_modes: Vec<String>,
+
+	/// Output content types for this skill
+	#[serde(default)]
+	pub output_modes: Vec<String>,
+
+	/// Input schema (inline or reference)
+	#[serde(default)]
+	pub input_schema: Option<SchemaRef>,
+
+	/// Output schema (inline or reference)
+	#[serde(default)]
+	pub output_schema: Option<SchemaRef>,
+}
+
+/// AgentCapabilities describes what an agent supports
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCapabilities {
+	/// Supports streaming responses
+	#[serde(default)]
+	pub streaming: Option<bool>,
+
+	/// Supports push notifications
+	#[serde(default)]
+	pub push_notifications: Option<bool>,
+
+	/// Supports state transition history
+	#[serde(default)]
+	pub state_transition_history: Option<bool>,
+
+	/// Protocol extensions (e.g., SBOM for dependency declaration)
+	#[serde(default)]
+	pub extensions: Vec<AgentExtension>,
+}
+
+/// AgentExtension describes a protocol extension
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentExtension {
+	/// Extension URI (e.g., "urn:agentgateway:sbom")
+	pub uri: String,
+
+	/// Extension description
+	#[serde(default)]
+	pub description: Option<String>,
+
+	/// Whether this extension is required
+	#[serde(default)]
+	pub required: Option<bool>,
+
+	/// Extension parameters (e.g., depends array for SBOM)
+	#[serde(default)]
+	pub params: Option<serde_json::Value>,
+}
+
+/// AgentProvider describes who provides an agent
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentProvider {
+	/// Organization name
+	pub organization: String,
+
+	/// Organization URL
+	#[serde(default)]
+	pub url: Option<String>,
+}
+
+// =============================================================================
+// Dependency Declarations (v2)
+// =============================================================================
+
+/// Dependency declares a versioned dependency on a tool or agent.
+/// Used by tools (compositions) and agents to declare requirements.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dependency {
+	/// Type of dependency (tool or agent)
+	#[serde(rename = "type")]
+	pub dep_type: DependencyType,
+
+	/// Name of the required tool or agent
+	pub name: String,
+
+	/// Semantic version requirement (e.g., "1.2.3")
+	#[serde(default)]
+	pub version: Option<String>,
+
+	/// For agent dependencies: specific skill to invoke (optional)
+	#[serde(default)]
+	pub skill: Option<String>,
+}
+
+/// DependencyType identifies whether a dependency is a tool or agent
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DependencyType {
+	Tool,
+	Agent,
+}
+
+impl Default for DependencyType {
+	fn default() -> Self {
+		DependencyType::Tool
+	}
+}
+
+// =============================================================================
+// Tool Definitions
+// =============================================================================
 
 /// Unified tool definition - either a virtual tool or a composition
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -60,6 +354,18 @@ pub struct ToolDefinition {
 	/// Arbitrary metadata (owner, classification, etc.)
 	#[serde(default)]
 	pub metadata: HashMap<String, serde_json::Value>,
+
+	/// Tags for categorization and discovery (v2)
+	#[serde(default)]
+	pub tags: Vec<String>,
+
+	/// Deprecation notice - if set, tool is deprecated (v2)
+	#[serde(default)]
+	pub deprecated: Option<String>,
+
+	/// Dependencies this tool requires - for compositions and tracking (v2)
+	#[serde(default)]
+	pub depends: Vec<Dependency>,
 }
 
 /// Tool implementation - either source-based (1:1) or composition (N:1)
@@ -78,6 +384,7 @@ pub enum ToolImplementation {
 #[serde(rename_all = "camelCase")]
 pub struct SourceTool {
 	/// Target name (MCP server/backend name)
+	/// Note: Proto uses "server" but we keep "target" for v1 compatibility
 	pub target: String,
 
 	/// Original tool name on that target
@@ -90,6 +397,12 @@ pub struct SourceTool {
 	/// Fields to remove from schema (hidden from agents)
 	#[serde(default)]
 	pub hide_fields: Vec<String>,
+
+	/// Server version for versioned routing (e.g., "1.2.0") (v2)
+	/// Combined with target name forms lookup key: "target:server_version"
+	/// If not set, routes to unversioned target or latest version
+	#[serde(default)]
+	pub server_version: Option<String>,
 }
 
 /// Output transformation - enhanced version supporting all mapping features
@@ -229,6 +542,10 @@ impl Registry {
 		Self {
 			schema_version: default_schema_version(),
 			tools,
+			schemas: Vec::new(),
+			servers: Vec::new(),
+			agents: Vec::new(),
+			metadata: HashMap::new(),
 		}
 	}
 
@@ -237,6 +554,10 @@ impl Registry {
 		Self {
 			schema_version: default_schema_version(),
 			tools: tools.into_iter().map(ToolDefinition::from_legacy).collect(),
+			schemas: Vec::new(),
+			servers: Vec::new(),
+			agents: Vec::new(),
+			metadata: HashMap::new(),
 		}
 	}
 
@@ -266,12 +587,16 @@ impl ToolDefinition {
 				tool: tool.into(),
 				defaults: HashMap::new(),
 				hide_fields: Vec::new(),
+				server_version: None,
 			}),
 			input_schema: None,
 			output_transform: None,
 			output_schema: None,
 			version: None,
 			metadata: HashMap::new(),
+			tags: Vec::new(),
+			deprecated: None,
+			depends: Vec::new(),
 		}
 	}
 
@@ -286,6 +611,9 @@ impl ToolDefinition {
 			output_schema: None,
 			version: None,
 			metadata: HashMap::new(),
+			tags: Vec::new(),
+			deprecated: None,
+			depends: Vec::new(),
 		}
 	}
 
@@ -316,12 +644,16 @@ impl ToolDefinition {
 				tool: legacy.source.tool,
 				defaults: legacy.defaults,
 				hide_fields: legacy.hide_fields,
+				server_version: None,
 			}),
 			input_schema: legacy.input_schema,
 			output_transform,
 			output_schema: None,
 			version: legacy.version,
 			metadata: legacy.metadata,
+			tags: Vec::new(),
+			deprecated: None,
+			depends: Vec::new(),
 		}
 	}
 
@@ -612,9 +944,7 @@ mod tests {
 		let spec = PatternSpec::Pipeline(PipelineSpec {
 			steps: vec![PipelineStep {
 				id: "step1".to_string(),
-				operation: StepOperation::Tool(ToolCall {
-					name: "search".to_string(),
-				}),
+				operation: StepOperation::Tool(ToolCall::new("search")),
 				input: None,
 			}],
 		});
@@ -659,5 +989,231 @@ mod tests {
 		let with_tools = Registry::with_tools(vec![VirtualToolDef::new("tool1", "t", "t1")]);
 		assert!(!with_tools.is_empty());
 		assert_eq!(with_tools.len(), 1);
+	}
+
+	// =============================================================================
+	// v2 Registry Tests
+	// =============================================================================
+
+	#[test]
+	fn test_parse_v2_registry_with_schemas() {
+		let json = r#"{
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "WeatherInput",
+					"version": "1.0.0",
+					"description": "Input schema for weather queries",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"city": { "type": "string" }
+						},
+						"required": ["city"]
+					}
+				}
+			],
+			"tools": []
+		}"#;
+
+		let registry: Registry = serde_json::from_str(json).unwrap();
+		assert_eq!(registry.schema_version, "2.0");
+		assert_eq!(registry.schemas.len(), 1);
+		assert_eq!(registry.schemas[0].name, "WeatherInput");
+		assert_eq!(registry.schemas[0].version, Some("1.0.0".to_string()));
+	}
+
+	#[test]
+	fn test_parse_v2_registry_with_servers() {
+		let json = r#"{
+			"schemaVersion": "2.0",
+			"servers": [
+				{
+					"name": "doc-service",
+					"version": "1.2.0",
+					"description": "Document processing service",
+					"deprecated": false,
+					"provides": [
+						{ "tool": "search_documents", "version": "1.0.0" },
+						{ "tool": "get_document" }
+					]
+				}
+			],
+			"tools": []
+		}"#;
+
+		let registry: Registry = serde_json::from_str(json).unwrap();
+		assert_eq!(registry.servers.len(), 1);
+		assert_eq!(registry.servers[0].name, "doc-service");
+		assert_eq!(registry.servers[0].version, Some("1.2.0".to_string()));
+		assert!(!registry.servers[0].deprecated);
+		assert_eq!(registry.servers[0].provides.len(), 2);
+	}
+
+	#[test]
+	fn test_parse_v2_registry_with_agents() {
+		let json = r#"{
+			"schemaVersion": "2.0",
+			"agents": [
+				{
+					"name": "research-agent",
+					"version": "1.0.0",
+					"description": "Agent that performs research tasks",
+					"url": "https://agents.internal/research",
+					"protocolVersion": "0.2.1",
+					"defaultInputModes": ["text", "application/json"],
+					"defaultOutputModes": ["text"],
+					"skills": [
+						{
+							"id": "research",
+							"name": "Research Topic",
+							"description": "Research a topic and provide summary",
+							"tags": ["research", "knowledge"]
+						}
+					],
+					"capabilities": {
+						"streaming": true,
+						"pushNotifications": false
+					},
+					"provider": {
+						"organization": "Research Team",
+						"url": "https://research.example.com"
+					}
+				}
+			],
+			"tools": []
+		}"#;
+
+		let registry: Registry = serde_json::from_str(json).unwrap();
+		assert_eq!(registry.agents.len(), 1);
+		let agent = &registry.agents[0];
+		assert_eq!(agent.name, "research-agent");
+		assert_eq!(agent.version, Some("1.0.0".to_string()));
+		assert_eq!(agent.url, Some("https://agents.internal/research".to_string()));
+		assert_eq!(agent.skills.len(), 1);
+		assert_eq!(agent.skills[0].id, "research");
+		assert!(agent.capabilities.as_ref().unwrap().streaming.unwrap());
+		assert_eq!(
+			agent.provider.as_ref().unwrap().organization,
+			"Research Team"
+		);
+	}
+
+	#[test]
+	fn test_parse_tool_with_dependencies() {
+		let json = r#"{
+			"name": "comprehensive_search",
+			"description": "Search with dependencies",
+			"spec": {
+				"scatterGather": {
+					"targets": [
+						{ "tool": "web_search" },
+						{ "tool": "arxiv_search" }
+					],
+					"aggregation": { "ops": [{ "flatten": true }] }
+				}
+			},
+			"tags": ["search", "research"],
+			"deprecated": "Use unified_search instead",
+			"depends": [
+				{ "type": "tool", "name": "web_search", "version": "1.0.0" },
+				{ "type": "tool", "name": "arxiv_search" },
+				{ "type": "agent", "name": "summarizer", "skill": "summarize" }
+			]
+		}"#;
+
+		let tool: ToolDefinition = serde_json::from_str(json).unwrap();
+		assert_eq!(tool.name, "comprehensive_search");
+		assert_eq!(tool.tags, vec!["search", "research"]);
+		assert_eq!(tool.deprecated, Some("Use unified_search instead".to_string()));
+		assert_eq!(tool.depends.len(), 3);
+		assert_eq!(tool.depends[0].dep_type, DependencyType::Tool);
+		assert_eq!(tool.depends[0].name, "web_search");
+		assert_eq!(tool.depends[2].dep_type, DependencyType::Agent);
+		assert_eq!(tool.depends[2].skill, Some("summarize".to_string()));
+	}
+
+	#[test]
+	fn test_parse_source_tool_with_server_version() {
+		let json = r#"{
+			"name": "get_document",
+			"source": {
+				"target": "doc-service",
+				"tool": "fetch_document",
+				"serverVersion": ">=1.2.0"
+			}
+		}"#;
+
+		let tool: ToolDefinition = serde_json::from_str(json).unwrap();
+		let source = tool.source_tool().unwrap();
+		assert_eq!(source.target, "doc-service");
+		assert_eq!(source.server_version, Some(">=1.2.0".to_string()));
+	}
+
+	#[test]
+	fn test_parse_deprecated_server() {
+		let json = r#"{
+			"name": "legacy-service",
+			"version": "0.9.0",
+			"deprecated": true,
+			"deprecationMessage": "Migrate to new-service v2.0"
+		}"#;
+
+		let server: Server = serde_json::from_str(json).unwrap();
+		assert!(server.deprecated);
+		assert_eq!(
+			server.deprecation_message,
+			Some("Migrate to new-service v2.0".to_string())
+		);
+	}
+
+	#[test]
+	fn test_parse_full_v2_registry() {
+		let json = r#"{
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "SearchQuery",
+					"schema": { "type": "object" }
+				}
+			],
+			"servers": [
+				{
+					"name": "search-backend",
+					"version": "2.0.0"
+				}
+			],
+			"agents": [
+				{
+					"name": "search-agent",
+					"version": "1.0.0"
+				}
+			],
+			"tools": [
+				{
+					"name": "search",
+					"source": {
+						"target": "search-backend",
+						"tool": "query",
+						"serverVersion": "2.0.0"
+					},
+					"depends": [
+						{ "type": "tool", "name": "query", "version": "2.0.0" }
+					]
+				}
+			],
+			"metadata": {
+				"owner": "search-team",
+				"classification": "internal"
+			}
+		}"#;
+
+		let registry: Registry = serde_json::from_str(json).unwrap();
+		assert_eq!(registry.schema_version, "2.0");
+		assert_eq!(registry.schemas.len(), 1);
+		assert_eq!(registry.servers.len(), 1);
+		assert_eq!(registry.agents.len(), 1);
+		assert_eq!(registry.tools.len(), 1);
+		assert_eq!(registry.metadata.get("owner").unwrap(), "search-team");
 	}
 }

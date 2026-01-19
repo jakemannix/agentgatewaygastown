@@ -17,9 +17,12 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// Stateless patterns (implemented in runtime)
 __exportStar(require("./pipeline.js"), exports);
 __exportStar(require("./scatter-gather.js"), exports);
 __exportStar(require("./filter.js"), exports);
 __exportStar(require("./schema-map.js"), exports);
 __exportStar(require("./map-each.js"), exports);
+// Stateful patterns (IR defined, runtime not yet implemented)
+__exportStar(require("./stateful.js"), exports);
 //# sourceMappingURL=index.js.map

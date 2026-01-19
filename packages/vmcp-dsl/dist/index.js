@@ -47,6 +47,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.RegistryBuilder = exports.parseRegistry = exports.compile = exports.createRegistry = exports.MapEachBuilder = exports.mapEachPattern = exports.mapEachTool = exports.mapEach = exports.SchemaMapBuilder = exports.outputTransform = exports.schemaMap = exports.FilterBuilder = exports.filterBy = exports.filter = exports.AggregationBuilder = exports.ScatterGatherBuilder = exports.agg = exports.scatterGather = exports.StepBuilder = exports.PipelineBuilder = exports.step = exports.pipeline = exports.CompositionBuilder = exports.SourceToolBuilder = exports.ToolBuilder = exports.tool = void 0;
 // Core types
 __exportStar(require("./types.js"), exports);
+// Registry v2 builders
+__exportStar(require("./builder.js"), exports);
 // Path builder
 __exportStar(require("./path-builder.js"), exports);
 // Tool builder

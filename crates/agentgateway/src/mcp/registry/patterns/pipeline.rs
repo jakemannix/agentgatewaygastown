@@ -47,6 +47,9 @@ pub enum StepOperation {
 
 	/// Inline pattern (no separate name)
 	Pattern(Box<PatternSpec>),
+
+	/// Call an agent skill (v2: for agent-as-tool execution)
+	Agent(AgentCall),
 }
 
 impl StepOperation {
@@ -55,16 +58,62 @@ impl StepOperation {
 		match self {
 			StepOperation::Tool(tc) => vec![tc.name.as_str()],
 			StepOperation::Pattern(p) => p.referenced_tools(),
+			StepOperation::Agent(_) => vec![], // Agents tracked separately
+		}
+	}
+
+	/// Get the names of agents referenced by this operation (v2)
+	pub fn referenced_agents(&self) -> Vec<&str> {
+		match self {
+			StepOperation::Tool(_) => vec![],
+			StepOperation::Pattern(_) => vec![], // TODO: recurse into patterns
+			StepOperation::Agent(ac) => vec![ac.name.as_str()],
 		}
 	}
 }
 
 /// Tool call reference
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolCall {
 	/// Tool name (can be virtual tool, composition, or backend tool)
+	#[serde(default)]
 	pub name: String,
+
+	/// Server name override (for direct backend tool calls) (v2)
+	#[serde(default)]
+	pub server: Option<String>,
+
+	/// Server version constraint (v2)
+	#[serde(default)]
+	pub server_version: Option<String>,
+}
+
+impl ToolCall {
+	/// Create a new ToolCall with just a name
+	pub fn new(name: impl Into<String>) -> Self {
+		Self {
+			name: name.into(),
+			server: None,
+			server_version: None,
+		}
+	}
+}
+
+/// AgentCall invokes a registered agent as a step operation (v2)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCall {
+	/// Agent name (references AgentDefinition.name)
+	pub name: String,
+
+	/// Specific skill to invoke (optional, uses default if not specified)
+	#[serde(default)]
+	pub skill: Option<String>,
+
+	/// Agent version constraint (optional, uses latest if not specified)
+	#[serde(default)]
+	pub version: Option<String>,
 }
 
 /// DataBinding specifies where step input comes from
