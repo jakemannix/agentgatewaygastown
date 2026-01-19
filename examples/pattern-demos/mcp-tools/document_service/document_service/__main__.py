@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
+import logging
+import os
 import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -22,12 +29,34 @@ def main():
         default="all-MiniLM-L6-v2",
         help="Sentence-transformers model name (default: all-MiniLM-L6-v2)",
     )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http"],
+        default="stdio",
+        help="Transport type (default: stdio)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8001,
+        help="Port for HTTP transport (default: 8001)",
+    )
 
     args = parser.parse_args()
 
+    # Set environment variables for the server module
+    os.environ["DOCUMENT_SERVICE_DB"] = args.db_path
+    os.environ["DOCUMENT_SERVICE_MODEL"] = args.embedding_model
+
+    # Import after setting env vars
     from .server import run_server
 
-    asyncio.run(run_server(args.db_path, args.embedding_model))
+    if args.transport == "streamable-http":
+        logger.info(f"Starting document-service on http://0.0.0.0:{args.port}")
+        logger.info(f"Database: {args.db_path}")
+        logger.info(f"Embedding model: {args.embedding_model}")
+
+    run_server(transport=args.transport, port=args.port)
 
 
 if __name__ == "__main__":

@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""MCP Notification Service - Async notification patterns demo.
+"""MCP Notification Service - Async notification patterns with SQLite persistence.
 
 This MCP server provides notification capabilities with mock channel delivery,
-demonstrating async patterns including queuing and dead-letter handling.
+demonstrating async patterns including queuing, retry logic, and dead-letter handling.
+
+Data is persisted to SQLite for durability across restarts.
 
 Tools:
     - send_notification: Queue a notification for delivery
     - get_notifications: Retrieve notifications for a user
     - mark_read: Mark notifications as read
+    - get_dead_letter_queue: View failed notifications
+    - retry_dead_letter: Retry a failed notification
+    - configure_failure_rates: Adjust mock failure rates for testing
 
 Channels (mock implementations):
     - email: Mock email delivery with configurable failure rates
@@ -18,9 +23,13 @@ Channels (mock implementations):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import random
+import sqlite3
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -29,7 +38,10 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -98,41 +110,155 @@ class Notification:
         }
 
 
-@dataclass
-class DeadLetterEntry:
-    """Entry in the dead-letter queue."""
+class NotificationDatabase:
+    """SQLite-backed notification storage."""
 
-    notification: Notification
-    reason: str
-    failed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    def __init__(self, db_path: str = ":memory:"):
+        """Initialize the database.
 
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "notification": self.notification.to_dict(),
-            "reason": self.reason,
-            "failed_at": self.failed_at.isoformat(),
-        }
+        Args:
+            db_path: Path to SQLite database file, or ':memory:' for in-memory.
+        """
+        self.db_path = db_path
+        self._init_db()
+        logger.info(f"Notification database initialized at {db_path}")
 
+    @contextmanager
+    def _get_conn(self):
+        """Get a database connection."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
-class NotificationStore:
-    """In-memory notification storage with queue support."""
+    def _init_db(self) -> None:
+        """Initialize the database schema."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
 
-    def __init__(self) -> None:
-        self.notifications: dict[str, Notification] = {}
-        self.delivery_queue: asyncio.Queue[Notification] = asyncio.Queue()
-        self.dead_letter_queue: list[DeadLetterEntry] = []
-        self._processing = False
+            # Notifications table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    priority TEXT NOT NULL DEFAULT 'normal',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TEXT NOT NULL,
+                    delivered_at TEXT,
+                    read_at TEXT,
+                    retry_count INTEGER DEFAULT 0,
+                    max_retries INTEGER DEFAULT 3,
+                    last_error TEXT,
+                    metadata TEXT DEFAULT '{}'
+                )
+            """)
 
-    def add(self, notification: Notification) -> None:
-        """Add a notification to the store."""
-        self.notifications[notification.id] = notification
+            # Dead letter queue table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                    id TEXT PRIMARY KEY,
+                    notification_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    failed_at TEXT NOT NULL,
+                    FOREIGN KEY (notification_id) REFERENCES notifications(id)
+                )
+            """)
 
-    def get(self, notification_id: str) -> Notification | None:
+            # Indexes
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_notifications_user_id
+                ON notifications(user_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_notifications_status
+                ON notifications(status)
+            """)
+
+    def _row_to_notification(self, row: sqlite3.Row) -> Notification:
+        """Convert a database row to a Notification."""
+        return Notification(
+            id=row["id"],
+            user_id=row["user_id"],
+            channel=Channel(row["channel"]),
+            subject=row["subject"],
+            body=row["body"],
+            priority=Priority(row["priority"]),
+            status=NotificationStatus(row["status"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            delivered_at=datetime.fromisoformat(row["delivered_at"]) if row["delivered_at"] else None,
+            read_at=datetime.fromisoformat(row["read_at"]) if row["read_at"] else None,
+            retry_count=row["retry_count"],
+            max_retries=row["max_retries"],
+            last_error=row["last_error"],
+            metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+        )
+
+    def create_notification(self, notification: Notification) -> Notification:
+        """Create a new notification."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO notifications
+                (id, user_id, channel, subject, body, priority, status,
+                 created_at, retry_count, max_retries, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notification.id,
+                    notification.user_id,
+                    notification.channel.value,
+                    notification.subject,
+                    notification.body,
+                    notification.priority.value,
+                    notification.status.value,
+                    notification.created_at.isoformat(),
+                    notification.retry_count,
+                    notification.max_retries,
+                    json.dumps(notification.metadata),
+                ),
+            )
+        return notification
+
+    def get_notification(self, notification_id: str) -> Notification | None:
         """Get a notification by ID."""
-        return self.notifications.get(notification_id)
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM notifications WHERE id = ?", (notification_id,))
+            row = cursor.fetchone()
+            return self._row_to_notification(row) if row else None
 
-    def get_for_user(
+    def update_notification(self, notification: Notification) -> None:
+        """Update a notification."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE notifications
+                SET status = ?, delivered_at = ?, read_at = ?,
+                    retry_count = ?, last_error = ?
+                WHERE id = ?
+                """,
+                (
+                    notification.status.value,
+                    notification.delivered_at.isoformat() if notification.delivered_at else None,
+                    notification.read_at.isoformat() if notification.read_at else None,
+                    notification.retry_count,
+                    notification.last_error,
+                    notification.id,
+                ),
+            )
+
+    def get_notifications_for_user(
         self,
         user_id: str,
         channel: Channel | None = None,
@@ -140,30 +266,96 @@ class NotificationStore:
         limit: int = 50,
     ) -> list[Notification]:
         """Get notifications for a user with optional filters."""
-        results = []
-        for n in self.notifications.values():
-            if n.user_id != user_id:
-                continue
-            if channel and n.channel != channel:
-                continue
-            if status and n.status != status:
-                continue
-            results.append(n)
-        # Sort by created_at descending (newest first)
-        results.sort(key=lambda x: x.created_at, reverse=True)
-        return results[:limit]
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
 
-    async def enqueue(self, notification: Notification) -> None:
-        """Add notification to delivery queue."""
-        notification.status = NotificationStatus.QUEUED
-        await self.delivery_queue.put(notification)
+            query = "SELECT * FROM notifications WHERE user_id = ?"
+            params: list[Any] = [user_id]
 
-    def add_to_dead_letter(self, notification: Notification, reason: str) -> None:
-        """Add failed notification to dead-letter queue."""
-        entry = DeadLetterEntry(notification=notification, reason=reason)
-        self.dead_letter_queue.append(entry)
-        notification.status = NotificationStatus.FAILED
-        logger.warning(f"Notification {notification.id} moved to dead-letter queue: {reason}")
+            if channel:
+                query += " AND channel = ?"
+                params.append(channel.value)
+            if status:
+                query += " AND status = ?"
+                params.append(status.value)
+
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            return [self._row_to_notification(row) for row in cursor.fetchall()]
+
+    def get_pending_notifications(self) -> list[Notification]:
+        """Get all pending/queued notifications for processing."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM notifications
+                WHERE status IN ('pending', 'queued')
+                ORDER BY priority DESC, created_at ASC
+                """
+            )
+            return [self._row_to_notification(row) for row in cursor.fetchall()]
+
+    def add_to_dead_letter(self, notification_id: str, reason: str) -> None:
+        """Add a notification to the dead-letter queue."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO dead_letter_queue (id, notification_id, reason, failed_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    notification_id,
+                    reason,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+
+    def get_dead_letter_queue(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Get entries from the dead-letter queue."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT dlq.*, n.*
+                FROM dead_letter_queue dlq
+                JOIN notifications n ON dlq.notification_id = n.id
+                ORDER BY dlq.failed_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            results = []
+            for row in cursor.fetchall():
+                notification = self._row_to_notification(row)
+                results.append({
+                    "dlq_id": row["id"],
+                    "notification": notification.to_dict(),
+                    "reason": row["reason"],
+                    "failed_at": row["failed_at"],
+                })
+            return results
+
+    def remove_from_dead_letter(self, notification_id: str) -> bool:
+        """Remove a notification from the dead-letter queue."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM dead_letter_queue WHERE notification_id = ?",
+                (notification_id,),
+            )
+            return cursor.rowcount > 0
+
+    def count_dead_letter(self) -> int:
+        """Count entries in the dead-letter queue."""
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM dead_letter_queue")
+            return cursor.fetchone()[0]
 
 
 class MockChannelHandler:
@@ -231,20 +423,23 @@ class MockChannelHandler:
 
 
 class NotificationProcessor:
-    """Background processor for notification delivery queue."""
+    """Background processor for notification delivery."""
 
-    def __init__(self, store: NotificationStore) -> None:
-        self.store = store
+    def __init__(self, db: NotificationDatabase) -> None:
+        self.db = db
         self._task: asyncio.Task | None = None
+        self._running = False
 
     async def start(self) -> None:
         """Start the background processor."""
         if self._task is None:
+            self._running = True
             self._task = asyncio.create_task(self._process_loop())
             logger.info("Notification processor started")
 
     async def stop(self) -> None:
         """Stop the background processor."""
+        self._running = False
         if self._task:
             self._task.cancel()
             try:
@@ -256,62 +451,109 @@ class NotificationProcessor:
 
     async def _process_loop(self) -> None:
         """Main processing loop."""
-        while True:
+        while self._running:
             try:
-                notification = await self.store.delivery_queue.get()
-                await self._process_notification(notification)
+                # Get pending notifications from database
+                pending = self.db.get_pending_notifications()
+                for notification in pending:
+                    if not self._running:
+                        break
+                    await self._process_notification(notification)
+
+                # Sleep before next check
+                await asyncio.sleep(1.0)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 logger.error(f"Error in processor loop: {e}")
+                await asyncio.sleep(5.0)  # Back off on error
 
     async def _process_notification(self, notification: Notification) -> None:
         """Process a single notification."""
+        # Mark as queued
+        notification.status = NotificationStatus.QUEUED
+        self.db.update_notification(notification)
+
+        # Attempt delivery
         success, error = await MockChannelHandler.deliver(notification)
 
         if success:
             notification.status = NotificationStatus.DELIVERED
             notification.delivered_at = datetime.now(timezone.utc)
+            self.db.update_notification(notification)
             logger.info(f"Notification {notification.id} delivered successfully")
         else:
             notification.retry_count += 1
             notification.last_error = error
 
             if notification.retry_count < notification.max_retries:
-                # Re-queue for retry with exponential backoff
-                delay = 2 ** notification.retry_count
+                # Mark back as pending for retry
+                notification.status = NotificationStatus.PENDING
+                self.db.update_notification(notification)
                 logger.info(
-                    f"Notification {notification.id} failed, retry {notification.retry_count}/{notification.max_retries} in {delay}s"
+                    f"Notification {notification.id} failed, retry "
+                    f"{notification.retry_count}/{notification.max_retries}"
                 )
-                await asyncio.sleep(delay)
-                await self.store.enqueue(notification)
             else:
                 # Move to dead-letter queue
-                self.store.add_to_dead_letter(
-                    notification,
+                notification.status = NotificationStatus.FAILED
+                self.db.update_notification(notification)
+                self.db.add_to_dead_letter(
+                    notification.id,
                     f"Max retries ({notification.max_retries}) exceeded. Last error: {error}",
+                )
+                logger.warning(
+                    f"Notification {notification.id} moved to dead-letter queue"
                 )
 
 
-# Initialize the MCP server
+# =============================================================================
+# MCP Server Setup
+# =============================================================================
+
+# Initialize FastMCP server
 mcp = FastMCP(
     name="notification-service",
     instructions="""Notification Service MCP Server
 
 This server provides notification capabilities with support for multiple channels
-(email, slack, in-app) and async delivery patterns. Notifications are queued and
-processed asynchronously with retry logic and dead-letter handling.
+(email, slack, in-app) and async delivery patterns. Notifications are persisted
+to SQLite and processed asynchronously with retry logic and dead-letter handling.
 
 Available tools:
 - send_notification: Send a notification to a user
 - get_notifications: Get notifications for a user
 - mark_read: Mark a notification as read
-- get_dead_letter_queue: View failed notifications""",
+- get_dead_letter_queue: View failed notifications
+- retry_dead_letter: Retry a failed notification
+- configure_failure_rates: Adjust mock failure rates for testing""",
 )
 
-# Initialize stores and processor
-store = NotificationStore()
-processor = NotificationProcessor(store)
+# Database and processor (initialized on startup)
+DB_PATH = os.environ.get("NOTIFICATION_SERVICE_DB", ":memory:")
+_db: NotificationDatabase | None = None
+_processor: NotificationProcessor | None = None
+
+
+def _get_db() -> NotificationDatabase:
+    """Get or initialize the database."""
+    global _db
+    if _db is None:
+        _db = NotificationDatabase(DB_PATH)
+    return _db
+
+
+def _get_processor() -> NotificationProcessor:
+    """Get or initialize the processor."""
+    global _processor
+    if _processor is None:
+        _processor = NotificationProcessor(_get_db())
+    return _processor
+
+
+# =============================================================================
+# MCP Tools
+# =============================================================================
 
 
 @mcp.tool()
@@ -365,11 +607,12 @@ async def send_notification(
         metadata=metadata or {},
     )
 
-    # Store and queue for delivery
-    store.add(notification)
-    await store.enqueue(notification)
+    # Save to database
+    db = _get_db()
+    db.create_notification(notification)
 
     # Ensure processor is running
+    processor = _get_processor()
     await processor.start()
 
     return {
@@ -419,7 +662,8 @@ async def get_notifications(
                 "error": f"Invalid status '{status}'. Must be one of: pending, queued, delivered, failed, read",
             }
 
-    notifications = store.get_for_user(user_id, channel=ch, status=st, limit=limit)
+    db = _get_db()
+    notifications = db.get_notifications_for_user(user_id, channel=ch, status=st, limit=limit)
 
     return {
         "success": True,
@@ -439,7 +683,9 @@ async def mark_read(notification_id: str) -> dict[str, Any]:
     Returns:
         Updated notification details
     """
-    notification = store.get(notification_id)
+    db = _get_db()
+    notification = db.get_notification(notification_id)
+
     if not notification:
         return {
             "success": False,
@@ -448,6 +694,7 @@ async def mark_read(notification_id: str) -> dict[str, Any]:
 
     notification.status = NotificationStatus.READ
     notification.read_at = datetime.now(timezone.utc)
+    db.update_notification(notification)
 
     return {
         "success": True,
@@ -469,13 +716,15 @@ async def get_dead_letter_queue(limit: int = 50) -> dict[str, Any]:
     Returns:
         List of dead-letter queue entries with failure details
     """
-    entries = store.dead_letter_queue[-limit:]
+    db = _get_db()
+    entries = db.get_dead_letter_queue(limit=limit)
+    total = db.count_dead_letter()
 
     return {
         "success": True,
         "count": len(entries),
-        "total_in_queue": len(store.dead_letter_queue),
-        "entries": [e.to_dict() for e in entries],
+        "total_in_queue": total,
+        "entries": entries,
     }
 
 
@@ -489,28 +738,34 @@ async def retry_dead_letter(notification_id: str) -> dict[str, Any]:
     Returns:
         Status of the retry operation
     """
-    # Find in dead-letter queue
-    for i, entry in enumerate(store.dead_letter_queue):
-        if entry.notification.id == notification_id:
-            notification = entry.notification
-            # Reset retry count and re-queue
-            notification.retry_count = 0
-            notification.last_error = None
-            notification.status = NotificationStatus.PENDING
-            await store.enqueue(notification)
+    db = _get_db()
 
-            # Remove from dead-letter queue
-            store.dead_letter_queue.pop(i)
+    # Get the notification
+    notification = db.get_notification(notification_id)
+    if not notification:
+        return {
+            "success": False,
+            "error": f"Notification '{notification_id}' not found",
+        }
 
-            return {
-                "success": True,
-                "notification": notification.to_dict(),
-                "message": "Notification re-queued for delivery",
-            }
+    # Check if it's in the dead-letter queue
+    if notification.status != NotificationStatus.FAILED:
+        return {
+            "success": False,
+            "error": f"Notification '{notification_id}' is not in failed state",
+        }
+
+    # Remove from dead-letter queue and reset for retry
+    db.remove_from_dead_letter(notification_id)
+    notification.status = NotificationStatus.PENDING
+    notification.retry_count = 0
+    notification.last_error = None
+    db.update_notification(notification)
 
     return {
-        "success": False,
-        "error": f"Notification '{notification_id}' not found in dead-letter queue",
+        "success": True,
+        "notification": notification.to_dict(),
+        "message": "Notification re-queued for delivery",
     }
 
 
@@ -557,19 +812,91 @@ async def configure_failure_rates(
     }
 
 
+@mcp.resource("schema://notifications")
+def get_schema() -> str:
+    """Get the notification service database schema."""
+    return """
+-- Notifications table: stores all notification messages
+CREATE TABLE notifications (
+    id TEXT PRIMARY KEY,           -- Unique notification identifier
+    user_id TEXT NOT NULL,         -- Target user
+    channel TEXT NOT NULL,         -- Delivery channel (email, slack, in_app)
+    subject TEXT NOT NULL,         -- Notification subject/title
+    body TEXT NOT NULL,            -- Notification body content
+    priority TEXT NOT NULL,        -- Priority level (low, normal, high, urgent)
+    status TEXT NOT NULL,          -- Status (pending, queued, delivered, failed, read)
+    created_at TEXT NOT NULL,      -- ISO timestamp of creation
+    delivered_at TEXT,             -- ISO timestamp of delivery
+    read_at TEXT,                  -- ISO timestamp when read
+    retry_count INTEGER DEFAULT 0, -- Number of delivery attempts
+    max_retries INTEGER DEFAULT 3, -- Maximum retry attempts
+    last_error TEXT,               -- Last error message
+    metadata TEXT DEFAULT '{}'     -- JSON metadata
+);
+
+-- Dead letter queue: failed notifications
+CREATE TABLE dead_letter_queue (
+    id TEXT PRIMARY KEY,           -- DLQ entry ID
+    notification_id TEXT NOT NULL, -- Reference to notification
+    reason TEXT NOT NULL,          -- Failure reason
+    failed_at TEXT NOT NULL,       -- ISO timestamp of final failure
+    FOREIGN KEY (notification_id) REFERENCES notifications(id)
+);
+
+-- Indexes for efficient querying
+CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX idx_notifications_status ON notifications(status);
+"""
+
+
 def main() -> None:
     """Run the notification service MCP server."""
-    import sys
+    import argparse
 
-    # Default to stdio transport
-    transport = "stdio"
-    if "--sse" in sys.argv:
-        transport = "sse"
-    elif "--http" in sys.argv:
+    parser = argparse.ArgumentParser(description="Notification Service MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "streamable-http"],
+        default="stdio",
+        help="Transport type (default: stdio)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8004,
+        help="Port for HTTP transport (default: 8004)",
+    )
+    parser.add_argument(
+        "--db",
+        default=":memory:",
+        help="SQLite database path (default: in-memory)",
+    )
+    # Legacy flag support
+    parser.add_argument("--http", action="store_true", help="Use streamable-http transport")
+    parser.add_argument("--sse", action="store_true", help="Use SSE transport")
+
+    args = parser.parse_args()
+
+    # Set database path
+    global DB_PATH
+    DB_PATH = args.db
+    os.environ["NOTIFICATION_SERVICE_DB"] = args.db
+
+    # Handle legacy flags
+    transport = args.transport
+    if args.http:
         transport = "streamable-http"
+    elif args.sse:
+        transport = "sse"
 
     logger.info(f"Starting notification service with {transport} transport")
-    mcp.run(transport=transport)
+    logger.info(f"Database: {args.db}")
+
+    if transport == "streamable-http":
+        logger.info(f"Listening on port {args.port}")
+        mcp.run(transport="streamable-http", port=args.port)
+    else:
+        mcp.run(transport=transport)
 
 
 if __name__ == "__main__":

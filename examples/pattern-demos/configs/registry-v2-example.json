@@ -1,0 +1,989 @@
+{
+  "$comment": "Registry v2 Example - Demonstrating all features",
+  "schemaVersion": "2.0",
+
+  "schemas": [
+    {
+      "name": "SearchQuery",
+      "version": "1.0.0",
+      "description": "Standard search query input",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Search query text" },
+          "limit": { "type": "integer", "default": 10, "minimum": 1, "maximum": 100 },
+          "offset": { "type": "integer", "default": 0, "minimum": 0 },
+          "filters": { "$ref": "#SearchFilters:1.0.0" }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "SearchFilters",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "dateRange": {
+            "type": "object",
+            "properties": {
+              "start": { "type": "string", "format": "date" },
+              "end": { "type": "string", "format": "date" }
+            }
+          },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "author": { "type": "string" }
+        }
+      }
+    },
+    {
+      "name": "SearchResult",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "snippet": { "type": "string" },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "url": { "type": "string", "format": "uri" },
+          "metadata": { "type": "object" }
+        },
+        "required": ["id", "title", "score"]
+      }
+    },
+    {
+      "name": "SearchResults",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": { "$ref": "#SearchResult:1.0.0" }
+          },
+          "totalCount": { "type": "integer", "minimum": 0 },
+          "hasMore": { "type": "boolean" }
+        },
+        "required": ["results"]
+      }
+    },
+    {
+      "name": "Document",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["id", "title", "content"]
+      }
+    },
+    {
+      "name": "CreateDocumentRequest",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "content": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "chunkSize": { "type": "integer", "default": 512 },
+          "chunkOverlap": { "type": "integer", "default": 50 }
+        },
+        "required": ["title", "content"]
+      }
+    },
+    {
+      "name": "ResearchRequest",
+      "version": "1.0.0",
+      "description": "Input for research agent skills",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "topic": { "type": "string", "description": "Research topic" },
+          "depth": { "type": "string", "enum": ["shallow", "medium", "deep"], "default": "medium" },
+          "sources": { "type": "array", "items": { "type": "string" }, "description": "Preferred sources" },
+          "maxResults": { "type": "integer", "default": 10 }
+        },
+        "required": ["topic"]
+      }
+    },
+    {
+      "name": "ResearchReport",
+      "version": "1.0.0",
+      "description": "Output from research agent skills",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "summary": { "type": "string" },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "claim": { "type": "string" },
+                "evidence": { "type": "string" },
+                "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+                "sources": { "type": "array", "items": { "type": "string" } }
+              },
+              "required": ["claim", "evidence", "confidence"]
+            }
+          },
+          "recommendations": { "type": "array", "items": { "type": "string" } },
+          "relatedTopics": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["summary", "findings"]
+      }
+    },
+    {
+      "name": "SummarizeRequest",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string" },
+          "maxLength": { "type": "integer", "description": "Target summary length in words" },
+          "style": { "type": "string", "enum": ["bullet", "paragraph", "executive"], "default": "paragraph" }
+        },
+        "required": ["content"]
+      }
+    },
+    {
+      "name": "SummarizeResponse",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "summary": { "type": "string" },
+          "keyPoints": { "type": "array", "items": { "type": "string" } },
+          "wordCount": { "type": "integer" }
+        },
+        "required": ["summary"]
+      }
+    },
+    {
+      "name": "OrderRequest",
+      "version": "1.0.0",
+      "description": "E-commerce order for Saga pattern demo",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" },
+          "customerId": { "type": "string" },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "productId": { "type": "string" },
+                "quantity": { "type": "integer", "minimum": 1 },
+                "price": { "type": "number", "minimum": 0 }
+              },
+              "required": ["productId", "quantity", "price"]
+            }
+          },
+          "shippingAddress": {
+            "type": "object",
+            "properties": {
+              "street": { "type": "string" },
+              "city": { "type": "string" },
+              "state": { "type": "string" },
+              "zipCode": { "type": "string" },
+              "country": { "type": "string" }
+            },
+            "required": ["street", "city", "zipCode", "country"]
+          },
+          "paymentMethod": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["credit_card", "paypal", "bank_transfer"] },
+              "token": { "type": "string" }
+            },
+            "required": ["type", "token"]
+          }
+        },
+        "required": ["orderId", "customerId", "items", "shippingAddress", "paymentMethod"]
+      }
+    },
+    {
+      "name": "OrderResult",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "string" },
+          "status": { "type": "string", "enum": ["completed", "failed", "compensated"] },
+          "confirmationNumber": { "type": "string" },
+          "estimatedDelivery": { "type": "string", "format": "date" },
+          "error": { "type": "string" }
+        },
+        "required": ["orderId", "status"]
+      }
+    }
+  ],
+
+  "servers": [
+    {
+      "name": "document-service",
+      "version": "1.2.0",
+      "description": "SQLite-backed document service with semantic search",
+      "provides": [
+        { "tool": "search_documents", "version": "1.0.0" },
+        { "tool": "create_document", "version": "1.0.0" },
+        { "tool": "get_document", "version": "1.0.0" },
+        { "tool": "list_documents", "version": "1.0.0" }
+      ],
+      "metadata": {
+        "owner": "platform-team",
+        "repo": "github.com/agentgateway/document-service"
+      }
+    },
+    {
+      "name": "task-service",
+      "version": "1.0.0",
+      "description": "Task management service",
+      "provides": [
+        { "tool": "create_task", "version": "1.0.0" },
+        { "tool": "list_tasks", "version": "1.0.0" },
+        { "tool": "complete_task", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "user-service",
+      "version": "1.1.0",
+      "description": "User profile service with semantic bio search",
+      "provides": [
+        { "tool": "list_users", "version": "1.0.0" },
+        { "tool": "get_user", "version": "1.0.0" },
+        { "tool": "search_users_by_bio", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "notification-service",
+      "version": "1.0.0",
+      "description": "Multi-channel notification service",
+      "provides": [
+        { "tool": "send_notification", "version": "1.0.0" },
+        { "tool": "get_notifications", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "fetch-server",
+      "version": "1.2.3",
+      "description": "Web content fetcher (mcp-server-fetch)",
+      "provides": [
+        { "tool": "fetch", "version": "1.2.3" }
+      ]
+    },
+    {
+      "name": "memory-server",
+      "version": "1.0.0",
+      "description": "Knowledge graph server (server-memory)",
+      "provides": [
+        { "tool": "read_graph", "version": "1.0.0" },
+        { "tool": "create_entities", "version": "1.0.0" },
+        { "tool": "create_relations", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "time-server",
+      "version": "1.0.0",
+      "description": "Timezone operations (mcp-server-time)",
+      "provides": [
+        { "tool": "get_current_time", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "inventory-service",
+      "version": "1.0.0",
+      "description": "Inventory management (for Saga demo)",
+      "provides": [
+        { "tool": "inventory_reserve", "version": "1.0.0" },
+        { "tool": "inventory_release", "version": "1.0.0" },
+        { "tool": "inventory_check", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "payment-service",
+      "version": "1.0.0",
+      "description": "Payment processing (for Saga demo)",
+      "provides": [
+        { "tool": "payment_charge", "version": "1.0.0" },
+        { "tool": "payment_refund", "version": "1.0.0" },
+        { "tool": "payment_authorize", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "shipping-service",
+      "version": "1.0.0",
+      "description": "Shipping management (for Saga demo)",
+      "provides": [
+        { "tool": "shipping_create", "version": "1.0.0" },
+        { "tool": "shipping_cancel", "version": "1.0.0" },
+        { "tool": "shipping_track", "version": "1.0.0" }
+      ]
+    }
+  ],
+
+  "tools": [
+    {
+      "$comment": "=== Document Service Tools ===",
+      "name": "search_documents",
+      "version": "1.0.0",
+      "description": "Semantic search across documents",
+      "source": {
+        "server": "document-service",
+        "serverVersion": "1.2.0",
+        "tool": "search_documents"
+      },
+      "inputSchema": { "$ref": "#SearchQuery:1.0.0" },
+      "outputSchema": { "$ref": "#SearchResults:1.0.0" }
+    },
+    {
+      "name": "create_document",
+      "version": "1.0.0",
+      "description": "Create a new document with automatic chunking",
+      "source": {
+        "server": "document-service",
+        "serverVersion": "1.2.0",
+        "tool": "create_document"
+      },
+      "inputSchema": { "$ref": "#CreateDocumentRequest:1.0.0" },
+      "outputSchema": { "$ref": "#Document:1.0.0" }
+    },
+    {
+      "name": "get_document",
+      "version": "1.0.0",
+      "description": "Get document by ID",
+      "source": {
+        "server": "document-service",
+        "serverVersion": "1.2.0",
+        "tool": "get_document"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" }
+        },
+        "required": ["id"]
+      },
+      "outputSchema": { "$ref": "#Document:1.0.0" }
+    },
+    {
+      "name": "list_documents",
+      "version": "1.0.0",
+      "description": "List all documents with pagination",
+      "source": {
+        "server": "document-service",
+        "serverVersion": "1.2.0",
+        "tool": "list_documents"
+      }
+    },
+
+    {
+      "$comment": "=== Fetch Server Tools ===",
+      "name": "fetch",
+      "version": "1.2.3",
+      "description": "Fetch content from a URL",
+      "source": {
+        "server": "fetch-server",
+        "serverVersion": "1.2.3",
+        "tool": "fetch"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "maxLength": { "type": "integer", "description": "Max content length to return" }
+        },
+        "required": ["url"]
+      }
+    },
+
+    {
+      "$comment": "=== Semantic Alias ===",
+      "name": "get_webpage",
+      "version": "1.0.0",
+      "description": "Semantic alias for fetch - retrieve webpage content",
+      "source": {
+        "server": "fetch-server",
+        "serverVersion": "1.2.3",
+        "tool": "fetch"
+      }
+    },
+
+    {
+      "$comment": "=== Memory Server Tools ===",
+      "name": "read_graph",
+      "version": "1.0.0",
+      "description": "Read the knowledge graph",
+      "source": {
+        "server": "memory-server",
+        "serverVersion": "1.0.0",
+        "tool": "read_graph"
+      }
+    },
+    {
+      "name": "create_entities",
+      "version": "1.0.0",
+      "description": "Create entities in the knowledge graph",
+      "source": {
+        "server": "memory-server",
+        "serverVersion": "1.0.0",
+        "tool": "create_entities"
+      }
+    },
+
+    {
+      "$comment": "=== Time Server Tools ===",
+      "name": "get_current_time",
+      "version": "1.0.0",
+      "description": "Get current time in a timezone",
+      "source": {
+        "server": "time-server",
+        "serverVersion": "1.0.0",
+        "tool": "get_current_time"
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "timezone": { "type": "string", "description": "IANA timezone" }
+        },
+        "required": ["timezone"]
+      }
+    },
+
+    {
+      "$comment": "=== Task Service Tools ===",
+      "name": "create_task",
+      "version": "1.0.0",
+      "description": "Create a new task",
+      "source": {
+        "server": "task-service",
+        "serverVersion": "1.0.0",
+        "tool": "create_task"
+      }
+    },
+    {
+      "name": "list_tasks",
+      "version": "1.0.0",
+      "source": {
+        "server": "task-service",
+        "serverVersion": "1.0.0",
+        "tool": "list_tasks"
+      }
+    },
+    {
+      "name": "complete_task",
+      "version": "1.0.0",
+      "source": {
+        "server": "task-service",
+        "serverVersion": "1.0.0",
+        "tool": "complete_task"
+      }
+    },
+
+    {
+      "$comment": "=== User Service Tools ===",
+      "name": "list_users",
+      "version": "1.0.0",
+      "source": {
+        "server": "user-service",
+        "serverVersion": "1.1.0",
+        "tool": "list_users"
+      }
+    },
+    {
+      "name": "search_users_by_bio",
+      "version": "1.0.0",
+      "source": {
+        "server": "user-service",
+        "serverVersion": "1.1.0",
+        "tool": "search_users_by_bio"
+      }
+    },
+
+    {
+      "$comment": "=== Notification Service Tools ===",
+      "name": "send_notification",
+      "version": "1.0.0",
+      "source": {
+        "server": "notification-service",
+        "serverVersion": "1.0.0",
+        "tool": "send_notification"
+      }
+    },
+    {
+      "name": "get_notifications",
+      "version": "1.0.0",
+      "source": {
+        "server": "notification-service",
+        "serverVersion": "1.0.0",
+        "tool": "get_notifications"
+      }
+    },
+
+    {
+      "$comment": "=== Inventory Service Tools (Saga) ===",
+      "name": "inventory_reserve",
+      "version": "1.0.0",
+      "description": "Reserve inventory for an order",
+      "source": {
+        "server": "inventory-service",
+        "serverVersion": "1.0.0",
+        "tool": "inventory_reserve"
+      }
+    },
+    {
+      "name": "inventory_release",
+      "version": "1.0.0",
+      "description": "Release reserved inventory (compensation)",
+      "source": {
+        "server": "inventory-service",
+        "serverVersion": "1.0.0",
+        "tool": "inventory_release"
+      }
+    },
+
+    {
+      "$comment": "=== Payment Service Tools (Saga) ===",
+      "name": "payment_charge",
+      "version": "1.0.0",
+      "description": "Charge payment for an order",
+      "source": {
+        "server": "payment-service",
+        "serverVersion": "1.0.0",
+        "tool": "payment_charge"
+      }
+    },
+    {
+      "name": "payment_refund",
+      "version": "1.0.0",
+      "description": "Refund payment (compensation)",
+      "source": {
+        "server": "payment-service",
+        "serverVersion": "1.0.0",
+        "tool": "payment_refund"
+      }
+    },
+
+    {
+      "$comment": "=== Shipping Service Tools (Saga) ===",
+      "name": "shipping_create",
+      "version": "1.0.0",
+      "description": "Create shipping label and schedule pickup",
+      "source": {
+        "server": "shipping-service",
+        "serverVersion": "1.0.0",
+        "tool": "shipping_create"
+      }
+    },
+    {
+      "name": "shipping_cancel",
+      "version": "1.0.0",
+      "description": "Cancel shipping (compensation)",
+      "source": {
+        "server": "shipping-service",
+        "serverVersion": "1.0.0",
+        "tool": "shipping_cancel"
+      }
+    },
+
+    {
+      "$comment": "=== COMPOSITION: Pipeline ===",
+      "name": "fetch_and_store",
+      "version": "1.0.0",
+      "description": "Pipeline: fetch URL content and store as document",
+      "depends": [
+        { "type": "tool", "name": "fetch", "version": "1.2.3" },
+        { "type": "tool", "name": "create_document", "version": "1.0.0" }
+      ],
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "fetch_content",
+              "operation": { "tool": { "name": "fetch" } }
+            },
+            {
+              "id": "store_document",
+              "operation": { "tool": { "name": "create_document" } },
+              "input": {
+                "construct": {
+                  "fields": {
+                    "title": { "reference": { "step": "fetch_content", "path": "$.url" } },
+                    "content": { "reference": { "step": "fetch_content", "path": "$.content" } }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" }
+        },
+        "required": ["url"]
+      },
+      "outputSchema": { "$ref": "#Document:1.0.0" }
+    },
+
+    {
+      "$comment": "=== COMPOSITION: Scatter-Gather ===",
+      "name": "multi_search",
+      "version": "1.0.0",
+      "description": "Scatter-gather: search documents AND users in parallel",
+      "depends": [
+        { "type": "tool", "name": "search_documents", "version": "1.0.0" },
+        { "type": "tool", "name": "search_users_by_bio", "version": "1.0.0" }
+      ],
+      "spec": {
+        "scatterGather": {
+          "targets": [
+            { "tool": "search_documents" },
+            { "tool": "search_users_by_bio" }
+          ],
+          "aggregation": {
+            "ops": [
+              { "flatten": true },
+              { "limit": { "count": 20 } }
+            ]
+          },
+          "timeoutMs": 5000,
+          "failFast": false
+        }
+      },
+      "inputSchema": { "$ref": "#SearchQuery:1.0.0" }
+    },
+
+    {
+      "$comment": "=== COMPOSITION: Saga - Order Processing ===",
+      "name": "process_order",
+      "version": "1.0.0",
+      "description": "Saga: process e-commerce order with compensation on failure",
+      "depends": [
+        { "type": "tool", "name": "inventory_reserve", "version": "1.0.0" },
+        { "type": "tool", "name": "inventory_release", "version": "1.0.0" },
+        { "type": "tool", "name": "payment_charge", "version": "1.0.0" },
+        { "type": "tool", "name": "payment_refund", "version": "1.0.0" },
+        { "type": "tool", "name": "shipping_create", "version": "1.0.0" },
+        { "type": "tool", "name": "shipping_cancel", "version": "1.0.0" }
+      ],
+      "spec": {
+        "saga": {
+          "steps": [
+            {
+              "id": "reserve_inventory",
+              "name": "Reserve Inventory",
+              "action": { "tool": { "name": "inventory_reserve" } },
+              "compensate": { "tool": { "name": "inventory_release" } },
+              "input": {
+                "construct": {
+                  "fields": {
+                    "orderId": { "path": "$.orderId" },
+                    "items": { "path": "$.items" }
+                  }
+                }
+              }
+            },
+            {
+              "id": "charge_payment",
+              "name": "Charge Payment",
+              "action": { "tool": { "name": "payment_charge" } },
+              "compensate": { "tool": { "name": "payment_refund" } },
+              "input": {
+                "construct": {
+                  "fields": {
+                    "orderId": { "path": "$.orderId" },
+                    "amount": { "path": "$.totalAmount" },
+                    "paymentMethod": { "path": "$.paymentMethod" }
+                  }
+                }
+              }
+            },
+            {
+              "id": "create_shipment",
+              "name": "Create Shipment",
+              "action": { "tool": { "name": "shipping_create" } },
+              "compensate": { "tool": { "name": "shipping_cancel" } },
+              "input": {
+                "construct": {
+                  "fields": {
+                    "orderId": { "path": "$.orderId" },
+                    "address": { "path": "$.shippingAddress" },
+                    "items": { "path": "$.items" }
+                  }
+                }
+              }
+            }
+          ],
+          "sagaIdPath": "$.orderId",
+          "timeoutMs": 30000,
+          "output": {
+            "construct": {
+              "fields": {
+                "orderId": { "path": "$.orderId" },
+                "status": { "constant": "completed" },
+                "inventoryReservation": { "reference": { "step": "reserve_inventory", "path": "$.reservationId" } },
+                "paymentConfirmation": { "reference": { "step": "charge_payment", "path": "$.transactionId" } },
+                "trackingNumber": { "reference": { "step": "create_shipment", "path": "$.trackingNumber" } }
+              }
+            }
+          }
+        }
+      },
+      "inputSchema": { "$ref": "#OrderRequest:1.0.0" },
+      "outputSchema": { "$ref": "#OrderResult:1.0.0" }
+    },
+
+    {
+      "$comment": "=== COMPOSITION: Agent-as-Tool Pipeline ===",
+      "name": "research_and_summarize",
+      "version": "1.0.0",
+      "description": "Pipeline: research a topic then summarize with agents",
+      "depends": [
+        { "type": "agent", "name": "research-agent", "version": "2.1.0", "skill": "research_topic" },
+        { "type": "agent", "name": "summarizer-agent", "version": "2.0.0", "skill": "summarize" }
+      ],
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "research",
+              "operation": {
+                "agent": {
+                  "name": "research-agent",
+                  "skill": "research_topic"
+                }
+              }
+            },
+            {
+              "id": "summarize",
+              "operation": {
+                "agent": {
+                  "name": "summarizer-agent",
+                  "skill": "summarize"
+                }
+              },
+              "input": {
+                "construct": {
+                  "fields": {
+                    "content": { "reference": { "step": "research", "path": "$.summary" } },
+                    "style": { "constant": "executive" }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": { "$ref": "#ResearchRequest:1.0.0" },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "research": { "$ref": "#ResearchReport:1.0.0" },
+          "executiveSummary": { "$ref": "#SummarizeResponse:1.0.0" }
+        }
+      }
+    },
+
+    {
+      "$comment": "=== COMPOSITION: Task-Notification Pipeline ===",
+      "name": "create_task_and_notify",
+      "version": "1.0.0",
+      "description": "Pipeline: create task and notify assignee",
+      "depends": [
+        { "type": "tool", "name": "create_task", "version": "1.0.0" },
+        { "type": "tool", "name": "send_notification", "version": "1.0.0" }
+      ],
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "create_task",
+              "operation": { "tool": { "name": "create_task" } }
+            },
+            {
+              "id": "notify",
+              "operation": { "tool": { "name": "send_notification" } },
+              "input": {
+                "construct": {
+                  "fields": {
+                    "userId": { "reference": { "step": "create_task", "path": "$.assignee" } },
+                    "subject": { "constant": "New task assigned" },
+                    "body": { "reference": { "step": "create_task", "path": "$.title" } },
+                    "channel": { "constant": "in_app" }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+
+  "agents": [
+    {
+      "name": "research-agent",
+      "version": "2.1.0",
+      "description": "Autonomous research assistant that gathers and analyzes information",
+      "url": "http://research-agent.internal:9000",
+      "protocolVersion": "0.2.1",
+
+      "defaultInputModes": ["text", "application/json"],
+      "defaultOutputModes": ["text", "application/json"],
+
+      "skills": [
+        {
+          "id": "research_topic",
+          "name": "Research Topic",
+          "description": "Deep research on a topic with citations and evidence",
+          "tags": ["research", "analysis", "citations"],
+          "examples": [
+            "Research the current state of quantum computing",
+            "Analyze market trends for electric vehicles in 2026"
+          ],
+          "inputModes": ["text", "application/json"],
+          "outputModes": ["text", "application/json"],
+          "inputSchema": { "$ref": "#ResearchRequest:1.0.0" },
+          "outputSchema": { "$ref": "#ResearchReport:1.0.0" }
+        },
+        {
+          "id": "quick_lookup",
+          "name": "Quick Lookup",
+          "description": "Fast factual lookup without deep research",
+          "tags": ["lookup", "facts", "quick"],
+          "examples": ["What is the capital of France?"],
+          "inputModes": ["text"],
+          "outputModes": ["text"]
+        }
+      ],
+
+      "capabilities": {
+        "streaming": true,
+        "pushNotifications": false,
+        "stateTransitionHistory": true,
+        "extensions": [
+          {
+            "uri": "urn:agentgateway:sbom",
+            "description": "Software bill of materials - tool and agent dependencies",
+            "required": true,
+            "params": {
+              "depends": [
+                { "type": "tool", "name": "search_documents", "version": "1.0.0" },
+                { "type": "tool", "name": "fetch", "version": "1.2.3" },
+                { "type": "tool", "name": "create_entities", "version": "1.0.0" }
+              ]
+            }
+          }
+        ]
+      },
+
+      "provider": {
+        "organization": "AI Platform Team",
+        "url": "https://platform.internal"
+      }
+    },
+
+    {
+      "name": "summarizer-agent",
+      "version": "2.0.0",
+      "description": "Summarizes text content into various formats",
+      "url": "http://summarizer.internal:9001",
+      "protocolVersion": "0.2.1",
+
+      "defaultInputModes": ["text", "application/json"],
+      "defaultOutputModes": ["text", "application/json"],
+
+      "skills": [
+        {
+          "id": "summarize",
+          "name": "Summarize",
+          "description": "Summarize text content into key points",
+          "tags": ["summarization", "nlp"],
+          "examples": ["Summarize this article into 3 bullet points"],
+          "inputModes": ["text", "application/json"],
+          "outputModes": ["text", "application/json"],
+          "inputSchema": { "$ref": "#SummarizeRequest:1.0.0" },
+          "outputSchema": { "$ref": "#SummarizeResponse:1.0.0" }
+        },
+        {
+          "id": "extract_keywords",
+          "name": "Extract Keywords",
+          "description": "Extract key terms and phrases from text",
+          "tags": ["extraction", "nlp"],
+          "inputModes": ["text"],
+          "outputModes": ["application/json"],
+          "outputSchema": {
+            "type": "object",
+            "properties": {
+              "keywords": { "type": "array", "items": { "type": "string" } },
+              "phrases": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      ],
+
+      "capabilities": {
+        "streaming": true,
+        "extensions": [
+          {
+            "uri": "urn:agentgateway:sbom",
+            "params": {
+              "depends": []
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "name": "orchestrator-agent",
+      "version": "1.0.0",
+      "description": "Meta-agent that coordinates other agents for complex tasks",
+      "url": "http://orchestrator.internal:9002",
+      "protocolVersion": "0.2.1",
+
+      "defaultInputModes": ["text", "application/json"],
+      "defaultOutputModes": ["text", "application/json"],
+
+      "skills": [
+        {
+          "id": "complex_task",
+          "name": "Complex Task",
+          "description": "Handle complex multi-step tasks by delegating to other agents",
+          "tags": ["orchestration", "delegation", "planning"],
+          "inputModes": ["text", "application/json"],
+          "outputModes": ["text", "application/json"]
+        }
+      ],
+
+      "capabilities": {
+        "streaming": true,
+        "stateTransitionHistory": true,
+        "extensions": [
+          {
+            "uri": "urn:agentgateway:sbom",
+            "params": {
+              "depends": [
+                { "type": "agent", "name": "research-agent", "version": "2.1.0", "skill": "research_topic" },
+                { "type": "agent", "name": "summarizer-agent", "version": "2.0.0", "skill": "summarize" },
+                { "type": "tool", "name": "create_task", "version": "1.0.0" },
+                { "type": "tool", "name": "send_notification", "version": "1.0.0" }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -3,9 +3,14 @@
 # Orchestrates the demo environment with targets for different agent frameworks.
 #
 # Quick start:
-#   make setup          # Install dependencies
-#   make start-services # Start gateway + MCP servers
-#   make demo           # Run interactive demo
+#   make setup              # Install Python dependencies
+#   make start-mcp-services # Start custom MCP services (document, task, user, notification)
+#   make start-services     # Start gateway (aggregates all MCP servers)
+#   make demo               # Run interactive demo
+#
+# All-in-one:
+#   make start-all          # Start everything (custom services + gateway)
+#   make stop-all           # Stop everything
 #
 # Framework-specific demos:
 #   make run-claude     # Demo with Claude Code
@@ -14,6 +19,7 @@
 #   make demo-a2a       # Demo A2A protocol
 
 .PHONY: help setup start-services stop-services demo demo-debug \
+        start-mcp-services stop-mcp-services check-mcp-services \
         run-claude run-langgraph run-adk demo-a2a \
         build clean docker-up docker-down
 
@@ -34,20 +40,31 @@ help: ## Show this help message
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
-	@echo "Setup & Services:"
-	@grep -E '^(setup|start-services|stop-services|build|clean):' $(MAKEFILE_LIST) | \
+	@echo "Quick Start:"
+	@echo "  make setup              # Install Python dependencies"
+	@echo "  make start-mcp-services # Start custom MCP services (SQLite-backed)"
+	@echo "  make start-services     # Start gateway (connects to all MCP servers)"
+	@echo "  make demo               # Run interactive demo"
+	@echo ""
+	@echo "Setup & Build:"
+	@grep -E '^(setup|build-all|build-ui|build|clean):' $(MAKEFILE_LIST) | \
 		sed 's/:.*##/: ##/' | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Services:"
+	@grep -E '^(start-all|stop-all|start-services|stop-services|start-mcp|stop-mcp|check-mcp):' $(MAKEFILE_LIST) | \
+		sed 's/:.*##/: ##/' | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Demos:"
-	@grep -E '^(demo|run-claude|run-langgraph|run-adk|demo-a2a):' $(MAKEFILE_LIST) | \
+	@grep -E '^(demo|demo-debug|run-claude|run-langgraph|run-adk|demo-a2a):' $(MAKEFILE_LIST) | \
 		sed 's/:.*##/: ##/' | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Docker:"
 	@grep -E '^(docker-up|docker-down):' $(MAKEFILE_LIST) | \
 		sed 's/:.*##/: ##/' | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
 # =============================================================================
 # Setup & Build
@@ -109,6 +126,36 @@ stop-services: ## Stop background services
 	@echo "$(GREEN)Services stopped.$(NC)"
 
 # =============================================================================
+# Custom MCP Services (document, task, user, notification)
+# =============================================================================
+
+start-mcp-services: ## Start custom MCP services (document, task, user, notification)
+	@echo "$(BLUE)Starting custom MCP services...$(NC)"
+	./start_mcp_services.sh
+
+stop-mcp-services: ## Stop custom MCP services
+	@echo "$(BLUE)Stopping custom MCP services...$(NC)"
+	./stop_mcp_services.sh
+
+check-mcp-services: ## Check status of custom MCP services
+	./start_mcp_services.sh --check
+
+start-all: start-mcp-services start-services-bg ## Start all services (custom MCP + gateway)
+	@echo "$(GREEN)All services started!$(NC)"
+	@echo ""
+	@echo "Endpoints:"
+	@echo "  Gateway MCP:     http://localhost:$(GATEWAY_PORT)/mcp"
+	@echo "  Gateway SSE:     http://localhost:$(GATEWAY_PORT)/sse"
+	@echo "  Admin UI:        http://localhost:$(ADMIN_PORT)/ui"
+	@echo "  Document Service: http://localhost:8001"
+	@echo "  Task Service:     http://localhost:8002"
+	@echo "  User Service:     http://localhost:8003"
+	@echo "  Notification Svc: http://localhost:8004"
+
+stop-all: stop-services stop-mcp-services ## Stop all services
+	@echo "$(GREEN)All services stopped.$(NC)"
+
+# =============================================================================
 # Interactive Demos
 # =============================================================================
 
@@ -147,77 +194,99 @@ demo-a2a: ## Demo: A2A protocol proxying
 	uv run python run_demo.py --demo a2a
 
 # =============================================================================
-# Framework-Specific Demos
+# Framework-Specific Demos (Agent SDK demos using gateway tools)
 # =============================================================================
 
-run-claude: ## Demo with Claude Code (MCP client)
-	@echo "$(BLUE)Configuring Claude Code to use AgentGateway...$(NC)"
+run-claude-agent: ## Run Claude Agent SDK demo (requires ANTHROPIC_API_KEY)
+	@echo "$(BLUE)Running Claude Agent SDK Demo$(NC)"
 	@echo ""
-	@echo "Add this to your Claude Code MCP settings:"
+	@if [ -z "$$ANTHROPIC_API_KEY" ]; then \
+		echo "$(YELLOW)Warning: ANTHROPIC_API_KEY not set$(NC)"; \
+		echo "Set it with: export ANTHROPIC_API_KEY=your-key"; \
+		exit 1; \
+	fi
+	@echo "Available scenarios: full_workflow, document_search, task_management, user_collaboration"
 	@echo ""
-	@echo '  "agentgateway": {'
-	@echo '    "command": "npx",'
-	@echo '    "args": ["@anthropic/claude-code-mcp-client", "http://localhost:$(GATEWAY_PORT)/sse"]'
-	@echo '  }'
-	@echo ""
-	@echo "Or connect via SSE transport:"
-	@echo "  URL: http://localhost:$(GATEWAY_PORT)/sse"
-	@echo ""
-	@echo "Then in Claude Code, you can use tools like:"
-	@echo "  - fetch (or get_webpage, browse)"
-	@echo "  - get_current_time, what_day_is_it"
-	@echo "  - create_entities, read_graph"
-	@echo ""
-	@echo "Start the gateway first: make start-services"
+	cd agents/claude_agent && uv sync && uv run python -m claude_agent --scenario full_workflow
 
-run-langgraph: ## Demo with LangGraph agent
-	@echo "$(BLUE)LangGraph Integration Demo$(NC)"
+run-claude-agent-docs: ## Claude agent: document search demo
+	cd agents/claude_agent && uv run python -m claude_agent --scenario document_search
+
+run-claude-agent-tasks: ## Claude agent: task management demo  
+	cd agents/claude_agent && uv run python -m claude_agent --scenario task_management
+
+run-claude-agent-users: ## Claude agent: user collaboration demo
+	cd agents/claude_agent && uv run python -m claude_agent --scenario user_collaboration
+
+run-adk-agent: ## Run Google ADK agent demo (requires GOOGLE_API_KEY)
+	@echo "$(BLUE)Running Google ADK Agent Demo$(NC)"
 	@echo ""
-	@echo "LangGraph can connect to AgentGateway via MCP:"
+	@if [ -z "$$GOOGLE_API_KEY" ]; then \
+		echo "$(YELLOW)Warning: GOOGLE_API_KEY not set$(NC)"; \
+		echo "Set it with: export GOOGLE_API_KEY=your-key"; \
+		exit 1; \
+	fi
+	cd agents/google_adk_agent && uv sync && uv run python -m google_adk_agent
+
+run-claude: ## Instructions for Claude Desktop / Claude Code MCP connection
+	@echo "$(BLUE)Connecting Claude Desktop/Code to AgentGateway$(NC)"
 	@echo ""
-	@echo "from langchain_mcp import MCPToolkit"
+	@echo "Add this to your Claude Desktop MCP settings:"
+	@echo "(~/Library/Application Support/Claude/claude_desktop_config.json on macOS)"
 	@echo ""
-	@echo "toolkit = MCPToolkit("
-	@echo '    transport="sse",'
-	@echo '    url="http://localhost:$(GATEWAY_PORT)/sse"'
-	@echo ")"
+	@echo '{'
+	@echo '  "mcpServers": {'
+	@echo '    "agentgateway": {'
+	@echo '      "command": "npx",'
+	@echo '      "args": ["-y", "mcp-remote", "http://localhost:$(GATEWAY_PORT)/sse"]'
+	@echo '    }'
+	@echo '  }'
+	@echo '}'
 	@echo ""
+	@echo "Then restart Claude Desktop. All gateway tools will be available."
+	@echo ""
+	@echo "Available tools include:"
+	@echo "  From custom services: create_document, search_documents, create_task,"
+	@echo "                       list_users, send_notification, etc."
+	@echo "  Virtual tools:       get_webpage, find_documents, add_todo, notify"
+	@echo "  Pre-built servers:   fetch, get_current_time, create_entities"
+
+run-langgraph: ## Instructions for LangGraph MCP integration
+	@echo "$(BLUE)LangGraph Integration$(NC)"
+	@echo ""
+	@echo "Install langchain-mcp-adapters:"
+	@echo "  pip install langchain-mcp-adapters"
+	@echo ""
+	@echo "Example code:"
+	@echo ""
+	@echo "from langchain_mcp_adapters import MCPToolkit"
+	@echo "from langgraph.prebuilt import create_react_agent"
+	@echo "from langchain_anthropic import ChatAnthropic"
+	@echo ""
+	@echo "# Connect to gateway"
+	@echo "toolkit = MCPToolkit(server_url='http://localhost:$(GATEWAY_PORT)/sse')"
+	@echo "await toolkit.initialize()"
 	@echo "tools = toolkit.get_tools()"
 	@echo ""
-	@echo "# Use with LangGraph"
-	@echo "from langgraph.prebuilt import create_react_agent"
+	@echo "# Create agent"
+	@echo "llm = ChatAnthropic(model='claude-3-5-sonnet-latest')"
 	@echo "agent = create_react_agent(llm, tools)"
 	@echo ""
-	@if [ -f langgraph_demo.py ]; then \
-		echo "Running LangGraph demo..."; \
-		uv run python langgraph_demo.py; \
-	else \
-		echo "$(YELLOW)langgraph_demo.py not found. Create it to run a full demo.$(NC)"; \
-	fi
+	@echo "# Run"
+	@echo "result = await agent.ainvoke({'messages': [('user', 'Create a document about AI')]})"
 
-run-adk: ## Demo with Google Agent Development Kit
-	@echo "$(BLUE)Google ADK Integration Demo$(NC)"
+run-adk: ## Instructions for Google ADK A2A integration
+	@echo "$(BLUE)Google ADK Integration$(NC)"
 	@echo ""
-	@echo "Google ADK can connect to AgentGateway via A2A protocol:"
+	@echo "Google ADK can connect via A2A protocol for agent-to-agent communication."
 	@echo ""
-	@echo "from google.adk import AgentClient"
+	@echo "See agents/google_adk_agent/ for a complete example that:"
+	@echo "  - Discovers tools from the gateway dynamically"
+	@echo "  - Wraps them as ADK FunctionTools"
+	@echo "  - Uses them in agent workflows"
 	@echo ""
-	@echo "client = AgentClient("
-	@echo '    agent_url="http://localhost:$(GATEWAY_PORT)/a2a"'
-	@echo ")"
-	@echo ""
-	@echo "# Get agent capabilities"
-	@echo "card = client.get_agent_card()"
-	@echo ""
-	@echo "# Send message"
-	@echo 'response = client.send_message("Hello, agent!")'
-	@echo ""
-	@if [ -f adk_demo.py ]; then \
-		echo "Running ADK demo..."; \
-		uv run python adk_demo.py; \
-	else \
-		echo "$(YELLOW)adk_demo.py not found. Create it to run a full demo.$(NC)"; \
-	fi
+	@echo "Quick start:"
+	@echo "  make run-adk-agent"
 
 # =============================================================================
 # Docker

@@ -7,6 +7,10 @@
 # - Tool composition (pipelines)
 #
 # Usage:
+#   # Start custom MCP services first:
+#   ./start_mcp_services.sh
+#
+#   # Then start the gateway:
 #   agentgateway -f examples/pattern-demos/configs/demo-config.yaml
 #
 # Connect with:
@@ -27,7 +31,7 @@ binds:
 - port: 3000
   listeners:
   - routes:
-    # Route 1: MCP traffic with virtual tools
+    # Route 1: MCP traffic with all tools (pre-built + custom)
     - matches:
       - path:
           pathPrefix: /mcp
@@ -43,6 +47,10 @@ binds:
       backends:
       - mcp:
           targets:
+          # ========================================
+          # Pre-built MCP servers (via stdio)
+          # ========================================
+          
           # Fetch server - web content retrieval
           - name: fetch-server
             stdio:
@@ -67,6 +75,31 @@ binds:
               cmd: npx
               args: ["-y", "@modelcontextprotocol/server-everything"]
 
+          # ========================================
+          # Custom MCP services (via streamable-http)
+          # Start with: ./start_mcp_services.sh
+          # ========================================
+          
+          # Document service - semantic search with sqlite-vec
+          - name: document-service
+            mcp:
+              host: "http://localhost:8001"
+
+          # Task service - task management with state history
+          - name: task-service
+            mcp:
+              host: "http://localhost:8002"
+
+          # User service - user profiles with bio search
+          - name: user-service
+            mcp:
+              host: "http://localhost:8003"
+
+          # Notification service - async notifications
+          - name: notification-service
+            mcp:
+              host: "http://localhost:8004"
+
     # Route 2: SSE transport (same backends)
     - matches:
       - path:
@@ -81,6 +114,7 @@ binds:
       backends:
       - mcp:
           targets:
+          # Pre-built servers
           - name: fetch-server
             stdio:
               cmd: uvx
@@ -93,6 +127,20 @@ binds:
             stdio:
               cmd: uvx
               args: ["mcp-server-time"]
+          
+          # Custom services (HTTP)
+          - name: document-service
+            mcp:
+              host: "http://localhost:8001"
+          - name: task-service
+            mcp:
+              host: "http://localhost:8002"
+          - name: user-service
+            mcp:
+              host: "http://localhost:8003"
+          - name: notification-service
+            mcp:
+              host: "http://localhost:8004"
 
     # Route 3: A2A agent proxy
     - matches:

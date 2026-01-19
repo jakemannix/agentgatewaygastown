@@ -1,0 +1,16 @@
+# Custom MCP service data (SQLite databases)
+# This directory is created by start_mcp_services.sh
+demo_data/
+
+# Virtual environments
+.venv/
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,67 @@
+# Custom MCP Services Configuration
+#
+# This file defines the ports and settings for custom MCP services
+# that complement the pre-built MCP servers.
+#
+# Services are started via: make start-mcp-services
+# Services are stopped via: make stop-mcp-services
+#
+# Data Persistence:
+#   By default, SQLite databases are stored in ./demo_data/ (relative to pattern-demos).
+#   This directory is .gitignore'd so databases aren't committed.
+#
+#   Directory structure:
+#     demo_data/
+#     ├── document-service/
+#     │   └── documents.db
+#     ├── task-service/
+#     │   └── tasks.db
+#     ├── user-service/
+#     │   └── users.db
+#     └── notification-service/
+#         └── notifications.db
+#
+#   Override with: export MCP_DATA_DIR=/path/to/persistent/storage
+#
+#   Example for production:
+#     export MCP_DATA_DIR=/var/lib/agentgateway/data
+#     make start-mcp-services
+
+services:
+  # Document service - SQLite + sqlite-vec for semantic search
+  document-service:
+    port: 8001
+    transport: streamable-http
+    db_path: /tmp/demo-documents.db
+    embedding_model: all-MiniLM-L6-v2
+    description: "Document store with chunking and semantic search"
+
+  # Task service - SQLite-backed task/todo management
+  task-service:
+    port: 8002
+    transport: streamable-http
+    db_path: /tmp/demo-tasks.db
+    description: "Task management with state transition history"
+
+  # User service - User profiles with bio-based semantic search
+  user-service:
+    port: 8003
+    transport: streamable-http
+    db_path: /tmp/demo-users.db
+    seed: true  # Seed with sample users on startup
+    description: "User profiles with semantic bio search"
+
+  # Notification service - Async notification patterns
+  notification-service:
+    port: 8004
+    transport: streamable-http
+    description: "Notification queue with retry and dead-letter handling"
+
+# Port range summary:
+#   3000  - AgentGateway main endpoint (MCP/SSE/A2A)
+#   8001  - document-service
+#   8002  - task-service
+#   8003  - user-service
+#   8004  - notification-service
+#   9999  - A2A agent (if running)
+#   15000 - AgentGateway admin UI

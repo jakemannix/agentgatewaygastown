@@ -163,6 +163,75 @@
     },
 
     {
+      "$comment": "=== Pattern 5: Semantic Aliases for Custom Services ===",
+      "$pattern": "aliasing",
+      "name": "find_documents",
+      "description": "Search documents by semantic similarity (alias for document-service search)",
+      "source": {"target": "document-service", "tool": "search_documents"}
+    },
+    {
+      "name": "semantic_search",
+      "description": "Another alias for document search - search by meaning",
+      "source": {"target": "document-service", "tool": "search_documents"}
+    },
+    {
+      "name": "find_similar_users",
+      "description": "Find users with similar interests based on bio (alias for user-service)",
+      "source": {"target": "user-service", "tool": "search_users_by_bio"}
+    },
+    {
+      "name": "add_todo",
+      "description": "Create a new task/todo item (alias for task-service)",
+      "source": {"target": "task-service", "tool": "create_task"}
+    },
+    {
+      "name": "notify",
+      "description": "Send a notification to a user (alias for notification-service)",
+      "source": {"target": "notification-service", "tool": "send_notification"}
+    },
+
+    {
+      "$comment": "=== Pattern 6: Cross-service Composition ===",
+      "$pattern": "composition",
+      "name": "create_task_and_notify",
+      "description": "Pipeline: create a task then notify the assignee",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "create_task",
+              "operation": {"tool": {"name": "create_task", "target": "task-service"}}
+            },
+            {
+              "id": "send_notification",
+              "operation": {"tool": {"name": "send_notification", "target": "notification-service"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "user_id": {"reference": {"step": "create_task", "path": "$.assignee"}},
+                    "subject": {"constant": "New task assigned"},
+                    "body": {"reference": {"step": "create_task", "path": "$.title"}},
+                    "channel": {"constant": "in_app"}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string", "description": "Task title"},
+          "description": {"type": "string", "description": "Task description"},
+          "assignee": {"type": "string", "description": "User to assign and notify"},
+          "priority": {"type": "string", "description": "Task priority", "default": "medium"}
+        },
+        "required": ["title", "assignee"]
+      }
+    },
+
+    {
       "$comment": "=== Base tools (passthrough) ===",
       "name": "fetch",
       "description": "Fetch content from a URL",

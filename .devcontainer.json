@@ -1,3 +1,12 @@
 {
-    "image": "mcr.microsoft.com/devcontainers/rust:latest"
+    "name": "AgentGateway Dev",
+    "image": "mcr.microsoft.com/devcontainers/rust:latest",
+    "runArgs": [
+        "--memory=16g",
+        "--memory-swap=20g"
+    ],
+    "features": {
+        "ghcr.io/devcontainers/features/node:1": {}
+    },
+    "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh"
 }
