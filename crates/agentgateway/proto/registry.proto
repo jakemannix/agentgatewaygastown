@@ -6,56 +6,236 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/agentgateway/agentgateway/go/api;api";
 
-// Registry is the root container for tool definitions
+// =============================================================================
+// Registry v2 Root Container
+// =============================================================================
+
+// Registry is the root container for the v2 registry IR.
+// It contains versioned schemas, servers, agents, and tools.
 message Registry {
-  // Schema version for compatibility checking
+  // Schema version for compatibility checking (e.g., "2.0")
   string schema_version = 1;
-  
+
+  // Reusable JSON Schema definitions that can be referenced by $ref
+  repeated Schema schemas = 3;
+
+  // Backend server declarations with version information
+  repeated Server servers = 4;
+
+  // A2A agent definitions with capabilities and dependencies
+  repeated Agent agents = 5;
+
   // List of tool definitions (virtual tools and compositions)
   repeated ToolDefinition tools = 2;
+
+  // Registry-level metadata (owner, classification, etc.)
+  map<string, google.protobuf.Value> metadata = 6;
+}
+
+// =============================================================================
+// Schema Definitions (v2)
+// =============================================================================
+
+// Schema defines a reusable, versioned JSON Schema that tools can reference.
+// Schemas support $ref resolution for composition and reuse.
+message Schema {
+  // Unique identifier for this schema (used in $ref, e.g., "#/schemas/UserInput")
+  string id = 1;
+
+  // Semantic version of this schema (e.g., "1.2.0")
+  string version = 2;
+
+  // Human-readable description
+  optional string description = 3;
+
+  // The JSON Schema definition
+  google.protobuf.Struct definition = 4;
+
+  // Schema metadata (owner, data classification, etc.)
+  map<string, google.protobuf.Value> metadata = 5;
+}
+
+// SchemaRef allows referencing either an inline schema or a $ref to a named schema
+message SchemaRef {
+  oneof schema {
+    // Inline JSON Schema definition
+    google.protobuf.Struct inline = 1;
+
+    // Reference to a named schema (e.g., "#/schemas/UserInput" or "UserInput")
+    string ref = 2;
+  }
+}
+
+// =============================================================================
+// Server Definitions (v2)
+// =============================================================================
+
+// Server declares a backend server with version information for routing.
+// The server name + version forms the lookup key (e.g., "doc-service:1.2.0").
+message Server {
+  // Server name (must match YAML target name without version suffix)
+  string name = 1;
+
+  // Semantic version of this server (e.g., "1.2.0")
+  // Combined with name for versioned routing: "name:version"
+  string version = 2;
+
+  // Human-readable description
+  optional string description = 3;
+
+  // Protocol type for this server
+  ServerProtocol protocol = 4;
+
+  // Base URL or connection info (optional, may be in YAML targets)
+  optional string url = 5;
+
+  // Tools exposed by this server (for discovery/documentation)
+  repeated string tools = 6;
+
+  // Server metadata (owner, SLA, etc.)
+  map<string, google.protobuf.Value> metadata = 7;
+}
+
+// ServerProtocol identifies the protocol type for a server
+enum ServerProtocol {
+  SERVER_PROTOCOL_UNSPECIFIED = 0;
+  SERVER_PROTOCOL_MCP_SSE = 1;
+  SERVER_PROTOCOL_MCP_STREAMABLE_HTTP = 2;
+  SERVER_PROTOCOL_MCP_STDIO = 3;
+  SERVER_PROTOCOL_A2A = 4;
+  SERVER_PROTOCOL_HTTP = 5;
+}
+
+// =============================================================================
+// Agent Definitions (v2)
+// =============================================================================
+
+// Agent defines an A2A agent with its capabilities and dependencies.
+// Agents can be invoked as tools or delegate to other agents.
+message Agent {
+  // Unique agent name/identifier
+  string name = 1;
+
+  // Semantic version of this agent
+  string version = 2;
+
+  // Human-readable description of the agent's purpose
+  optional string description = 3;
+
+  // Skills/capabilities this agent exposes
+  repeated AgentSkill skills = 4;
+
+  // Dependencies on tools from the registry
+  repeated AgentDependency dependencies = 5;
+
+  // Server this agent is deployed on (optional, for routing)
+  optional string server = 6;
+
+  // Server version (optional, for versioned routing)
+  optional string server_version = 7;
+
+  // Agent metadata (owner, model, etc.)
+  map<string, google.protobuf.Value> metadata = 8;
+}
+
+// AgentSkill describes a capability that an agent exposes
+message AgentSkill {
+  // Skill name (unique within the agent)
+  string name = 1;
+
+  // Human-readable description
+  optional string description = 2;
+
+  // Input schema for this skill
+  optional SchemaRef input_schema = 3;
+
+  // Output schema for this skill
+  optional SchemaRef output_schema = 4;
+
+  // Tags for categorization/discovery
+  repeated string tags = 5;
+}
+
+// AgentDependency declares a tool or agent that this agent requires
+message AgentDependency {
+  // Name of the required tool or agent
+  string name = 1;
+
+  // Whether this is a tool or agent dependency
+  DependencyType type = 2;
+
+  // Optional version constraint (semver range)
+  optional string version_constraint = 3;
+
+  // Whether this dependency is optional
+  bool optional = 4;
+}
+
+// DependencyType identifies whether a dependency is a tool or agent
+enum DependencyType {
+  DEPENDENCY_TYPE_UNSPECIFIED = 0;
+  DEPENDENCY_TYPE_TOOL = 1;
+  DEPENDENCY_TYPE_AGENT = 2;
 }
 
 // ToolDefinition represents either a virtual tool (1:1 mapping) or a composition (N:1 orchestration)
 message ToolDefinition {
   // Name exposed to agents (unique identifier)
   string name = 1;
-  
+
   // Optional description (for source-based, can inherit from backend)
   optional string description = 2;
-  
+
   // Tool implementation - either source-based or composition
   oneof implementation {
     // Virtual tool: adapts a single backend tool (1:1)
     SourceTool source = 3;
-    
+
     // Composition: orchestrates multiple tools (N:1)
     PatternSpec spec = 4;
   }
-  
-  // Input schema override (JSON Schema as struct)
-  optional google.protobuf.Struct input_schema = 5;
-  
+
+  // Input schema - either inline or reference to a named schema
+  // For v1 compatibility, inline schemas are still supported
+  optional SchemaRef input_schema = 5;
+
+  // Output schema - either inline or reference to a named schema
+  // Used for validation and documentation
+  optional SchemaRef output_schema = 9;
+
   // Output transformation (applies to both virtual tools and compositions)
   optional OutputTransform output_transform = 6;
-  
+
   // Semantic version of this tool definition
   optional string version = 7;
-  
+
   // Arbitrary metadata (owner, classification, etc.)
   map<string, google.protobuf.Value> metadata = 8;
+
+  // Tags for categorization and discovery
+  repeated string tags = 10;
+
+  // Deprecation notice (if set, tool is deprecated)
+  optional string deprecated = 11;
 }
 
 // SourceTool defines a 1:1 mapping to a backend tool
 message SourceTool {
-  // Target name (MCP server/backend name)
-  string target = 1;
-  
-  // Original tool name on that target
+  // Server name (MCP server/backend name)
+  // For v1 compatibility, this can also be the YAML target name
+  string server = 1;
+
+  // Server version for versioned routing (e.g., "1.2.0")
+  // Combined with server name forms lookup key: "server:server_version"
+  // If not set, routes to unversioned target or latest version
+  optional string server_version = 5;
+
+  // Original tool name on that server
   string tool = 2;
-  
+
   // Fields to inject at call time (supports ${ENV_VAR} substitution)
   map<string, google.protobuf.Value> defaults = 3;
-  
+
   // Fields to remove from schema (hidden from agents)
   repeated string hide_fields = 4;
 }
