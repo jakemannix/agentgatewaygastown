@@ -13,8 +13,10 @@ mod error;
 pub mod execution_graph;
 pub mod executor;
 pub mod patterns;
+pub mod runtime_hooks;
 mod store;
 mod types;
+pub mod validation;
 
 pub use client::{AuthConfig, RegistryClient, RegistrySource, parse_duration};
 pub use compiled::{
@@ -33,6 +35,8 @@ pub use types::{
 	OutputField, OutputSchema, OutputTransform, Registry, SourceTool, ToolDefinition,
 	ToolImplementation, ToolSource, VirtualToolDef,
 };
+pub use validation::{validate_registry, RegistryValidator, ValidationError, ValidationResult, ValidationWarning};
+pub use runtime_hooks::{CallerIdentity, CallContext, DependencyCheckResult, RuntimeHooks, ToolVisibility};
 
 // Executor exports
 pub use execution_graph::{ExecutionGraph, ExecutionNode, NodeInput, NodeOperation};
