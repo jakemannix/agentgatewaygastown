@@ -324,10 +324,14 @@ impl Relay {
 // RelayToolInvoker - Real ToolInvoker implementation using Relay
 // =============================================================================
 
-use crate::mcp::registry::executor::{ExecutionError, ToolInvoker};
+use crate::mcp::registry::executor::{CompositionExecutor, ExecutionError, ToolInvoker};
 
 /// A ToolInvoker implementation that uses the Relay to make real backend calls.
 /// This is used by the CompositionExecutor to invoke tools during composition execution.
+///
+/// When the invoker encounters a composition (nested composition scenario), it
+/// recursively executes it using a new CompositionExecutor.
+#[derive(Clone)]
 pub struct RelayToolInvoker {
 	relay: Arc<Relay>,
 	ctx: IncomingRequestContext,
@@ -350,7 +354,7 @@ impl ToolInvoker for RelayToolInvoker {
 		// Resolve the tool call (handles virtual tools, compositions, and backend tools)
 		let resolved = self
 			.relay
-			.resolve_tool_call(tool_name, args)
+			.resolve_tool_call(tool_name, args.clone())
 			.map_err(|e| ExecutionError::ToolExecutionFailed(e.to_string()))?;
 
 		match resolved {
@@ -377,12 +381,27 @@ impl ToolInvoker for RelayToolInvoker {
 					Ok(result)
 				}
 			},
-			ResolvedToolCall::Composition { name, .. } => {
-				// Nested compositions not yet supported
-				Err(ExecutionError::ToolExecutionFailed(format!(
-					"Nested composition '{}' not supported - compositions can only call backend tools",
-					name
-				)))
+			ResolvedToolCall::Composition { name, args: comp_args } => {
+				// Handle nested compositions by recursively executing them
+				// Get the compiled registry from the relay
+				let registry_ref = self.relay.registry().ok_or_else(|| {
+					ExecutionError::ToolExecutionFailed(
+						"No registry configured for nested composition execution".to_string(),
+					)
+				})?;
+
+				let compiled_registry = registry_ref.get_arc().ok_or_else(|| {
+					ExecutionError::ToolExecutionFailed("Registry not loaded".to_string())
+				})?;
+
+				// Create a new executor with this invoker for recursive calls
+				let executor = CompositionExecutor::new(
+					compiled_registry,
+					Arc::new(self.clone()),
+				);
+
+				// Execute the nested composition by name
+				executor.execute(&name, comp_args).await
 			},
 		}
 	}

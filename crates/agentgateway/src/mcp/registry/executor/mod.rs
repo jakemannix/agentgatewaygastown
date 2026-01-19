@@ -334,6 +334,87 @@ mod tests {
 	};
 	use crate::mcp::registry::types::{Registry, ToolDefinition};
 
+	/// A mock invoker that simulates RelayToolInvoker's behavior, but with proper
+	/// support for nested compositions. When it encounters a composition, it
+	/// recursively executes it using a new CompositionExecutor.
+	///
+	/// This demonstrates the pattern that RelayToolInvoker should follow.
+	struct RegistryAwareInvoker {
+		/// The compiled registry to check tool types and get composition specs
+		registry: Arc<CompiledRegistry>,
+		/// Backend responses for source-based tools (keyed by virtual tool name)
+		backend_responses: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>,
+	}
+
+	impl RegistryAwareInvoker {
+		fn new(registry: Arc<CompiledRegistry>) -> Self {
+			Self {
+				registry,
+				backend_responses: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+			}
+		}
+
+		fn with_backend_response(self, tool_name: &str, response: Value) -> Self {
+			self.backend_responses
+				.lock()
+				.unwrap()
+				.insert(tool_name.to_string(), response);
+			self
+		}
+	}
+
+	impl Clone for RegistryAwareInvoker {
+		fn clone(&self) -> Self {
+			Self {
+				registry: self.registry.clone(),
+				backend_responses: self.backend_responses.clone(),
+			}
+		}
+	}
+
+	#[async_trait::async_trait]
+	impl ToolInvoker for RegistryAwareInvoker {
+		async fn invoke(&self, tool_name: &str, args: Value) -> Result<Value, ExecutionError> {
+			// Look up the tool in the registry
+			if let Some(tool) = self.registry.get_tool(tool_name) {
+				if tool.is_composition() {
+					// FIXED: Instead of returning an error, recursively execute the composition
+					// This is the key change that enables nested composition support
+					let composition = tool.composition_info().ok_or_else(|| {
+						ExecutionError::InvalidInput(format!(
+							"Tool '{}' is marked as composition but has no composition info",
+							tool_name
+						))
+					})?;
+
+					// Create a new executor that uses this same invoker for backend calls
+					let executor = CompositionExecutor::new(
+						self.registry.clone(),
+						Arc::new(self.clone()),
+					);
+
+					// Execute the nested composition
+					return executor
+						.execute_composition(tool, composition, args)
+						.await;
+				}
+
+				// Source-based virtual tool - return the backend response
+				if let Some(response) = self.backend_responses.lock().unwrap().get(tool_name) {
+					return Ok(response.clone());
+				}
+
+				// Tool exists but no response configured
+				return Err(ExecutionError::ToolExecutionFailed(format!(
+					"No backend response configured for tool '{}'",
+					tool_name
+				)));
+			}
+
+			Err(ExecutionError::ToolNotFound(tool_name.to_string()))
+		}
+	}
+
 	#[tokio::test]
 	async fn test_execute_simple_composition() {
 		// Create a simple pipeline composition
@@ -422,5 +503,195 @@ mod tests {
 				err
 			),
 		}
+	}
+
+	/// Test that a composition can call a source-based virtual tool (rename).
+	/// This test verifies the data flow:
+	/// 1. Outer composition "search_pipeline" has a step that calls "fetch_page"
+	/// 2. "fetch_page" is a source-based virtual tool (rename of backend "web-server/fetch")
+	/// 3. The composition executor should:
+	///    a. Find "fetch_page" in the registry
+	///    b. See it's NOT a composition (source-based)
+	///    c. Fall through to the invoker
+	///    d. Invoker should successfully call the backend
+	#[tokio::test]
+	async fn test_composition_can_call_source_based_virtual_tool() {
+		// Create a source-based virtual tool (rename): fetch_page -> web-server/fetch
+		let fetch_page = ToolDefinition::source("fetch_page", "web-server", "fetch");
+
+		// Create a composition that calls the virtual tool
+		let search_pipeline = ToolDefinition::composition(
+			"search_pipeline",
+			PatternSpec::Pipeline(PipelineSpec {
+				steps: vec![PipelineStep {
+					id: "fetch".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("fetch_page")),
+					input: None,
+				}],
+			}),
+		);
+
+		// Build registry with both tools
+		let registry = Registry::with_tool_definitions(vec![fetch_page, search_pipeline]);
+		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
+
+		// Use the registry-aware invoker that simulates RelayToolInvoker behavior
+		let invoker = RegistryAwareInvoker::new(compiled.clone())
+			.with_backend_response("fetch_page", serde_json::json!({
+				"status": 200,
+				"content": "<html>Hello World</html>"
+			}));
+
+		let executor = CompositionExecutor::new(compiled, Arc::new(invoker));
+
+		// Execute the composition
+		let result = executor
+			.execute("search_pipeline", serde_json::json!({"url": "https://example.com"}))
+			.await;
+
+		// This should succeed - the composition calls fetch_page which is source-based
+		assert!(result.is_ok(), "Expected success but got: {:?}", result.err());
+		let output = result.unwrap();
+		assert_eq!(output["status"], 200);
+		assert_eq!(output["content"], "<html>Hello World</html>");
+	}
+
+	/// Test that a composition calling another composition works via the execute_tool path.
+	/// This test verifies nested composition support:
+	/// 1. "inner_composition" is a simple composition
+	/// 2. "outer_composition" has a step that calls "inner_composition"
+	/// 3. The executor should handle this via execute_tool's composition check
+	///    (NOT by falling through to the invoker)
+	#[tokio::test]
+	async fn test_composition_can_call_another_composition() {
+		// Create a source-based tool for the innermost call
+		let backend_echo = ToolDefinition::source("backend_echo", "echo-server", "echo");
+
+		// Create an inner composition that calls the backend tool
+		let inner_composition = ToolDefinition::composition(
+			"inner_composition",
+			PatternSpec::Pipeline(PipelineSpec {
+				steps: vec![PipelineStep {
+					id: "echo".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("backend_echo")),
+					input: None,
+				}],
+			}),
+		);
+
+		// Create an outer composition that calls the inner one
+		let outer_composition = ToolDefinition::composition(
+			"outer_composition",
+			PatternSpec::Pipeline(PipelineSpec {
+				steps: vec![PipelineStep {
+					id: "call_inner".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("inner_composition")),
+					input: None,
+				}],
+			}),
+		);
+
+		// Build registry with all three tools
+		let registry =
+			Registry::with_tool_definitions(vec![backend_echo, inner_composition, outer_composition]);
+		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
+
+		// Use registry-aware invoker - it will return an error if asked to invoke a composition
+		// (simulating the current RelayToolInvoker behavior)
+		let invoker = RegistryAwareInvoker::new(compiled.clone())
+			.with_backend_response("backend_echo", serde_json::json!({"echoed": true}));
+
+		let executor = CompositionExecutor::new(compiled, Arc::new(invoker));
+
+		// Execute the outer composition
+		let result = executor
+			.execute("outer_composition", serde_json::json!({}))
+			.await;
+
+		// This SHOULD succeed because execute_tool checks the registry first and handles
+		// compositions directly. It should NOT fall through to the invoker.
+		// If this fails, it means execute_tool is not finding the inner composition.
+		assert!(
+			result.is_ok(),
+			"Nested composition should work via execute_tool path, but got: {:?}",
+			result.err()
+		);
+		let output = result.unwrap();
+		assert_eq!(output["echoed"], true);
+	}
+
+	/// TDD TEST: This test documents the DESIRED behavior for nested composition support.
+	///
+	/// Scenario: The invoker (like RelayToolInvoker) encounters a composition during
+	/// tool invocation. Currently this fails, but it SHOULD succeed by recursively
+	/// executing the composition.
+	///
+	/// This test will FAIL until we implement proper nested composition support in
+	/// the invoker path. The fix should allow the invoker to execute compositions
+	/// instead of returning an error.
+	#[tokio::test]
+	async fn test_invoker_should_handle_nested_compositions() {
+		// Create only the outer composition - the inner one is "missing" from this registry
+		// but the invoker will know about it
+		let outer_composition = ToolDefinition::composition(
+			"outer_composition",
+			PatternSpec::Pipeline(PipelineSpec {
+				steps: vec![PipelineStep {
+					id: "call_inner".to_string(),
+					// This tool is NOT in the registry we give to the executor
+					operation: StepOperation::Tool(ToolCall::new("inner_composition")),
+					input: None,
+				}],
+			}),
+		);
+
+		// Registry for executor only has the outer composition
+		let executor_registry =
+			Registry::with_tool_definitions(vec![outer_composition.clone()]);
+		let compiled_executor = Arc::new(CompiledRegistry::compile(executor_registry).unwrap());
+
+		// Create a source-based tool for the innermost call
+		let backend_echo = ToolDefinition::source("backend_echo", "echo-server", "echo");
+
+		// Registry for invoker has the inner composition and backend tool
+		// (simulating relay knowing about inner_composition)
+		let inner_composition = ToolDefinition::composition(
+			"inner_composition",
+			PatternSpec::Pipeline(PipelineSpec {
+				steps: vec![PipelineStep {
+					id: "echo".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("backend_echo")),
+					input: None,
+				}],
+			}),
+		);
+		let invoker_registry =
+			Registry::with_tool_definitions(vec![outer_composition, inner_composition, backend_echo]);
+		let compiled_invoker = Arc::new(CompiledRegistry::compile(invoker_registry).unwrap());
+
+		// Invoker uses the "full" registry (simulating relay's view)
+		let invoker = RegistryAwareInvoker::new(compiled_invoker)
+			.with_backend_response("backend_echo", serde_json::json!({"echoed": true}));
+
+		// Executor uses the "partial" registry (missing inner_composition)
+		let executor = CompositionExecutor::new(compiled_executor, Arc::new(invoker));
+
+		// Execute the outer composition
+		let result = executor
+			.execute("outer_composition", serde_json::json!({}))
+			.await;
+
+		// DESIRED BEHAVIOR: This should SUCCEED!
+		// The invoker should be able to recursively execute inner_composition
+		// instead of returning "Nested composition not supported" error.
+		//
+		// This test will FAIL until we fix the invoker to handle compositions.
+		assert!(
+			result.is_ok(),
+			"Invoker should handle nested compositions, but got error: {:?}",
+			result.err()
+		);
+		let output = result.unwrap();
+		assert_eq!(output["echoed"], true);
 	}
 }
