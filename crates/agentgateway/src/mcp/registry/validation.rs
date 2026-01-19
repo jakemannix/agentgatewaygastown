@@ -7,7 +7,9 @@
 // - Deprecation warnings
 // - Version constraint validation
 
-use super::types::Registry;
+use std::collections::{HashMap, HashSet};
+
+use super::types::{DependencyType, Registry, ToolImplementation};
 use thiserror::Error;
 
 /// Validation errors for registry v2
@@ -115,45 +117,362 @@ impl<'a> RegistryValidator<'a> {
 
 	/// Validate the registry and return all errors and warnings
 	pub fn validate(&self) -> ValidationResult {
-		// TODO(WP3): Implement full validation
-		// This is a stub that returns Ok - tests will fail until implemented
-		ValidationResult::ok()
+		let mut result = ValidationResult::ok();
+
+		// Run all validations and aggregate results
+		let unique = self.validate_unique_names();
+		result.errors.extend(unique.errors);
+		result.warnings.extend(unique.warnings);
+
+		let deps = self.validate_dependencies_exist();
+		result.errors.extend(deps.errors);
+		result.warnings.extend(deps.warnings);
+
+		let cycles = self.validate_no_cycles();
+		result.errors.extend(cycles.errors);
+		result.warnings.extend(cycles.warnings);
+
+		let schemas = self.validate_schema_refs();
+		result.errors.extend(schemas.errors);
+		result.warnings.extend(schemas.warnings);
+
+		let deprecations = self.validate_deprecations();
+		result.errors.extend(deprecations.errors);
+		result.warnings.extend(deprecations.warnings);
+
+		let versions = self.validate_version_constraints();
+		result.errors.extend(versions.errors);
+		result.warnings.extend(versions.warnings);
+
+		result
 	}
 
 	/// Check for duplicate names (tools, schemas, servers, agents)
 	pub fn validate_unique_names(&self) -> ValidationResult {
-		// TODO(WP3): Implement duplicate name detection
-		ValidationResult::ok()
+		let mut result = ValidationResult::ok();
+		let mut seen_tools = HashSet::new();
+		let mut seen_schemas = HashSet::new();
+		let mut seen_servers = HashSet::new();
+		let mut seen_agents = HashSet::new();
+
+		for tool in &self.registry.tools {
+			if !seen_tools.insert(&tool.name) {
+				result.add_error(ValidationError::DuplicateToolName(tool.name.clone()));
+			}
+		}
+
+		for schema in &self.registry.schemas {
+			if !seen_schemas.insert(&schema.name) {
+				result.add_error(ValidationError::DuplicateSchemeName(schema.name.clone()));
+			}
+		}
+
+		for server in &self.registry.servers {
+			if !seen_servers.insert(&server.name) {
+				result.add_error(ValidationError::DuplicateServerName(server.name.clone()));
+			}
+		}
+
+		for agent in &self.registry.agents {
+			if !seen_agents.insert(&agent.name) {
+				result.add_error(ValidationError::DuplicateAgentName(agent.name.clone()));
+			}
+		}
+
+		result
 	}
 
-	/// Check for dependency cycles in tool definitions
+	/// Check for dependency cycles in tool definitions using DFS
 	pub fn validate_no_cycles(&self) -> ValidationResult {
-		// TODO(WP3): Implement cycle detection using DFS/topological sort
-		ValidationResult::ok()
+		let mut result = ValidationResult::ok();
+
+		// Build adjacency list for tool dependencies
+		let tool_names: HashSet<_> = self.registry.tools.iter().map(|t| t.name.as_str()).collect();
+
+		// Track visited state: 0 = unvisited, 1 = in current path, 2 = fully visited
+		let mut state: HashMap<&str, u8> = HashMap::new();
+		let mut path: Vec<&str> = Vec::new();
+
+		for tool in &self.registry.tools {
+			if state.get(tool.name.as_str()).copied().unwrap_or(0) == 0 {
+				if let Some(cycle) = self.dfs_find_cycle(&tool.name, &tool_names, &mut state, &mut path) {
+					result.add_error(ValidationError::DependencyCycle(cycle));
+				}
+			}
+		}
+
+		result
+	}
+
+	/// DFS helper to find cycles
+	fn dfs_find_cycle(
+		&self,
+		node: &'a str,
+		tool_names: &HashSet<&'a str>,
+		state: &mut HashMap<&'a str, u8>,
+		path: &mut Vec<&'a str>,
+	) -> Option<Vec<String>> {
+		state.insert(node, 1); // Mark as visiting
+		path.push(node);
+
+		// Find this tool's dependencies
+		if let Some(tool) = self.registry.tools.iter().find(|t| t.name == node) {
+			for dep in &tool.depends {
+				if dep.dep_type == DependencyType::Tool {
+					let dep_name = dep.name.as_str();
+
+					// Only check tools that exist in registry
+					if !tool_names.contains(dep_name) {
+						continue;
+					}
+
+					match state.get(dep_name).copied().unwrap_or(0) {
+						1 => {
+							// Found cycle - extract the cycle path
+							let cycle_start = path.iter().position(|&n| n == dep_name).unwrap();
+							let mut cycle: Vec<String> = path[cycle_start..].iter().map(|s| s.to_string()).collect();
+							cycle.push(dep_name.to_string()); // Complete the cycle
+							path.pop();
+							state.insert(node, 2);
+							return Some(cycle);
+						}
+						0 => {
+							if let Some(cycle) = self.dfs_find_cycle(dep_name, tool_names, state, path) {
+								return Some(cycle);
+							}
+						}
+						_ => {} // Already fully visited, no cycle through this node
+					}
+				}
+			}
+		}
+
+		path.pop();
+		state.insert(node, 2); // Mark as fully visited
+		None
 	}
 
 	/// Check that all declared dependencies exist in the registry
 	pub fn validate_dependencies_exist(&self) -> ValidationResult {
-		// TODO(WP3): Implement dependency existence validation
-		ValidationResult::ok()
+		let mut result = ValidationResult::ok();
+
+		let tool_names: HashSet<_> = self.registry.tools.iter().map(|t| t.name.as_str()).collect();
+		let agent_names: HashSet<_> = self.registry.agents.iter().map(|a| a.name.as_str()).collect();
+
+		for tool in &self.registry.tools {
+			for dep in &tool.depends {
+				let exists = match dep.dep_type {
+					DependencyType::Tool => tool_names.contains(dep.name.as_str()),
+					DependencyType::Agent => agent_names.contains(dep.name.as_str()),
+				};
+
+				if !exists {
+					let dep_type = match dep.dep_type {
+						DependencyType::Tool => "tool",
+						DependencyType::Agent => "agent",
+					};
+					result.add_error(ValidationError::MissingDependency {
+						tool: tool.name.clone(),
+						dependency: dep.name.clone(),
+						dep_type: dep_type.to_string(),
+					});
+				}
+			}
+		}
+
+		result
 	}
 
 	/// Check that all schema $refs point to existing schemas
 	pub fn validate_schema_refs(&self) -> ValidationResult {
-		// TODO(WP3): Implement schema reference validation
-		ValidationResult::ok()
+		let mut result = ValidationResult::ok();
+
+		let schema_names: HashSet<_> = self.registry.schemas.iter().map(|s| s.name.as_str()).collect();
+
+		for tool in &self.registry.tools {
+			// Check input_schema for $ref
+			if let Some(ref schema) = tool.input_schema {
+				self.check_schema_refs(schema, &tool.name, &schema_names, &mut result);
+			}
+
+			// Check output_schema for $ref
+			if let Some(ref schema) = tool.output_schema {
+				self.check_schema_refs(schema, &tool.name, &schema_names, &mut result);
+			}
+		}
+
+		result
+	}
+
+	/// Helper to recursively check schema refs
+	fn check_schema_refs(
+		&self,
+		schema: &serde_json::Value,
+		tool_name: &str,
+		schema_names: &HashSet<&str>,
+		result: &mut ValidationResult,
+	) {
+		if let Some(obj) = schema.as_object() {
+			if let Some(ref_val) = obj.get("$ref") {
+				if let Some(ref_str) = ref_val.as_str() {
+					// Parse #/schemas/Name format
+					if ref_str.starts_with("#/schemas/") {
+						let schema_name = &ref_str[10..]; // Skip "#/schemas/"
+						if !schema_names.contains(schema_name) {
+							result.add_error(ValidationError::MissingSchemaRef {
+								tool: tool_name.to_string(),
+								reference: ref_str.to_string(),
+							});
+						}
+					}
+				}
+			}
+
+			// Recursively check nested objects
+			for (_, value) in obj {
+				self.check_schema_refs(value, tool_name, schema_names, result);
+			}
+		} else if let Some(arr) = schema.as_array() {
+			for item in arr {
+				self.check_schema_refs(item, tool_name, schema_names, result);
+			}
+		}
 	}
 
 	/// Check for deprecated tool/server/agent usage and emit warnings
 	pub fn validate_deprecations(&self) -> ValidationResult {
-		// TODO(WP3): Implement deprecation warnings
-		ValidationResult::ok()
+		let mut result = ValidationResult::ok();
+
+		// Build lookup maps
+		let deprecated_tools: HashMap<&str, &str> = self
+			.registry
+			.tools
+			.iter()
+			.filter_map(|t| t.deprecated.as_ref().map(|msg| (t.name.as_str(), msg.as_str())))
+			.collect();
+
+		let deprecated_servers: HashMap<&str, &str> = self
+			.registry
+			.servers
+			.iter()
+			.filter(|s| s.deprecated)
+			.map(|s| {
+				(
+					s.name.as_str(),
+					s.deprecation_message.as_deref().unwrap_or("deprecated"),
+				)
+			})
+			.collect();
+
+		// Check tool dependencies for deprecated tools
+		for tool in &self.registry.tools {
+			for dep in &tool.depends {
+				if dep.dep_type == DependencyType::Tool {
+					if let Some(&msg) = deprecated_tools.get(dep.name.as_str()) {
+						result.add_warning(ValidationWarning {
+							message: format!(
+								"Tool '{}' depends on deprecated tool '{}': {}",
+								tool.name, dep.name, msg
+							),
+							tool: Some(tool.name.clone()),
+						});
+					}
+				}
+			}
+
+			// Check if tool sources from deprecated server
+			if let ToolImplementation::Source(ref source) = tool.implementation {
+				if let Some(&msg) = deprecated_servers.get(source.target.as_str()) {
+					result.add_warning(ValidationWarning {
+						message: format!(
+							"Tool '{}' uses deprecated server '{}': {}",
+							tool.name, source.target, msg
+						),
+						tool: Some(tool.name.clone()),
+					});
+				}
+			}
+		}
+
+		result
 	}
 
 	/// Check version constraints on dependencies
 	pub fn validate_version_constraints(&self) -> ValidationResult {
-		// TODO(WP3): Implement version constraint validation
-		ValidationResult::ok()
+		let mut result = ValidationResult::ok();
+
+		// Build version lookup
+		let tool_versions: HashMap<&str, &str> = self
+			.registry
+			.tools
+			.iter()
+			.filter_map(|t| t.version.as_ref().map(|v| (t.name.as_str(), v.as_str())))
+			.collect();
+
+		for tool in &self.registry.tools {
+			for dep in &tool.depends {
+				if dep.dep_type == DependencyType::Tool {
+					if let Some(ref required_version) = dep.version {
+						if let Some(&actual_version) = tool_versions.get(dep.name.as_str()) {
+							if !self.version_satisfies(actual_version, required_version) {
+								result.add_error(ValidationError::VersionMismatch {
+									tool: tool.name.clone(),
+									dependency: dep.name.clone(),
+									dep_type: "tool".to_string(),
+									required: required_version.clone(),
+									found: actual_version.to_string(),
+								});
+							}
+						}
+					}
+				}
+			}
+		}
+
+		result
+	}
+
+	/// Check if actual version satisfies the constraint
+	fn version_satisfies(&self, actual: &str, constraint: &str) -> bool {
+		// Parse semver constraint: >=X.Y.Z, <=X.Y.Z, >X.Y.Z, <X.Y.Z, =X.Y.Z, X.Y.Z
+		let (op, version_str) = if constraint.starts_with(">=") {
+			(">=", &constraint[2..])
+		} else if constraint.starts_with("<=") {
+			("<=", &constraint[2..])
+		} else if constraint.starts_with('>') {
+			(">", &constraint[1..])
+		} else if constraint.starts_with('<') {
+			("<", &constraint[1..])
+		} else if constraint.starts_with('=') {
+			("=", &constraint[1..])
+		} else {
+			("=", constraint) // Default to exact match
+		};
+
+		let actual_parts = Self::parse_version(actual);
+		let required_parts = Self::parse_version(version_str);
+
+		match op {
+			">=" => actual_parts >= required_parts,
+			"<=" => actual_parts <= required_parts,
+			">" => actual_parts > required_parts,
+			"<" => actual_parts < required_parts,
+			"=" | _ => actual_parts == required_parts,
+		}
+	}
+
+	/// Parse version string into comparable tuple
+	fn parse_version(version: &str) -> (u32, u32, u32) {
+		let parts: Vec<u32> = version
+			.split('.')
+			.filter_map(|p| p.parse().ok())
+			.collect();
+
+		(
+			parts.first().copied().unwrap_or(0),
+			parts.get(1).copied().unwrap_or(0),
+			parts.get(2).copied().unwrap_or(0),
+		)
 	}
 }
 

@@ -6,7 +6,7 @@
 // - Dependency resolution at call time
 // - Dependency-scoped tool discovery (WP11 integration)
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::types::{DependencyType, Registry, ToolDefinition};
 
@@ -95,15 +95,147 @@ impl<'a> RuntimeHooks<'a> {
 	/// dependency.
 	pub fn check_pre_call_dependencies(
 		&self,
-		_tool_name: &str,
-		_caller: &CallerIdentity,
+		tool_name: &str,
+		caller: &CallerIdentity,
 	) -> DependencyCheckResult {
-		// TODO(WP4): Implement pre-call dependency checking
-		// - Find tool in registry
-		// - Check each dependency exists
-		// - Check caller has declared each dependency
-		// - Check version constraints
+		// Build lookup maps
+		let tool_map: HashMap<&str, &ToolDefinition> = self
+			.registry
+			.tools
+			.iter()
+			.map(|t| (t.name.as_str(), t))
+			.collect();
+
+		// Find the tool
+		let tool = match tool_map.get(tool_name) {
+			Some(t) => *t,
+			None => {
+				return DependencyCheckResult::ToolNotAccessible {
+					tool: tool_name.to_string(),
+					reason: "Tool not found in registry".to_string(),
+				}
+			}
+		};
+
+		// Check all dependencies recursively
+		let mut visited = HashSet::new();
+		self.check_deps_recursive(tool, caller, &tool_map, &mut visited)
+	}
+
+	/// Recursively check dependencies
+	fn check_deps_recursive(
+		&self,
+		tool: &ToolDefinition,
+		caller: &CallerIdentity,
+		tool_map: &HashMap<&str, &ToolDefinition>,
+		visited: &mut HashSet<String>,
+	) -> DependencyCheckResult {
+		if visited.contains(&tool.name) {
+			return DependencyCheckResult::Ok; // Already checked
+		}
+		visited.insert(tool.name.clone());
+
+		for dep in &tool.depends {
+			if dep.dep_type == DependencyType::Tool {
+				// Check if dependency exists in registry
+				let dep_tool = match tool_map.get(dep.name.as_str()) {
+					Some(t) => *t,
+					None => {
+						return DependencyCheckResult::MissingDependency {
+							tool: tool.name.clone(),
+							dependency: dep.name.clone(),
+							dep_type: DependencyType::Tool,
+						}
+					}
+				};
+
+				// Check if caller has declared this dependency
+				// Anonymous callers (empty deps) bypass this check for leaf tools only
+				let is_anonymous = caller.declared_deps.is_empty() && caller.agent_name.is_none();
+				let caller_has_dep = caller.declared_deps.contains(&dep.name);
+
+				if !is_anonymous && !caller_has_dep {
+					return DependencyCheckResult::UndeclaredDependency {
+						tool: tool.name.clone(),
+						dependency: dep.name.clone(),
+						dep_type: DependencyType::Tool,
+					};
+				}
+
+				// Check version constraint if specified
+				if let Some(ref required_version) = dep.version {
+					if let Some(ref actual_version) = dep_tool.version {
+						if !Self::version_satisfies(actual_version, required_version) {
+							return DependencyCheckResult::VersionMismatch {
+								tool: tool.name.clone(),
+								dependency: dep.name.clone(),
+								required: required_version.clone(),
+								available: actual_version.clone(),
+							};
+						}
+					}
+				}
+
+				// Recursively check the dependency's dependencies
+				let result = self.check_deps_recursive(dep_tool, caller, tool_map, visited);
+				if !matches!(result, DependencyCheckResult::Ok) {
+					return result;
+				}
+			}
+		}
+
+		// For anonymous callers, they can only call leaf tools (no dependencies)
+		let is_anonymous = caller.declared_deps.is_empty() && caller.agent_name.is_none();
+		if is_anonymous && !tool.depends.is_empty() {
+			return DependencyCheckResult::UndeclaredDependency {
+				tool: tool.name.clone(),
+				dependency: tool.depends[0].name.clone(),
+				dep_type: tool.depends[0].dep_type.clone(),
+			};
+		}
+
 		DependencyCheckResult::Ok
+	}
+
+	/// Check if actual version satisfies the constraint
+	fn version_satisfies(actual: &str, constraint: &str) -> bool {
+		let (op, version_str) = if constraint.starts_with(">=") {
+			(">=", &constraint[2..])
+		} else if constraint.starts_with("<=") {
+			("<=", &constraint[2..])
+		} else if constraint.starts_with('>') {
+			(">", &constraint[1..])
+		} else if constraint.starts_with('<') {
+			("<", &constraint[1..])
+		} else if constraint.starts_with('=') {
+			("=", &constraint[1..])
+		} else {
+			("=", constraint)
+		};
+
+		let actual_parts = Self::parse_version(actual);
+		let required_parts = Self::parse_version(version_str);
+
+		match op {
+			">=" => actual_parts >= required_parts,
+			"<=" => actual_parts <= required_parts,
+			">" => actual_parts > required_parts,
+			"<" => actual_parts < required_parts,
+			_ => actual_parts == required_parts,
+		}
+	}
+
+	/// Parse version string into comparable tuple
+	fn parse_version(version: &str) -> (u32, u32, u32) {
+		let parts: Vec<u32> = version
+			.split('.')
+			.filter_map(|p| p.parse().ok())
+			.collect();
+		(
+			parts.first().copied().unwrap_or(0),
+			parts.get(1).copied().unwrap_or(0),
+			parts.get(2).copied().unwrap_or(0),
+		)
 	}
 
 	/// Get tools visible to a specific caller based on their declared dependencies
@@ -111,19 +243,46 @@ impl<'a> RuntimeHooks<'a> {
 	/// This implements dependency-scoped discovery (WP11):
 	/// - Agents only see tools they've declared as dependencies
 	/// - Plus tools that have no dependencies themselves (leaf tools)
-	pub fn get_visible_tools(&self, _caller: &CallerIdentity) -> Vec<&ToolDefinition> {
-		// TODO(WP4): Implement dependency-scoped discovery
-		// - If caller has no declared deps, return all tools (backwards compat)
-		// - Otherwise, filter to tools in declared_deps + leaf tools
-		self.registry.tools.iter().collect()
+	pub fn get_visible_tools(&self, caller: &CallerIdentity) -> Vec<&ToolDefinition> {
+		// Anonymous callers (no agent_name and empty deps) see all tools (backwards compat)
+		let is_anonymous = caller.declared_deps.is_empty() && caller.agent_name.is_none();
+		if is_anonymous {
+			return self.registry.tools.iter().collect();
+		}
+
+		// Filter to tools the caller has declared as dependencies
+		self.registry
+			.tools
+			.iter()
+			.filter(|t| caller.declared_deps.contains(&t.name))
+			.collect()
 	}
 
 	/// Check if a specific tool is visible to a caller
-	pub fn is_tool_visible(&self, _tool_name: &str, _caller: &CallerIdentity) -> ToolVisibility {
-		// TODO(WP4): Implement tool visibility check
-		ToolVisibility {
-			visible: true,
-			reason: None,
+	pub fn is_tool_visible(&self, tool_name: &str, caller: &CallerIdentity) -> ToolVisibility {
+		// Anonymous callers see all tools (backwards compat)
+		let is_anonymous = caller.declared_deps.is_empty() && caller.agent_name.is_none();
+		if is_anonymous {
+			return ToolVisibility {
+				visible: true,
+				reason: None,
+			};
+		}
+
+		// Check if caller has declared this tool as a dependency
+		if caller.declared_deps.contains(tool_name) {
+			ToolVisibility {
+				visible: true,
+				reason: None,
+			}
+		} else {
+			ToolVisibility {
+				visible: false,
+				reason: Some(format!(
+					"Tool '{}' not declared in caller's dependencies",
+					tool_name
+				)),
+			}
 		}
 	}
 
@@ -132,8 +291,62 @@ impl<'a> RuntimeHooks<'a> {
 	/// This performs a topological sort of dependencies to determine
 	/// the order in which they should be resolved/initialized.
 	pub fn resolve_dependency_order(&self, tool_name: &str) -> Result<Vec<String>, String> {
-		// TODO(WP4): Implement topological sort of dependencies
-		Ok(vec![tool_name.to_string()])
+		let tool_map: HashMap<&str, &ToolDefinition> = self
+			.registry
+			.tools
+			.iter()
+			.map(|t| (t.name.as_str(), t))
+			.collect();
+
+		// Check if tool exists
+		if !tool_map.contains_key(tool_name) {
+			return Err(format!("Tool '{}' not found in registry", tool_name));
+		}
+
+		// DFS-based topological sort
+		let mut result = Vec::new();
+		let mut visited = HashSet::new();
+		let mut in_stack = HashSet::new();
+
+		self.topo_visit(tool_name, &tool_map, &mut visited, &mut in_stack, &mut result)?;
+
+		Ok(result)
+	}
+
+	/// DFS helper for topological sort
+	fn topo_visit(
+		&self,
+		node: &str,
+		tool_map: &HashMap<&str, &ToolDefinition>,
+		visited: &mut HashSet<String>,
+		in_stack: &mut HashSet<String>,
+		result: &mut Vec<String>,
+	) -> Result<(), String> {
+		if in_stack.contains(node) {
+			return Err(format!("Cycle detected involving tool '{}'", node));
+		}
+		if visited.contains(node) {
+			return Ok(());
+		}
+
+		in_stack.insert(node.to_string());
+
+		if let Some(tool) = tool_map.get(node) {
+			for dep in &tool.depends {
+				if dep.dep_type == DependencyType::Tool {
+					// Only visit if tool exists in registry
+					if tool_map.contains_key(dep.name.as_str()) {
+						self.topo_visit(&dep.name, tool_map, visited, in_stack, result)?;
+					}
+				}
+			}
+		}
+
+		in_stack.remove(node);
+		visited.insert(node.to_string());
+		result.push(node.to_string());
+
+		Ok(())
 	}
 
 	/// Create an execution context for a tool invocation
