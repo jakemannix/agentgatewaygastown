@@ -21,6 +21,7 @@ from typing import Any
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
+    ClaudeSDKClient,
     ResultMessage,
     SystemMessage,
     query,
@@ -212,6 +213,94 @@ async def run_agent(
     return result
 
 
+async def chat(
+    gateway_url: str | None = None,
+    auth_token: str | None = None,
+) -> None:
+    """Run an interactive chat session with the agent.
+
+    This provides a REPL-style interface for multi-turn conversations
+    with the agent, maintaining context across exchanges.
+
+    Args:
+        gateway_url: URL of the agentgateway instance.
+        auth_token: Optional bearer token for authentication.
+    """
+    mcp_servers = get_gateway_config(gateway_url, auth_token=auth_token)
+
+    options = ClaudeAgentOptions(
+        mcp_servers=mcp_servers,
+        allowed_tools=["mcp__agentgateway__*"],
+        system_prompt=build_system_prompt("full_workflow"),
+        permission_mode="acceptEdits",
+    )
+
+    print("=" * 60)
+    print("AgentGateway Chat")
+    print("=" * 60)
+    print("Type your message and press Enter. Commands:")
+    print("  quit, exit, q  - Exit the chat")
+    print("  clear          - Clear conversation history")
+    print("  tools          - List available tools")
+    print("-" * 60)
+
+    async with ClaudeSDKClient(options=options) as client:
+        # Show connection status
+        print("[Connecting to gateway...]")
+
+        while True:
+            try:
+                user_input = input("\n> ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print("\n[Goodbye!]")
+                break
+
+            if not user_input:
+                continue
+
+            if user_input.lower() in ("quit", "exit", "q"):
+                print("[Goodbye!]")
+                break
+
+            if user_input.lower() == "clear":
+                # Note: ClaudeSDKClient maintains state, so we'd need to
+                # recreate the client for a true clear. For now, just note it.
+                print("[Note: Full clear requires restart. Context will persist.]")
+                continue
+
+            if user_input.lower() == "tools":
+                print("[Requesting tool list from gateway...]")
+                user_input = "List all available tools from the gateway, grouped by category."
+
+            # Send the query
+            await client.query(user_input)
+
+            # Stream the response
+            try:
+                async for message in client.receive_response():
+                    if isinstance(message, AssistantMessage):
+                        for block in message.content:
+                            if hasattr(block, "text") and block.text:
+                                print(f"\n{block.text}")
+                            elif hasattr(block, "name"):
+                                tool_name = block.name
+                                print(f"\n[Tool: {tool_name}]", end="")
+                                if hasattr(block, "input"):
+                                    input_str = str(block.input)
+                                    if len(input_str) > 100:
+                                        input_str = input_str[:100] + "..."
+                                    print(f" {input_str}")
+                                else:
+                                    print()
+
+                    elif isinstance(message, ResultMessage):
+                        if message.subtype == "error_during_execution":
+                            print(f"\n[Error: {getattr(message, 'error', 'Unknown error')}]")
+
+            except Exception as e:
+                print(f"\n[Error receiving response: {e}]")
+
+
 DEMO_PROMPTS = {
     "full_workflow": """Demonstrate a complete workflow:
 1. First, create a document titled "Project Requirements" with content about building a REST API
@@ -251,10 +340,13 @@ async def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run the full workflow demo (default)
+  # Start interactive chat mode (recommended)
+  python agent.py --chat
+
+  # Run the full workflow demo (default one-shot)
   python agent.py --scenario full_workflow
 
-  # Run a specific scenario  
+  # Run a specific scenario
   python agent.py --scenario document_search
   python agent.py --scenario task_management
   python agent.py --scenario user_collaboration
@@ -277,6 +369,12 @@ Environment variables:
 """,
     )
 
+    parser.add_argument(
+        "--chat",
+        "-c",
+        action="store_true",
+        help="Start interactive chat mode (multi-turn conversation)",
+    )
     parser.add_argument(
         "--scenario",
         "-s",
@@ -322,6 +420,14 @@ Environment variables:
             print(f"  {name}:")
             print(f"    {prompt[:80]}...")
             print()
+        return 0
+
+    # Interactive chat mode
+    if args.chat:
+        await chat(
+            gateway_url=args.gateway_url,
+            auth_token=args.auth_token,
+        )
         return 0
 
     # Determine prompt: custom > scenario > default

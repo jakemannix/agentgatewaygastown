@@ -1,19 +1,24 @@
 """
 Google ADK Agent - Multi-step Project Setup with Saga Pattern
 
-This module demonstrates running the Google ADK agent either:
-1. Standalone with ADK CLI (adk run/adk web)
-2. With agentgateway tools integration
+This module demonstrates running the Google ADK agent with agentgateway.
 
 Usage:
-    # Run standalone with ADK CLI
+    # Interactive CLI chat (recommended)
     adk run .
 
-    # Run with ADK web interface
+    # Web interface with chat UI
     adk web .
 
-    # Run as Python module with gateway integration
-    python -m google_adk_saga_agent --gateway-url http://localhost:3000
+    # Run a one-shot demo with gateway integration
+    python -m google_adk_agent --demo
+
+    # Connect to a different gateway
+    python -m google_adk_agent --demo --gateway-url http://gateway:3000
+
+The ADK CLI provides the best interactive experience with built-in
+multi-turn conversation support, tool execution visualization, and
+session management.
 """
 
 import argparse
@@ -98,60 +103,96 @@ def run_with_gateway(gateway_url: str) -> None:
     asyncio.run(main())
 
 
-def run_interactive() -> None:
+def run_interactive(web: bool = False) -> None:
     """
-    Run an interactive session with the coordinator agent.
+    Launch interactive mode using ADK's built-in CLI or web interface.
 
-    This is a simple REPL for testing the agent locally.
+    Args:
+        web: If True, launch web interface. Otherwise launch CLI.
     """
-    from .agent import create_coordinator_agent
+    import subprocess
 
-    agent = create_coordinator_agent()
+    # Get the directory containing this module
+    module_dir = os.path.dirname(os.path.abspath(__file__))
 
-    print("\nGoogle ADK Saga Agent - Interactive Mode")
+    cmd = ["adk", "web" if web else "run", module_dir]
+
+    print(f"\nLaunching: {' '.join(cmd)}")
     print("=" * 50)
-    print("This agent coordinates multi-step project setup with saga pattern.")
-    print("Commands: 'quit' to exit, 'status <project>' to check saga status")
+
+    if web:
+        print("Opening web interface...")
+        print("Press Ctrl+C to stop the server.")
+    else:
+        print("Starting interactive chat...")
+        print("Type your messages and press Enter. Type 'quit' to exit.")
+
     print()
 
-    # Note: Full interactive mode would require ADK's runner
-    # This is a simplified demo
-    print("For full interactive mode, use: adk run .")
-    print("Or for web interface: adk web .")
+    try:
+        subprocess.run(cmd, check=True)
+    except FileNotFoundError:
+        print("Error: 'adk' command not found.")
+        print("Install Google ADK with: pip install google-adk")
+    except KeyboardInterrupt:
+        print("\n[Stopped]")
 
 
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Google ADK Agent with Saga Pattern for Project Setup"
+        description="Google ADK Agent with Saga Pattern for Project Setup",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Interactive CLI chat (recommended)
+  python -m google_adk_agent --chat
+  # Or directly: adk run .
+
+  # Web interface
+  python -m google_adk_agent --web
+  # Or directly: adk web .
+
+  # One-shot demo
+  python -m google_adk_agent --demo
+""",
+    )
+    parser.add_argument(
+        "--chat",
+        "-c",
+        action="store_true",
+        help="Start interactive CLI chat (launches 'adk run')",
+    )
+    parser.add_argument(
+        "--web",
+        "-w",
+        action="store_true",
+        help="Start web interface (launches 'adk web')",
+    )
+    parser.add_argument(
+        "--demo",
+        "-d",
+        action="store_true",
+        help="Run a one-shot demo saga execution",
     )
     parser.add_argument(
         "--gateway-url",
         default=os.environ.get("AGENTGATEWAY_URL", "http://localhost:3000"),
         help="URL of the agentgateway instance",
     )
-    parser.add_argument(
-        "--interactive",
-        action="store_true",
-        help="Run in interactive mode",
-    )
-    parser.add_argument(
-        "--demo",
-        action="store_true",
-        help="Run a demo saga execution",
-    )
 
     args = parser.parse_args()
 
-    if args.demo:
+    if args.chat:
+        run_interactive(web=False)
+    elif args.web:
+        run_interactive(web=True)
+    elif args.demo:
         run_with_gateway(args.gateway_url)
-    elif args.interactive:
-        run_interactive()
     else:
-        # Default: show help and run demo
+        # Default: show help
         parser.print_help()
-        print("\nRunning demo mode by default...\n")
-        run_with_gateway(args.gateway_url)
+        print("\nTip: Use --chat for interactive mode or --demo for a one-shot example.")
 
 
 if __name__ == "__main__":
