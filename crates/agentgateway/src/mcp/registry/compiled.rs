@@ -987,9 +987,7 @@ mod tests {
 			PatternSpec::Pipeline(PipelineSpec {
 				steps: vec![PipelineStep {
 					id: "search".to_string(),
-					operation: StepOperation::Tool(ToolCall {
-						name: "web_search".to_string(),
-					}),
+					operation: StepOperation::Tool(ToolCall::new("web_search")),
 					input: None,
 				}],
 			}),

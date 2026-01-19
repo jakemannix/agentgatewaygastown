@@ -312,16 +312,24 @@ mod tests {
 				tool: "original_tool".to_string(),
 				defaults: Default::default(),
 				hide_fields: vec![],
+				server_version: None,
 			}),
 			input_schema: None,
 			output_transform: None,
 			output_schema: None,
 			version: None,
 			metadata: Default::default(),
+			tags: Vec::new(),
+			deprecated: None,
+			depends: Vec::new(),
 		};
 		Registry {
 			schema_version: "1.0".to_string(),
 			tools: vec![tool],
+			schemas: Vec::new(),
+			servers: Vec::new(),
+			agents: Vec::new(),
+			metadata: Default::default(),
 		}
 	}
 
