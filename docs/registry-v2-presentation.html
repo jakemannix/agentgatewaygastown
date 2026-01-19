@@ -49,7 +49,7 @@
         <li>Agent-specific overrides</li>
         <li>Schema transformations</li>
         <li>Stateless composition</li>
-        <li>Stateful composition</li>
+        <li>Stateful composition <em>(future work)</em></li>
       </ul>
     </li>
   </ol>
@@ -302,22 +302,23 @@ X-Agent-Version: 1.0.0</code></pre>
   </section>
 
   <section>
-    <h2>Field Injection & Redaction</h2>
+    <h2>Simplifying Tool Interfaces</h2>
     <pre><code class="language-json">{
-  "name": "search_internal",
+  "name": "search_my_project",
   "implementation": {
     "source": {
-      "target": "search-server",
-      "tool": "search",
+      "target": "jira-server",
+      "tool": "search_issues",
       "defaults": {
-        "api_key": "${SEARCH_API_KEY}",
-        "tenant_id": "internal"
+        "project_name": "My Project"
       },
-      "hideFields": ["debug_mode", "raw_query"]
+      "hideFields": ["num_results", "include_archived"]
     }
   }
 }</code></pre>
-    <p class="fragment small"><code>defaults</code>: inject at call time &nbsp;|&nbsp; <code>hideFields</code>: remove from schema</p>
+    <p class="fragment small"><code>defaults</code>: hardcode values for this agent's context</p>
+    <p class="fragment small"><code>hideFields</code>: hide optional params where API defaults suffice</p>
+    <p class="fragment small warning">Goal: reduce cognitive load for the LLM</p>
   </section>
 
   <section>
@@ -512,6 +513,8 @@ Input ──┬──────────▶│   [1,2,3]    │────
   <section>
     <h3>Virtual Tools</h3>
     <h2 class="highlight">3e. Stateful Composition</h2>
+    <p class="warning">Future Work</p>
+    <p class="small">IR defined, not yet implemented</p>
   </section>
 
   <section>
@@ -617,6 +620,7 @@ On Failure at Step 3:
       <li><span class="highlight">Throttle</span> - Rate limiting strategies</li>
       <li><span class="highlight">Claim-Check</span> - Externalize large payloads</li>
     </ul>
+    <p class="fragment warning">All defined in IR; runtime execution is future work</p>
   </section>
 </section>
 
