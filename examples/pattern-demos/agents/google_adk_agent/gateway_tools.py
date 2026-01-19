@@ -22,6 +22,18 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
+# Agent identity - used by gateway to scope tool visibility
+AGENT_NAME = "adk-demo-agent"
+AGENT_VERSION = "1.0.0"
+
+
+def get_agent_identity_headers() -> dict[str, str]:
+    """Get headers for agent identity, used by gateway for tool scoping."""
+    return {
+        "X-Agent-Name": AGENT_NAME,
+        "X-Agent-Version": AGENT_VERSION,
+    }
+
 
 class MCPToolSchema(BaseModel):
     """Schema for an MCP tool definition."""
@@ -195,14 +207,19 @@ async def discover_gateway_tools(
 
     Args:
         gateway_url: URL of the agentgateway
-        headers: Optional authentication headers
+        headers: Optional authentication headers (agent identity added automatically)
 
     Returns:
         List of ADK FunctionTools
     """
+    # Merge agent identity headers with any provided headers
+    all_headers = get_agent_identity_headers()
+    if headers:
+        all_headers.update(headers)
+
     client = AgentGatewayMCPClient(
         gateway_url=gateway_url,
-        headers=headers,
+        headers=all_headers,
     )
 
     try:

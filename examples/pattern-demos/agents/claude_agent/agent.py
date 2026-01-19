@@ -32,6 +32,10 @@ from claude_agent_sdk import (
 DEFAULT_GATEWAY_URL = "http://localhost:3000"
 DEFAULT_GATEWAY_NAME = "agentgateway"
 
+# Agent identity - used by gateway to scope tool visibility
+AGENT_NAME = "claude-demo-agent"
+AGENT_VERSION = "1.0.0"
+
 
 def get_gateway_config(
     gateway_url: str | None = None,
@@ -51,13 +55,20 @@ def get_gateway_config(
     url = gateway_url or os.environ.get("AGENTGATEWAY_URL", DEFAULT_GATEWAY_URL)
     token = auth_token or os.environ.get("AGENTGATEWAY_AUTH_TOKEN")
 
-    config: dict[str, Any] = {
-        "type": "sse",
-        "url": f"{url.rstrip('/')}/sse",
+    # Build headers with agent identity for tool scoping
+    headers: dict[str, str] = {
+        "X-Agent-Name": AGENT_NAME,
+        "X-Agent-Version": AGENT_VERSION,
     }
 
     if token:
-        config["headers"] = {"Authorization": f"Bearer {token}"}
+        headers["Authorization"] = f"Bearer {token}"
+
+    config: dict[str, Any] = {
+        "type": "sse",
+        "url": f"{url.rstrip('/')}/sse",
+        "headers": headers,
+    }
 
     return {gateway_name: config}
 

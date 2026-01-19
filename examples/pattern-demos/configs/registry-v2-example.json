@@ -984,6 +984,95 @@
           }
         ]
       }
+    },
+
+    {
+      "$comment": "=== Demo Agents for Interactive Testing ===",
+      "name": "claude-demo-agent",
+      "version": "1.0.0",
+      "description": "Claude Agent SDK demo - Research and Knowledge focus",
+      "url": "http://localhost:3000",
+      "protocolVersion": "0.2.1",
+
+      "defaultInputModes": ["text"],
+      "defaultOutputModes": ["text"],
+
+      "skills": [
+        {
+          "id": "research",
+          "name": "Research Assistant",
+          "description": "Research topics, fetch web content, manage documents and knowledge",
+          "tags": ["research", "documents", "knowledge-graph"]
+        }
+      ],
+
+      "capabilities": {
+        "streaming": true,
+        "extensions": [
+          {
+            "uri": "urn:agentgateway:sbom",
+            "description": "Research-focused tool dependencies",
+            "params": {
+              "depends": [
+                { "type": "tool", "name": "search_documents", "version": "1.0.0" },
+                { "type": "tool", "name": "create_document", "version": "1.0.0" },
+                { "type": "tool", "name": "get_document", "version": "1.0.0" },
+                { "type": "tool", "name": "list_documents", "version": "1.0.0" },
+                { "type": "tool", "name": "fetch", "version": "1.2.3" },
+                { "type": "tool", "name": "get_webpage", "version": "1.0.0" },
+                { "type": "tool", "name": "read_graph", "version": "1.0.0" },
+                { "type": "tool", "name": "create_entities", "version": "1.0.0" },
+                { "type": "tool", "name": "get_current_time", "version": "1.0.0" },
+                { "type": "tool", "name": "fetch_and_store", "version": "1.0.0" }
+              ]
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "name": "adk-demo-agent",
+      "version": "1.0.0",
+      "description": "Google ADK demo - Task Orchestration and Saga focus",
+      "url": "http://localhost:3000",
+      "protocolVersion": "0.2.1",
+
+      "defaultInputModes": ["text"],
+      "defaultOutputModes": ["text"],
+
+      "skills": [
+        {
+          "id": "orchestrate",
+          "name": "Task Orchestrator",
+          "description": "Manage tasks, coordinate users, process orders with saga pattern",
+          "tags": ["tasks", "orchestration", "saga"]
+        }
+      ],
+
+      "capabilities": {
+        "streaming": true,
+        "extensions": [
+          {
+            "uri": "urn:agentgateway:sbom",
+            "description": "Orchestration-focused tool dependencies",
+            "params": {
+              "depends": [
+                { "type": "tool", "name": "create_task", "version": "1.0.0" },
+                { "type": "tool", "name": "list_tasks", "version": "1.0.0" },
+                { "type": "tool", "name": "complete_task", "version": "1.0.0" },
+                { "type": "tool", "name": "list_users", "version": "1.0.0" },
+                { "type": "tool", "name": "search_users_by_bio", "version": "1.0.0" },
+                { "type": "tool", "name": "send_notification", "version": "1.0.0" },
+                { "type": "tool", "name": "get_notifications", "version": "1.0.0" },
+                { "type": "tool", "name": "process_order", "version": "1.0.0" },
+                { "type": "tool", "name": "multi_search", "version": "1.0.0" },
+                { "type": "tool", "name": "create_task_and_notify", "version": "1.0.0" }
+              ]
+            }
+          }
+        ]
+      }
     }
   ]
 }

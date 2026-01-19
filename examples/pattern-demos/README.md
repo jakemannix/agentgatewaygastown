@@ -208,19 +208,31 @@ make start-services
 cd agents/claude_agent && python agent.py --chat
 ```
 
-### Available Sophisticated Tools
+### Agent Tool Scoping
 
-With the full demo setup, agents have access to:
+Each agent declares its tool dependencies in the registry. When connecting, agents pass their identity via HTTP headers (`X-Agent-Name`, `X-Agent-Version`), and the gateway scopes their tool visibility accordingly.
 
+**Claude Agent** (`claude-demo-agent`) - Research & Knowledge focus:
 | Tool | Type | Description |
 |------|------|-------------|
+| `search_documents` | Source | Semantic document search |
+| `create_document` | Source | Create searchable documents |
+| `fetch` | Source | Fetch web content |
+| `read_graph` | Source | Query knowledge graph |
+| `create_entities` | Source | Add to knowledge graph |
 | `fetch_and_store` | Pipeline | Fetch URL → store as document |
-| `search_and_summarize` | Pipeline | Search → combine → summarize |
-| `document_workflow` | Pipeline | Multi-step document processing |
-| `multi_search` | Scatter-Gather | Parallel search across services |
-| `order_saga` | Saga | Distributed transaction with rollback |
 
-Plus 22 more virtual tools with aliasing, projection, and transformation.
+**ADK Agent** (`adk-demo-agent`) - Task Orchestration & Saga focus:
+| Tool | Type | Description |
+|------|------|-------------|
+| `create_task` | Source | Create tasks |
+| `list_tasks` | Source | List/filter tasks |
+| `send_notification` | Source | Send notifications |
+| `multi_search` | Scatter-Gather | Parallel search across services |
+| `process_order` | Saga | Order with inventory/payment/shipping |
+| `create_task_and_notify` | Pipeline | Create task → notify assignee |
+
+This demonstrates how different agents can have different tool views from the same gateway, based on their declared dependencies in the registry.
 
 ## Framework Integration Examples
 
