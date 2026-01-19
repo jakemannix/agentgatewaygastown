@@ -37,7 +37,15 @@ impl PipelineExecutor {
 					executor
 						.execute_pattern(pattern, step_input, &child_ctx)
 						.await?
-				},
+				}
+				StepOperation::Agent(ac) => {
+					// Agent-as-tool execution (WP13) - not yet implemented
+					return Err(ExecutionError::NotImplemented(format!(
+						"agent-as-tool execution not yet implemented: agent={}, skill={:?}",
+						ac.name,
+						ac.skill
+					)));
+				}
 			};
 
 			// Store result for potential reference by later steps
@@ -131,16 +139,12 @@ mod tests {
 			steps: vec![
 				PipelineStep {
 					id: "s1".to_string(),
-					operation: StepOperation::Tool(ToolCall {
-						name: "step1_tool".to_string(),
-					}),
+					operation: StepOperation::Tool(ToolCall::new("step1_tool")),
 					input: None,
 				},
 				PipelineStep {
 					id: "s2".to_string(),
-					operation: StepOperation::Tool(ToolCall {
-						name: "step2_tool".to_string(),
-					}),
+					operation: StepOperation::Tool(ToolCall::new("step2_tool")),
 					input: None,
 				},
 			],
@@ -162,9 +166,7 @@ mod tests {
 		let spec = PipelineSpec {
 			steps: vec![PipelineStep {
 				id: "search".to_string(),
-				operation: StepOperation::Tool(ToolCall {
-					name: "search".to_string(),
-				}),
+				operation: StepOperation::Tool(ToolCall::new("search")),
 				input: Some(DataBinding::Input(InputBinding {
 					path: "$.query".to_string(),
 				})),
@@ -189,16 +191,12 @@ mod tests {
 			steps: vec![
 				PipelineStep {
 					id: "search".to_string(),
-					operation: StepOperation::Tool(ToolCall {
-						name: "search".to_string(),
-					}),
+					operation: StepOperation::Tool(ToolCall::new("search")),
 					input: None,
 				},
 				PipelineStep {
 					id: "process".to_string(),
-					operation: StepOperation::Tool(ToolCall {
-						name: "process".to_string(),
-					}),
+					operation: StepOperation::Tool(ToolCall::new("process")),
 					input: Some(DataBinding::Step(StepBinding {
 						step_id: "search".to_string(),
 						path: "$.results".to_string(),

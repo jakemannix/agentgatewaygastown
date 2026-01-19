@@ -83,6 +83,12 @@ pub enum StepOperationNode {
 	Tool { name: String },
 	/// Inline pattern
 	Pattern(Box<PatternSpec>),
+	/// Agent call (v2)
+	Agent {
+		name: String,
+		skill: Option<String>,
+		version: Option<String>,
+	},
 }
 
 /// A target in scatter-gather
@@ -162,7 +168,14 @@ impl ExecutionGraph {
 							super::patterns::StepOperation::Tool(tc) => StepOperationNode::Tool {
 								name: tc.name.clone(),
 							},
-							super::patterns::StepOperation::Pattern(p) => StepOperationNode::Pattern(p.clone()),
+							super::patterns::StepOperation::Pattern(p) => {
+								StepOperationNode::Pattern(p.clone())
+							}
+							super::patterns::StepOperation::Agent(ac) => StepOperationNode::Agent {
+								name: ac.name.clone(),
+								skill: ac.skill.clone(),
+								version: ac.version.clone(),
+							},
 						},
 						input: s.input.clone(),
 					})
@@ -242,10 +255,13 @@ impl ExecutionGraph {
 						StepOperationNode::Pattern(p) => {
 							let inner_op = Self::pattern_to_operation(p);
 							Self::collect_tool_refs(&inner_op, refs);
-						},
+						}
+						StepOperationNode::Agent { .. } => {
+							// Agents are tracked separately, not as tool refs
+						}
 					}
 				}
-			},
+			}
 			NodeOperation::ScatterGather { targets, .. } => {
 				for target in targets {
 					match target {
@@ -290,16 +306,12 @@ mod tests {
 			steps: vec![
 				PipelineStep {
 					id: "step1".to_string(),
-					operation: StepOperation::Tool(ToolCall {
-						name: "search".to_string(),
-					}),
+					operation: StepOperation::Tool(ToolCall::new("search")),
 					input: None,
 				},
 				PipelineStep {
 					id: "step2".to_string(),
-					operation: StepOperation::Tool(ToolCall {
-						name: "summarize".to_string(),
-					}),
+					operation: StepOperation::Tool(ToolCall::new("summarize")),
 					input: None,
 				},
 			],

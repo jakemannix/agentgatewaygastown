@@ -187,9 +187,7 @@ mod tests {
 		on_exceeded: OnExceeded,
 	) -> ThrottleSpec {
 		ThrottleSpec {
-			inner: Box::new(StepOperation::Tool(ToolCall {
-				name: "test_tool".to_string(),
-			})),
+			inner: Box::new(StepOperation::Tool(ToolCall::new("test_tool"))),
 			rate,
 			window_ms,
 			strategy,

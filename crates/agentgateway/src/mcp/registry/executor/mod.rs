@@ -67,6 +67,9 @@ pub enum ExecutionError {
 
 	#[error("stateful pattern not implemented: {pattern}. {details}")]
 	StatefulPatternNotImplemented { pattern: String, details: String },
+
+	#[error("feature not implemented: {0}")]
+	NotImplemented(String),
 }
 
 /// Composition executor - executes tool compositions
@@ -342,9 +345,7 @@ mod tests {
 			PatternSpec::Pipeline(PipelineSpec {
 				steps: vec![PipelineStep {
 					id: "step1".to_string(),
-					operation: StepOperation::Tool(ToolCall {
-						name: "echo".to_string(),
-					}),
+					operation: StepOperation::Tool(ToolCall::new("echo")),
 					input: None,
 				}],
 			}),
@@ -388,9 +389,7 @@ mod tests {
 		let composition = ToolDefinition::composition(
 			"retry_composition",
 			PatternSpec::Retry(RetrySpec {
-				inner: Box::new(StepOperation::Tool(ToolCall {
-					name: "flaky_api".to_string(),
-				})),
+				inner: Box::new(StepOperation::Tool(ToolCall::new("flaky_api"))),
 				max_attempts: 3,
 				backoff: BackoffStrategy::Exponential(ExponentialBackoff {
 					initial_delay_ms: 100,
