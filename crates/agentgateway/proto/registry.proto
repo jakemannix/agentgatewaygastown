@@ -6,13 +6,280 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/agentgateway/agentgateway/go/api;api";
 
-// Registry is the root container for tool definitions
+// Registry is the root container for the v2 registry IR
+// Contains schemas, servers, agents, and tools for full registry definition
 message Registry {
-  // Schema version for compatibility checking
+  // Schema version for compatibility checking (e.g., "2.0")
   string schema_version = 1;
-  
+
   // List of tool definitions (virtual tools and compositions)
   repeated ToolDefinition tools = 2;
+
+  // Named JSON Schema definitions (v2)
+  // Can be referenced by tools via "$ref": "#/schemas/<name>"
+  repeated SchemaDefinition schemas = 3;
+
+  // MCP server definitions with versioning (v2)
+  // Enables version-aware routing and validation
+  repeated ServerDefinition servers = 4;
+
+  // Agent definitions for A2A routing (v2)
+  // Enables agent multiplexing and agent-as-tool execution
+  repeated AgentDefinition agents = 5;
+}
+
+// =============================================================================
+// Schema Definitions (v2)
+// =============================================================================
+
+// SchemaDefinition represents a named, reusable JSON Schema
+// Tools can reference these via "$ref": "#/schemas/<name>"
+message SchemaDefinition {
+  // Unique schema name (used in $ref)
+  string name = 1;
+
+  // Optional description of this schema
+  optional string description = 2;
+
+  // The JSON Schema definition
+  google.protobuf.Struct schema = 3;
+
+  // Semantic version of this schema
+  optional string version = 4;
+
+  // Optional metadata (owner, classification, deprecation info, etc.)
+  map<string, google.protobuf.Value> metadata = 5;
+}
+
+// =============================================================================
+// Server Definitions (v2)
+// =============================================================================
+
+// ServerDefinition represents an MCP server with versioning
+// Enables version-aware routing: "server:version" key dispatch
+message ServerDefinition {
+  // Server name (e.g., "doc-service")
+  string name = 1;
+
+  // Server version (e.g., "1.2.0") - forms "name:version" routing key
+  string version = 2;
+
+  // Optional description of this server
+  optional string description = 3;
+
+  // Server capabilities (what protocols/features it supports)
+  ServerCapabilities capabilities = 4;
+
+  // Tools provided by this server (for validation)
+  // Maps tool name -> expected input/output schema refs
+  repeated ServerTool provided_tools = 5;
+
+  // Optional metadata (owner, team, health endpoint, etc.)
+  map<string, google.protobuf.Value> metadata = 6;
+}
+
+// ServerCapabilities describes what an MCP server supports
+message ServerCapabilities {
+  // Supports MCP StreamableHTTP protocol
+  bool streamable_http = 1;
+
+  // Supports MCP stdio protocol
+  bool stdio = 2;
+
+  // Supports SSE transport
+  bool sse = 3;
+
+  // Supports tool invocation
+  bool tools = 4;
+
+  // Supports prompts
+  bool prompts = 5;
+
+  // Supports resources
+  bool resources = 6;
+
+  // Supports sampling
+  bool sampling = 7;
+}
+
+// ServerTool represents a tool provided by a server (for validation)
+message ServerTool {
+  // Tool name as exposed by the server
+  string name = 1;
+
+  // Expected input schema reference (e.g., "#/schemas/WeatherInput")
+  optional string input_schema_ref = 2;
+
+  // Expected output schema reference (e.g., "#/schemas/WeatherOutput")
+  optional string output_schema_ref = 3;
+}
+
+// =============================================================================
+// Agent Definitions (v2)
+// =============================================================================
+
+// AgentDefinition represents an agent for A2A routing
+// Enables agent multiplexing and agent-as-tool execution
+message AgentDefinition {
+  // Unique agent name
+  string name = 1;
+
+  // Agent version (semantic versioning)
+  string version = 2;
+
+  // Human-readable description
+  optional string description = 3;
+
+  // Agent endpoint configuration
+  AgentEndpoint endpoint = 4;
+
+  // Skills/capabilities this agent provides
+  repeated AgentSkill skills = 5;
+
+  // Dependencies this agent has on other tools/agents
+  repeated AgentDependency dependencies = 6;
+
+  // Optional metadata (owner, team, cost tier, etc.)
+  map<string, google.protobuf.Value> metadata = 7;
+}
+
+// AgentEndpoint describes how to connect to an agent
+message AgentEndpoint {
+  oneof transport {
+    // A2A HTTP endpoint
+    A2AEndpoint a2a = 1;
+
+    // MCP endpoint (for MCP-native agents)
+    MCPEndpoint mcp = 2;
+  }
+}
+
+// A2AEndpoint for Agent-to-Agent protocol connections
+message A2AEndpoint {
+  // Base URL for A2A requests
+  string url = 1;
+
+  // Authentication configuration (optional)
+  optional AgentAuth auth = 2;
+}
+
+// MCPEndpoint for MCP-native agent connections
+message MCPEndpoint {
+  // Server name reference (from servers list)
+  string server = 1;
+
+  // Server version (optional, uses latest if not specified)
+  optional string server_version = 2;
+}
+
+// AgentAuth describes authentication for agent connections
+message AgentAuth {
+  oneof auth_type {
+    // Bearer token authentication
+    BearerAuth bearer = 1;
+
+    // API key authentication
+    ApiKeyAuth api_key = 2;
+
+    // OAuth2 client credentials
+    OAuth2Auth oauth2 = 3;
+  }
+}
+
+message BearerAuth {
+  // Token value (supports ${ENV_VAR} substitution)
+  string token = 1;
+}
+
+message ApiKeyAuth {
+  // Header name for the API key
+  string header = 1;
+
+  // API key value (supports ${ENV_VAR} substitution)
+  string key = 2;
+}
+
+message OAuth2Auth {
+  // Token endpoint URL
+  string token_url = 1;
+
+  // Client ID (supports ${ENV_VAR} substitution)
+  string client_id = 2;
+
+  // Client secret (supports ${ENV_VAR} substitution)
+  string client_secret = 3;
+
+  // Scopes to request
+  repeated string scopes = 4;
+}
+
+// AgentSkill describes a capability an agent provides
+// Used for capability-based routing and discovery
+message AgentSkill {
+  // Skill name (e.g., "code_review", "research", "data_analysis")
+  string name = 1;
+
+  // Skill description
+  optional string description = 2;
+
+  // Input schema for this skill (JSON Schema reference or inline)
+  optional SchemaRef input_schema = 3;
+
+  // Output schema for this skill
+  optional SchemaRef output_schema = 4;
+
+  // Example invocations (for LLM context)
+  repeated SkillExample examples = 5;
+}
+
+// SchemaRef can be either a reference to a named schema or inline
+message SchemaRef {
+  oneof schema {
+    // Reference to a named schema: "#/schemas/<name>"
+    string ref = 1;
+
+    // Inline JSON Schema definition
+    google.protobuf.Struct inline = 2;
+  }
+}
+
+// SkillExample provides example invocations for a skill
+message SkillExample {
+  // Example input
+  google.protobuf.Value input = 1;
+
+  // Expected output
+  optional google.protobuf.Value output = 2;
+
+  // Description of this example
+  optional string description = 3;
+}
+
+// AgentDependency declares what tools/agents an agent depends on
+// Used for dependency-scoped discovery (WP11)
+message AgentDependency {
+  oneof dependency {
+    // Depends on a specific tool by name
+    string tool = 1;
+
+    // Depends on another agent by name
+    string agent = 2;
+
+    // Depends on tools from a specific server
+    ServerDependency server = 3;
+  }
+}
+
+// ServerDependency declares dependency on tools from a server
+message ServerDependency {
+  // Server name
+  string name = 1;
+
+  // Optional version constraint (semver range, e.g., ">=1.0.0 <2.0.0")
+  optional string version_constraint = 2;
+
+  // Specific tools from this server (empty means all)
+  repeated string tools = 3;
 }
 
 // ToolDefinition represents either a virtual tool (1:1 mapping) or a composition (N:1 orchestration)
@@ -47,17 +314,23 @@ message ToolDefinition {
 
 // SourceTool defines a 1:1 mapping to a backend tool
 message SourceTool {
-  // Target name (MCP server/backend name)
-  string target = 1;
-  
-  // Original tool name on that target
+  // Server name (v2: references ServerDefinition.name)
+  // For v1 compatibility, this is the target name in YAML config
+  string server = 1;
+
+  // Original tool name on that server
   string tool = 2;
-  
+
   // Fields to inject at call time (supports ${ENV_VAR} substitution)
   map<string, google.protobuf.Value> defaults = 3;
-  
+
   // Fields to remove from schema (hidden from agents)
   repeated string hide_fields = 4;
+
+  // Server version constraint (v2)
+  // If specified, forms "server:version" routing key
+  // Supports semver ranges (e.g., ">=1.0.0 <2.0.0") or exact versions
+  optional string server_version = 5;
 }
 
 // PatternSpec defines a composition pattern
@@ -107,15 +380,37 @@ message StepOperation {
   oneof op {
     // Call a tool by name (resolved from registry or backend)
     ToolCall tool = 1;
-    
+
     // Inline pattern (no separate name)
     PatternSpec pattern = 2;
+
+    // Call an agent (v2: for agent-as-tool execution)
+    AgentCall agent = 3;
   }
+}
+
+// AgentCall invokes a registered agent as a step operation
+message AgentCall {
+  // Agent name (references AgentDefinition.name)
+  string name = 1;
+
+  // Specific skill to invoke (optional, uses default if not specified)
+  optional string skill = 2;
+
+  // Agent version constraint (optional, uses latest if not specified)
+  optional string version = 3;
 }
 
 message ToolCall {
   // Tool name (can be virtual tool, composition, or backend tool)
   string name = 1;
+
+  // Server name override (v2: for direct backend tool calls)
+  // If specified, bypasses registry lookup and calls tool directly on server
+  optional string server = 2;
+
+  // Server version constraint (v2)
+  optional string server_version = 3;
 }
 
 // DataBinding specifies where step input comes from
