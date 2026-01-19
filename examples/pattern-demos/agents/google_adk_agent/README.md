@@ -72,24 +72,44 @@ cargo run -- -f examples/pattern-demos/agents/google_adk_agent/config.yaml
 
 ## Running the Agent
 
-### Option 1: ADK CLI (Recommended)
+### Interactive Chat Mode (Recommended)
+
+The best way to explore the agent is through interactive chat:
 
 ```bash
-# Interactive CLI
+# CLI chat - launches 'adk run' with full conversation support
+python -m google_adk_agent --chat
+
+# Web interface - launches 'adk web' with visual chat UI
+python -m google_adk_agent --web
+```
+
+Or use ADK commands directly:
+
+```bash
+# Interactive CLI (same as --chat)
 adk run .
 
-# Web interface
+# Web interface with chat UI (same as --web)
 adk web .
 ```
 
-### Option 2: Python module
+The web interface (`adk web`) provides:
+- Visual chat UI in your browser
+- Tool execution visualization
+- Session management
+- Response streaming
+
+### One-Shot Demo Mode
+
+For testing or scripting:
 
 ```bash
-# Run demo saga
-uv run . --demo
+# Run a demo saga execution
+python -m google_adk_agent --demo
 
-# Run with custom gateway URL
-uv run . --gateway-url http://localhost:3000 --demo
+# With custom gateway URL
+python -m google_adk_agent --demo --gateway-url http://localhost:3000
 ```
 
 ## Example Interaction

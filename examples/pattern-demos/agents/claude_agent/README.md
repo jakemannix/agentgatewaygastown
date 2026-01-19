@@ -53,24 +53,66 @@ cargo run -- -f examples/basic/config.yaml
 
 ## Usage
 
-### Basic Usage
+### Interactive Chat Mode (Recommended)
+
+The best way to explore AgentGateway tools is through interactive chat:
+
+```bash
+# Start interactive chat
+uv run python agent.py --chat
+
+# Or shorthand
+python agent.py -c
+```
+
+In chat mode, you can have a natural conversation with the agent:
+
+```
+============================================================
+AgentGateway Chat
+============================================================
+Type your message and press Enter. Commands:
+  quit, exit, q  - Exit the chat
+  clear          - Clear conversation history
+  tools          - List available tools
+------------------------------------------------------------
+[Connecting to gateway...]
+
+> What tools do you have available?
+
+I have access to several tools from AgentGateway...
+
+> Search for documents about API design
+
+[Tool: mcp__agentgateway__search_documents] {"query": "API design"}
+
+I found 3 documents about API design...
+
+> Create a task to review those findings
+
+[Tool: mcp__agentgateway__create_task] {"title": "Review API design docs"...}
+
+Done! I've created a task...
+
+> quit
+[Goodbye!]
+```
+
+### One-Shot Mode
+
+For scripting or single tasks:
 
 ```bash
 # Run with default demo prompt
 uv run python agent.py
 
-# Or with pip-installed package
-python agent.py
-```
-
-### Custom Prompts
-
-```bash
 # Use a custom task prompt
 uv run python agent.py --prompt "List all available tools and explain what each does"
 
-# Document analysis task
-uv run python agent.py --prompt "Find documents about authentication and summarize key points"
+# Run a predefined scenario
+uv run python agent.py --scenario document_search
+uv run python agent.py --scenario task_management
+uv run python agent.py --scenario user_collaboration
 ```
 
 ### Configuration Options
@@ -84,6 +126,9 @@ uv run python agent.py --auth-token "your-bearer-token"
 
 # Quiet mode (only show final result)
 uv run python agent.py --quiet
+
+# List available scenarios
+uv run python agent.py --list-scenarios
 ```
 
 ### Environment Variables

@@ -149,6 +149,62 @@ Proxy Agent-to-Agent (A2A) protocol traffic with URL rewriting and observability
   - host: localhost:9999
 ```
 
+## Interactive Agent Demos
+
+The best way to explore AgentGateway's compositional tools is through interactive chat with an AI agent. We provide two agent implementations:
+
+### Claude Agent (Claude Agent SDK)
+
+```bash
+cd agents/claude_agent
+
+# Start interactive chat (recommended)
+python agent.py --chat
+
+# One-shot with custom prompt
+python agent.py --prompt "Search for documents about APIs and create tasks"
+
+# Run a predefined scenario
+python agent.py --scenario document_search
+```
+
+The Claude agent uses the Claude Agent SDK with ClaudeSDKClient for multi-turn conversations. In chat mode, you can:
+- Ask questions and give commands naturally
+- Watch the agent reason through tool selection
+- See tool calls and results in real-time
+- Type `quit` to exit, `tools` to list available tools
+
+### Google ADK Agent
+
+```bash
+cd agents/google_adk_agent
+
+# Interactive CLI chat (launches 'adk run')
+python -m google_adk_agent --chat
+
+# Web interface with chat UI (launches 'adk web')
+python -m google_adk_agent --web
+
+# One-shot demo
+python -m google_adk_agent --demo
+```
+
+The ADK agent uses Google's built-in `adk run` (terminal) and `adk web` (browser) for the best interactive experience. The web interface provides a visual chat UI with tool execution visualization.
+
+### Prerequisites
+
+Both agents require:
+1. AgentGateway running (`make start-services`)
+2. API credentials (Anthropic API key for Claude, Google API key for ADK)
+
+```bash
+# Start the gateway first
+make start-services
+
+# Then in another terminal, start an agent
+cd agents/claude_agent && python agent.py --chat
+```
+
 ## Framework Integration Examples
 
 ### Claude Code
