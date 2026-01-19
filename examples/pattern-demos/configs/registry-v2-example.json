@@ -745,10 +745,10 @@
     },
 
     {
-      "$comment": "=== COMPOSITION: Agent-as-Tool Pipeline ===",
+      "$comment": "=== COMPOSITION: Agent-as-Tool Pipeline (PHASE 2 - not yet implemented) ===",
       "name": "research_and_summarize",
       "version": "1.0.0",
-      "description": "Pipeline: research a topic then summarize with agents",
+      "description": "[Phase 2] Pipeline: research a topic then summarize with agents",
       "depends": [
         { "type": "agent", "name": "research-agent", "version": "2.1.0", "skill": "research_topic" },
         { "type": "agent", "name": "summarizer-agent", "version": "2.0.0", "skill": "summarize" }

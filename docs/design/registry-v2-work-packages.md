@@ -7,6 +7,35 @@ This document breaks down the Registry v2 implementation into parallelizable wor
 
 ---
 
+## Implementation Phases
+
+### Phase 1 (MVP): Agent-to-MCP-Tool
+Focus on enabling agents to access versioned MCP tools with dependency tracking.
+
+**Included Work Packages:**
+- WP1: Proto Schema Update
+- WP2: Rust Types and Parsing
+- WP3: Rust Validation
+- WP4: Runtime Hooks
+- WP5: TypeScript DSL Types
+- WP6: TypeScript DSL Validation
+- WP7: SBOM Export
+- WP8: Test Suite
+- WP9: Documentation
+- WP10: Caller Identity
+- WP11: Dependency-Scoped Discovery
+- WP14: Discovery Endpoints (MCP only)
+
+### Phase 2 (Future): Agent-as-Tool
+Extend the gateway to invoke A2A agents within compositions.
+
+**Deferred Work Packages:**
+- WP12: Agent Multiplexing (A2A)
+- WP13: Agent-as-Tool Executor
+- WP15: Agent Discovery Endpoints
+
+---
+
 ## Work Package Overview
 
 ```
@@ -1236,24 +1265,661 @@ User-facing documentation and migration guide.
 
 ---
 
-## Getting Started
+---
 
-1. **Clone the repo and read the design doc**
+## WP10: Caller Identity
+
+**Status**: Not Started  
+**Owner**: TBD  
+**Estimated Effort**: 2-3 days  
+**Dependencies**: WP2
+
+### Objective
+
+Extract caller identity from requests (MCP and A2A) for dependency enforcement.
+
+### Files to Create
+
+- `crates/agentgateway/src/mcp/identity.rs`
+- `crates/agentgateway/src/a2a/identity.rs`
+
+### Core Types
+
+```rust
+/// Caller identity extracted from request
+#[derive(Debug, Clone)]
+pub struct CallerIdentity {
+    pub name: String,
+    pub version: String,
+    pub source: IdentitySource,
+}
+
+#[derive(Debug, Clone)]
+pub enum IdentitySource {
+    Header,           // X-Agent-Name + X-Agent-Version headers
+    Jwt(String),      // JWT claim
+    McpClientInfo,    // MCP initialize clientInfo
+    A2aCallerAgent,   // X-Caller-Agent header (URL to AgentCard)
+    Unknown,
+}
+
+/// Extract identity from HTTP request
+pub fn extract_identity(
+    headers: &HeaderMap,
+    mcp_client_info: Option<&ClientInfo>,
+) -> Option<CallerIdentity> {
+    // Try headers first
+    if let (Some(name), Some(version)) = (
+        headers.get("x-agent-name"),
+        headers.get("x-agent-version"),
+    ) {
+        return Some(CallerIdentity {
+            name: name.to_str().ok()?.to_string(),
+            version: version.to_str().ok()?.to_string(),
+            source: IdentitySource::Header,
+        });
+    }
+    
+    // Fall back to MCP clientInfo
+    if let Some(info) = mcp_client_info {
+        return Some(CallerIdentity {
+            name: info.name.clone(),
+            version: info.version.clone().unwrap_or_else(|| "unknown".to_string()),
+            source: IdentitySource::McpClientInfo,
+        });
+    }
+    
+    None
+}
+```
+
+### Test Stubs
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_from_headers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-agent-name", "research-agent".parse().unwrap());
+        headers.insert("x-agent-version", "2.1.0".parse().unwrap());
+        
+        let identity = extract_identity(&headers, None).unwrap();
+        assert_eq!(identity.name, "research-agent");
+        assert_eq!(identity.version, "2.1.0");
+        assert!(matches!(identity.source, IdentitySource::Header));
+    }
+
+    #[test]
+    fn test_fallback_to_mcp_client_info() {
+        let headers = HeaderMap::new();
+        let client_info = ClientInfo {
+            name: "my-agent".to_string(),
+            version: Some("1.0.0".to_string()),
+        };
+        
+        let identity = extract_identity(&headers, Some(&client_info)).unwrap();
+        assert_eq!(identity.name, "my-agent");
+        assert!(matches!(identity.source, IdentitySource::McpClientInfo));
+    }
+
+    #[test]
+    fn test_unknown_caller() {
+        let headers = HeaderMap::new();
+        let identity = extract_identity(&headers, None);
+        assert!(identity.is_none());
+    }
+}
+```
+
+### Acceptance Criteria
+
+- [ ] Extract identity from X-Agent-Name/Version headers
+- [ ] Fall back to MCP clientInfo
+- [ ] Support A2A X-Caller-Agent header
+- [ ] Identity available in request context
+
+---
+
+## WP11: Dependency-Scoped Discovery
+
+**Status**: Not Started  
+**Owner**: TBD  
+**Estimated Effort**: 3-4 days  
+**Dependencies**: WP10, WP3
+
+### Objective
+
+Filter `tools/list` results based on caller's declared dependencies.
+
+### Files to Modify
+
+- `crates/agentgateway/src/mcp/handler.rs`
+- `crates/agentgateway/src/mcp/session.rs`
+
+### Implementation
+
+```rust
+// In handler.rs, modify merge_tools():
+
+pub fn merge_tools(&self, cel: CelContext, caller: Option<CallerIdentity>) -> MergeFn {
+    let registry = self.registry.clone();
+    let config = self.config.clone();
+
+    Box::new(move |streams| {
+        let backend_tools = /* ... existing code ... */;
+        let transformed_tools = /* ... existing code ... */;
+
+        // NEW: Dependency filtering
+        let filtered_tools = match (&caller, &registry) {
+            (Some(agent), Some(reg)) => {
+                let guard = reg.get();
+                if let Some(compiled) = guard.as_ref() {
+                    transformed_tools
+                        .into_iter()
+                        .filter(|(_, tool)| {
+                            compiled.agent_can_access_tool(
+                                &agent.name,
+                                &agent.version,
+                                &tool.name,
+                            )
+                        })
+                        .collect()
+                } else {
+                    transformed_tools
+                }
+            }
+            (None, _) if config.allow_unknown_caller => transformed_tools,
+            (None, _) => {
+                // Reject or warn based on config
+                vec![]
+            }
+            _ => transformed_tools,
+        };
+
+        // Continue with RBAC filtering...
+    })
+}
+```
+
+### Test Stubs
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_scoped_discovery_returns_only_dependencies() {
+        let registry = load_v2_example();
+        let handler = create_test_handler(registry);
+        
+        // research-agent depends on: search_documents, fetch, create_entities
+        let caller = CallerIdentity {
+            name: "research-agent".into(),
+            version: "2.1.0".into(),
+            source: IdentitySource::Header,
+        };
+        
+        let tools = handler.list_tools_for_caller(Some(caller)).await;
+        
+        let tool_names: Vec<_> = tools.iter().map(|t| t.name.as_str()).collect();
+        assert!(tool_names.contains(&"search_documents"));
+        assert!(tool_names.contains(&"fetch"));
+        assert!(!tool_names.contains(&"send_notification")); // Not in depends
+    }
+
+    #[tokio::test]
+    async fn test_unknown_caller_policy_allow() {
+        let config = RuntimeConfig { allow_unknown_caller: true, .. };
+        let handler = create_test_handler_with_config(config);
+        
+        let tools = handler.list_tools_for_caller(None).await;
+        assert!(!tools.is_empty()); // Gets all tools
+    }
+
+    #[tokio::test]
+    async fn test_unknown_caller_policy_deny() {
+        let config = RuntimeConfig { allow_unknown_caller: false, .. };
+        let handler = create_test_handler_with_config(config);
+        
+        let tools = handler.list_tools_for_caller(None).await;
+        assert!(tools.is_empty()); // Gets nothing
+    }
+}
+```
+
+### Acceptance Criteria
+
+- [ ] `tools/list` filters by caller's depends when caller identified
+- [ ] Unknown caller policy configurable (allow/warn/deny)
+- [ ] Registered agent only sees declared tools
+- [ ] Metrics for dependency mismatches
+
+---
+
+## WP12: Agent Multiplexing (A2A) — *Phase 2*
+
+> **⚠️ Phase 2**: This work package is deferred until Phase 1 is complete and validated.
+
+**Status**: Deferred (Phase 2)  
+**Owner**: TBD  
+**Estimated Effort**: 4-5 days  
+**Dependencies**: WP2, Phase 1 complete
+
+### Objective
+
+Route A2A requests to multiple registered agents (like MCP multiplexing).
+
+### Files to Create/Modify
+
+- `crates/agentgateway/src/a2a/router.rs` (new)
+- `crates/agentgateway/src/a2a/mod.rs` (modify)
+
+### Design
+
+```rust
+/// A2A router that multiplexes across registered agents
+pub struct A2aRouter {
+    /// Registry with agent definitions
+    registry: Arc<RegistryStoreRef>,
+    /// HTTP client for backend calls
+    http_client: reqwest::Client,
+}
+
+impl A2aRouter {
+    /// Route A2A request to appropriate agent
+    pub async fn route(&self, req: Request<Body>) -> Result<Response<Body>, A2aError> {
+        let path = req.uri().path();
+        
+        // Path-based routing: /a2a/{agent-name}/...
+        if let Some(agent_name) = extract_agent_from_path(path) {
+            return self.route_to_agent(&agent_name, req).await;
+        }
+        
+        // Discovery endpoint: /.well-known/agents
+        if path == "/.well-known/agents" {
+            return self.handle_discovery().await;
+        }
+        
+        Err(A2aError::AgentNotSpecified)
+    }
+    
+    /// Route to specific agent by name
+    async fn route_to_agent(
+        &self,
+        agent_name: &str,
+        req: Request<Body>,
+    ) -> Result<Response<Body>, A2aError> {
+        let agent = self.registry.lookup_agent(agent_name)?;
+        
+        // Forward to agent's URL
+        let backend_url = &agent.url;
+        // ... forward request ...
+    }
+    
+    /// Return aggregated list of registered agents
+    async fn handle_discovery(&self) -> Result<Response<Body>, A2aError> {
+        let agents = self.registry.list_agents();
+        let response = agents.iter().map(|a| AgentCardSummary {
+            name: a.name.clone(),
+            version: a.version.clone(),
+            description: a.description.clone(),
+            url: format!("/a2a/{}", a.name), // Gateway URL
+            skills: a.skills.iter().map(|s| s.id.clone()).collect(),
+        }).collect::<Vec<_>>();
+        
+        Ok(Response::builder()
+            .header("content-type", "application/json")
+            .body(serde_json::to_vec(&response)?.into())?)
+    }
+}
+```
+
+### Test Stubs
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_route_to_agent_by_path() {
+        let router = create_test_router();
+        
+        let req = Request::builder()
+            .uri("/a2a/research-agent/message/send")
+            .body(Body::empty())
+            .unwrap();
+        
+        let response = router.route(req).await;
+        // Should route to research-agent backend
+    }
+
+    #[tokio::test]
+    async fn test_discovery_endpoint() {
+        let router = create_test_router();
+        
+        let req = Request::builder()
+            .uri("/.well-known/agents")
+            .body(Body::empty())
+            .unwrap();
+        
+        let response = router.route(req).await.unwrap();
+        let agents: Vec<AgentCardSummary> = serde_json::from_slice(
+            &hyper::body::to_bytes(response.into_body()).await.unwrap()
+        ).unwrap();
+        
+        assert!(agents.iter().any(|a| a.name == "research-agent"));
+        assert!(agents.iter().any(|a| a.name == "summarizer-agent"));
+    }
+
+    #[tokio::test]
+    async fn test_agent_not_found() {
+        let router = create_test_router();
+        
+        let req = Request::builder()
+            .uri("/a2a/nonexistent-agent/message/send")
+            .body(Body::empty())
+            .unwrap();
+        
+        let result = router.route(req).await;
+        assert!(matches!(result, Err(A2aError::AgentNotFound(_))));
+    }
+}
+```
+
+### Acceptance Criteria
+
+- [ ] Path-based routing: `/a2a/{agent}/...`
+- [ ] Discovery endpoint: `/.well-known/agents`
+- [ ] Agent lookup from registry
+- [ ] AgentCard URL rewriting to gateway URLs
+
+---
+
+## WP13: Agent-as-Tool Executor — *Phase 2*
+
+> **⚠️ Phase 2**: This work package is deferred until Phase 1 is complete and validated.
+
+**Status**: Deferred (Phase 2)  
+**Owner**: TBD  
+**Estimated Effort**: 4-5 days  
+**Dependencies**: WP12, WP4, Phase 1 complete
+
+### Objective
+
+Execute agents as steps in tool compositions (pipelines, scatter-gather).
+
+### Files to Create
+
+- `crates/agentgateway/src/mcp/registry/executor/agent.rs`
+
+### Design
+
+```rust
+/// Execute an agent call within a composition
+pub async fn execute_agent_call(
+    call: &AgentCall,
+    input: serde_json::Value,
+    registry: &CompiledRegistry,
+    a2a_client: &A2aClient,
+) -> Result<serde_json::Value, ExecutorError> {
+    // 1. Look up agent in registry
+    let agent = registry.get_agent(&call.name, &call.version)?;
+    
+    // 2. Find the skill
+    let skill = agent.skills.iter()
+        .find(|s| s.id == call.skill)
+        .ok_or(ExecutorError::SkillNotFound)?;
+    
+    // 3. Validate input against skill's inputSchema
+    if let Some(schema) = &skill.input_schema {
+        validate_json(&input, schema)?;
+    }
+    
+    // 4. Build A2A message with DataPart
+    let message = a2a_sdk::Message {
+        role: "user".into(),
+        parts: vec![
+            a2a_sdk::Part::Data(a2a_sdk::DataPart { data: input })
+        ],
+    };
+    
+    // 5. Send to agent
+    let response = a2a_client.send_message(&agent.url, message).await?;
+    
+    // 6. Extract result from response
+    let result = extract_data_part(&response)?;
+    
+    // 7. Validate output against skill's outputSchema
+    if let Some(schema) = &skill.output_schema {
+        validate_json(&result, schema)?;
+    }
+    
+    Ok(result)
+}
+```
+
+### Test Stubs
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_execute_agent_call() {
+        let registry = load_v2_example();
+        let mock_agent = MockA2aAgent::new();
+        mock_agent.expect_skill("summarize")
+            .returning(|input| Ok(json!({ "summary": "test summary" })));
+        
+        let result = execute_agent_call(
+            &AgentCall {
+                name: "summarizer-agent".into(),
+                skill: "summarize".into(),
+            },
+            json!({ "content": "long text here..." }),
+            &registry,
+            &mock_agent.client(),
+        ).await.unwrap();
+        
+        assert_eq!(result["summary"], "test summary");
+    }
+
+    #[tokio::test]
+    async fn test_agent_input_validation() {
+        let registry = load_v2_example();
+        
+        // Missing required field
+        let result = execute_agent_call(
+            &AgentCall {
+                name: "summarizer-agent".into(),
+                skill: "summarize".into(),
+            },
+            json!({ "wrong_field": "value" }),  // Missing "content"
+            &registry,
+            &mock_client(),
+        ).await;
+        
+        assert!(matches!(result, Err(ExecutorError::InputValidation(_))));
+    }
+
+    #[tokio::test]
+    async fn test_pipeline_with_agent_steps() {
+        let registry = load_v2_example();
+        
+        // research_and_summarize pipeline:
+        // Step 1: research-agent:research_topic
+        // Step 2: summarizer-agent:summarize
+        
+        let result = execute_composition(
+            "research_and_summarize",
+            json!({ "topic": "quantum computing" }),
+            &registry,
+        ).await.unwrap();
+        
+        assert!(result.get("research").is_some());
+        assert!(result.get("executiveSummary").is_some());
+    }
+}
+```
+
+### Acceptance Criteria
+
+- [ ] AgentCall execution works in pipelines
+- [ ] Input mapped to A2A DataPart
+- [ ] Output extracted from A2A response
+- [ ] Schema validation for skill I/O
+- [ ] Error handling for agent failures
+
+---
+
+## WP14: Discovery Endpoints (Phase 1: MCP Only)
+
+**Status**: Not Started  
+**Owner**: TBD  
+**Estimated Effort**: 2-3 days  
+**Dependencies**: WP2
+
+### Objective
+
+Implement versioned tool discovery for MCP clients.
+
+### Files to Create/Modify
+
+- `crates/agentgateway/src/mcp/handler.rs` (modify for versioned tools)
+
+### Endpoints (Phase 1)
+
+| Endpoint | Description |
+|----------|-------------|
+| `/mcp` + `tools/list` | Already exists, add version metadata |
+
+### Endpoints (Phase 2 - Deferred)
+
+| Endpoint | Description |
+|----------|-------------|
+| `/.well-known/agents` | List all registered agents |
+| `/.well-known/agents/{name}` | Get specific agent's card |
+
+### Test Stubs
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_list_agents() {
+        let server = create_test_server();
+        
+        let response = server.get("/.well-known/agents").await;
+        assert_eq!(response.status(), 200);
+        
+        let agents: Vec<AgentCardSummary> = response.json().await;
+        assert!(agents.iter().any(|a| a.name == "research-agent"));
+    }
+
+    #[tokio::test]
+    async fn test_get_agent_card() {
+        let server = create_test_server();
+        
+        let response = server.get("/.well-known/agents/research-agent").await;
+        assert_eq!(response.status(), 200);
+        
+        let card: AgentCard = response.json().await;
+        assert_eq!(card.name, "research-agent");
+        assert_eq!(card.version, "2.1.0");
+    }
+}
+```
+
+### Acceptance Criteria
+
+- [ ] `/.well-known/agents` returns registered agents
+- [ ] Individual agent cards accessible
+- [ ] URLs rewritten to gateway paths
+
+---
+
+## Updated Dependency Graph
+
+### Phase 1 (MVP) Dependencies
+
+```
+WP1 (Proto) ─────┬────────────────────────────────────────────────┐
+                 │                                                │
+                 ▼                                                ▼
+        WP2 (Rust Types) ───────────────────────────────  WP5 (TS Types)
+                 │                                                │
+        ┌────────┼────────┬────────────┐                         ▼
+        ▼        ▼        ▼            ▼                  WP6 (TS Validation)
+   WP3 (Rust  WP7 (SBOM) WP10       WP14
+   Validation)           (Identity)  (MCP Discovery)
+        │                    │
+        ▼                    ▼
+   WP4 (Runtime) ◄───── WP11 (Scoped Discovery)
+
+WP8 (Tests) can start immediately with stubs
+WP9 (Docs) runs last
+```
+
+### Phase 2 (Future) Dependencies
+
+```
+Phase 1 Complete
+        │
+        ▼
+   WP12 (A2A Multiplexing)  ← Deferred
+        │
+        ▼
+   WP13 (Agent-as-Tool)     ← Deferred
+        │
+        ▼
+   WP15 (Agent Discovery)   ← Deferred
+```
+
+---
+
+## Getting Started (Phase 1)
+
+1. **Read the design doc first**
    ```bash
    cat docs/design/registry-v2.md
    ```
 
-2. **Review the example registry**
+2. **Understand the architecture intent**
+   - The registry JSON is a local cache for a future centralized Registry Service
+   - Phase 1 focuses on agent-to-MCP-tool (no agent-as-tool yet)
+   - Agents are stored in registry for dependency tracking, not for invocation
+
+3. **Review the example registry**
    ```bash
    cat examples/pattern-demos/configs/registry-v2-example.json
    ```
 
-3. **Pick a work package** based on dependencies
+4. **Pick a Phase 1 work package** based on dependencies
    - WP1 (Proto) has no dependencies - start here
    - WP5 (TS Types) can start in parallel with WP2
+   - WP10-11 are the **runtime critical path** for a working demo
+   - Skip WP12-13 (Phase 2)
 
-4. **Write failing tests first** using the stubs above
+5. **Write failing tests first** using the stubs above
 
-5. **Implement until tests pass**
+6. **Implement until tests pass**
 
-6. **Submit PR** with tests and implementation
+7. **Submit PR** with tests and implementation
+
+### What NOT to Implement (Phase 2)
+
+Do not work on these until Phase 1 is complete and validated:
+
+- WP12: A2A agent multiplexing
+- WP13: Agent-as-tool execution in compositions
+- WP15: `/.well-known/agents` discovery endpoint
+
+These depend on understanding how Phase 1 actually works in practice.

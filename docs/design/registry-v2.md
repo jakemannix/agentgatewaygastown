@@ -14,14 +14,16 @@ Registry v2 introduces a versioned, SBOM-like system for managing tools, agents,
 ## Table of Contents
 
 1. [Motivation](#motivation)
-2. [Design Goals](#design-goals)
-3. [Schema Overview](#schema-overview)
-4. [Entity Definitions](#entity-definitions)
-5. [Dependency Management](#dependency-management)
-6. [Validation Rules](#validation-rules)
-7. [Migration Path](#migration-path)
-8. [Implementation Roadmap](#implementation-roadmap)
-9. [Work Packages](#work-packages)
+2. [Architecture Intent](#architecture-intent)
+3. [Design Goals](#design-goals)
+4. [Schema Overview](#schema-overview)
+5. [Entity Definitions](#entity-definitions)
+6. [Dependency Management](#dependency-management)
+7. [Validation Rules](#validation-rules)
+8. [Runtime Architecture](#runtime-architecture)
+9. [Phased Implementation](#phased-implementation)
+10. [Migration Path](#migration-path)
+11. [Work Packages](#work-packages)
 
 ---
 
@@ -64,6 +66,100 @@ The v1 registry supports only tools with no versioning:
 - Reusable, versioned schemas
 - Startup and runtime validation
 - SBOM export for compliance
+
+---
+
+## Architecture Intent
+
+### The Registry as a Local Cache
+
+The registry JSON file (e.g., `registry-v2.json`) is a **local cache** of data that would be served by a future **centralized Registry Service**. The JSON schema represents the RPC response format you'd receive from that service.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   FUTURE: Centralized Registry Service                       │
+│                                                                             │
+│   ┌───────────────────────────────────────────────────────────────────┐    │
+│   │  Registry Service (gRPC/HTTP API)                                  │    │
+│   │                                                                    │    │
+│   │  • Source of truth for all entities                               │    │
+│   │  • Registration-time validation (reject invalid entries)          │    │
+│   │  • Version history and audit logs                                 │    │
+│   │  • Search, discovery, deprecation workflows                       │    │
+│   │  • Push notifications to gateways on changes                      │    │
+│   └──────────────────────────────────────────────────────────────────┘    │
+│                                    │                                        │
+│                                    │ sync / cache                           │
+│                                    ▼                                        │
+│   ┌──────────────────────────────────────────────────────────────────┐     │
+│   │  AgentGateway Instances (with local cache)                        │     │
+│   │                                                                   │     │
+│   │  • Cache subset relevant to this gateway's clients/backends      │     │
+│   │  • Runtime validation (enforce what was registered)              │     │
+│   │  • Periodic refresh from Registry Service                        │     │
+│   │  • Fallback to cached data if service unavailable                │     │
+│   └──────────────────────────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+CURRENT: For development, the JSON file serves as a mock of the Registry Service.
+         Gateways load it directly from disk or HTTP endpoint.
+```
+
+### Governance Split: Registration vs Runtime
+
+Governance is enforced at two levels:
+
+| Level | When | Who Enforces | Examples |
+|-------|------|--------------|----------|
+| **Registration-time** | When entity is added to registry | Registry Service | Reject circular deps, schema conflicts, invalid versions |
+| **Runtime** | When entity is used | AgentGateway | Validate I/O, enforce caller dependencies, policy violations |
+
+Registration-time validation catches errors early (before deployment). Runtime validation enforces the contracts established at registration.
+
+### Gateway Ownership: Infrastructure, Not Applications
+
+AgentGateway is **infrastructure middleware**, owned by platform/infra teams - similar to Istio sidecars:
+
+- **Not** owned by agent application teams
+- **Not** owned by MCP server teams
+- **Transparent** when working correctly
+- **Configured centrally** via Helm charts, GitOps, etc.
+
+Deployment topology is flexible:
+- Sidecar next to each agent
+- Centralized gateway cluster
+- Regional mesh gateways
+- Hybrid approaches
+
+The registry and virtual tools enable **policy-driven tool abstraction** without requiring agent or server teams to coordinate directly.
+
+### Phase 1 Focus: Agent-to-MCP-Tool
+
+This design supports both MCP tools and A2A agents, but **Phase 1 focuses on MCP tool access**:
+
+```
+Phase 1 (MVP):
+  Agent ──▶ AgentGateway ──▶ MCP Servers (tools)
+            │
+            └── Registry provides:
+                • Tool versioning
+                • Virtual tools (aliases, compositions)
+                • Dependency-scoped discovery
+                • SBOM tracking
+
+Phase 2 (Future):
+  Agent ──▶ AgentGateway ──▶ Other A2A Agents (agent-as-tool)
+            │
+            └── Registry adds:
+                • A2A agent multiplexing
+                • Agent skill invocation in compositions
+                • Strongly-typed A2A calls via skill schemas
+```
+
+Agents are stored in the registry now (with `depends` clauses) to enable:
+- Dependency-scoped tool discovery
+- SBOM export
+- Future A2A features (Phase 2)
 
 ---
 
@@ -432,6 +528,343 @@ Enable startup and runtime validation.
 
 ---
 
+## Runtime Architecture
+
+This section describes how the gateway actually enforces the registry at runtime. This is the **critical path** from design to working demo.
+
+### Current State vs Target State
+
+| Capability | MCP (Current) | A2A (Current) | Phase 1 (v2) | Phase 2 (Future) |
+|------------|---------------|---------------|--------------|------------------|
+| Backend multiplexing | ✅ Multiple | ❌ Single | ✅ MCP only | ✅ Both |
+| Virtual tools | ✅ Yes | ❌ N/A | ✅ Yes | ✅ Yes |
+| Caller identity | ❌ None | ❌ None | ✅ Required | ✅ Required |
+| Dependency scoping | ❌ No | ❌ No | ✅ Yes (MCP) | ✅ Yes (both) |
+| Agent-as-tool | ❌ No | ❌ N/A | ❌ No | ✅ Yes |
+
+### Caller Identity
+
+Before we can enforce dependencies, we need to know WHO is calling.
+
+**MCP Callers:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  How does the gateway identify an MCP client?                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Option 1: Header-based identity                                │
+│    Client sends: X-Agent-Name: research-agent                   │
+│                  X-Agent-Version: 2.1.0                         │
+│                                                                 │
+│  Option 2: OAuth/JWT claims                                     │
+│    JWT contains: { "agent_name": "...", "agent_version": "..." }│
+│                                                                 │
+│  Option 3: Client registration (OAuth Dynamic Client Reg)      │
+│    Client registers and gets credentials tied to identity       │
+│                                                                 │
+│  Option 4: MCP ClientInfo                                       │
+│    Initialize params: { "clientInfo": { "name": "...", ... } }  │
+│    ⚠️ MCP spec has clientInfo but no version field!            │
+│                                                                 │
+│  RECOMMENDATION: Use headers + fallback to clientInfo.name      │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**A2A Callers (Agent-to-Agent):**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  How does the gateway identify an A2A caller?                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Option 1: Require caller to send their AgentCard URL           │
+│    Header: X-Caller-Agent: http://research-agent:9000           │
+│    Gateway fetches card to verify identity                      │
+│                                                                 │
+│  Option 2: Mutual TLS with agent certificates                   │
+│    Cert CN contains agent identity                              │
+│                                                                 │
+│  Option 3: OAuth with agent-specific credentials                │
+│    Token introspection reveals agent identity                   │
+│                                                                 │
+│  RECOMMENDATION: X-Caller-Agent header + optional mTLS          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Dependency-Scoped Tool Discovery
+
+When a registered agent calls `tools/list`, return only tools it depends on:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    tools/list Flow (v2)                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. Client sends: tools/list                                    │
+│     Headers: X-Agent-Name: research-agent                       │
+│              X-Agent-Version: 2.1.0                             │
+│                                                                 │
+│  2. Gateway looks up agent in registry:                         │
+│     agents["research-agent"]["2.1.0"].depends = [               │
+│       { type: "tool", name: "search_documents", version: "1.0.0" },
+│       { type: "tool", name: "fetch", version: "1.2.3" }         │
+│     ]                                                           │
+│                                                                 │
+│  3. Gateway filters tools to only those in depends              │
+│                                                                 │
+│  4. Response: { tools: [search_documents, fetch] }              │
+│                                                                 │
+│  FALLBACK: Unknown caller → return all tools (configurable)     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Code Location:** `crates/agentgateway/src/mcp/handler.rs` → `merge_tools()`
+
+Current code does RBAC filtering. We need to add dependency filtering:
+
+```rust
+// Current (simplified):
+let tools = transformed_tools
+    .filter(|(server, tool)| policies.validate(...))  // RBAC
+    .collect();
+
+// Target (v2):
+let tools = transformed_tools
+    .filter(|(server, tool)| policies.validate(...))  // RBAC
+    .filter(|(_, tool)| {
+        // NEW: Dependency filter
+        match caller_identity {
+            Some(agent) => registry.agent_depends_on(&agent, &tool.name, &tool.version),
+            None => config.allow_unknown_caller,
+        }
+    })
+    .collect();
+```
+
+### Agent Multiplexing (A2A) — *Phase 2*
+
+> **Note**: This section describes Phase 2 functionality. Phase 1 focuses on MCP tool access only.
+
+Currently A2A routes to a single backend. Phase 2 would add multiplexing like MCP:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    A2A Routing (Phase 2)                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Current:                                                       │
+│    /a2a/* → Single backend agent                                │
+│                                                                 │
+│  Phase 2:                                                       │
+│    /a2a/research-agent/* → research-agent backend               │
+│    /a2a/summarizer/* → summarizer backend                       │
+│                                                                 │
+│  OR (discovery-based):                                          │
+│    /.well-known/agents → List all registered agents             │
+│    /a2a → Routes based on message content (task.agent_name?)    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Options (Phase 2):**
+
+1. **Path-based routing**: `/a2a/{agent-name}/...`
+   - Simple, explicit
+   - Requires clients to know agent names
+
+2. **Discovery endpoint**: `/.well-known/agents` returns aggregated agent list
+   - Client discovers available agents
+   - Then calls specific agent by name
+
+3. **Content-based routing**: Parse A2A message, route by recipient
+   - More complex but allows multi-agent orchestration
+
+### Agent-as-Tool Invocation — *Phase 2*
+
+> **Note**: This section describes Phase 2 functionality.
+
+Compositions could call agents like tools:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Agent-as-Tool (v2)                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Pipeline step can specify:                                     │
+│    { "operation": { "tool": { "name": "fetch" } } }             │
+│                    OR                                           │
+│    { "operation": { "agent": { "name": "summarizer",            │
+│                                "skill": "summarize" } } }       │
+│                                                                 │
+│  When executing agent step:                                     │
+│    1. Look up agent in registry → get URL                       │
+│    2. Map pipeline input → A2A DataPart (using skill schema)    │
+│    3. Send A2A message/send to agent                            │
+│    4. Extract result from A2A response                          │
+│    5. Map to pipeline output                                    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Proto Update Needed:**
+
+```protobuf
+message StepOperation {
+  oneof op {
+    ToolCall tool = 1;
+    AgentCall agent = 2;  // NEW
+    PatternSpec pattern = 3;
+  }
+}
+
+message AgentCall {
+  string name = 1;     // Agent name
+  string skill = 2;    // Skill ID
+  // Version resolved from depends declaration
+}
+```
+
+### End-to-End Demo Flow (Phase 1)
+
+Here's how the Phase 1 demo works, focused on MCP tool access:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    E2E Demo Flow (Phase 1)                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. STARTUP                                                     │
+│     - Gateway loads registry-v2.json (local cache)              │
+│     - Validates all dependencies                                │
+│     - Connects to MCP backends (document-service, etc.)         │
+│                                                                 │
+│  2. TOOL DISCOVERY (scoped by caller identity)                  │
+│     Client: POST /mcp { method: "tools/list" }                  │
+│     Headers: X-Agent-Name: research-agent, X-Agent-Version: 2.1.0
+│     Response: Only tools research-agent depends on              │
+│                                                                 │
+│  3. TOOL CALL (with validation)                                 │
+│     Client: POST /mcp { method: "tools/call",                   │
+│                         params: { name: "search_documents" } }  │
+│     Gateway: Validates agent has this dependency                │
+│     Gateway: Routes to document-service (versioned)             │
+│                                                                 │
+│  4. VIRTUAL TOOL CALL                                           │
+│     Client: POST /mcp { method: "tools/call",                   │
+│                         params: { name: "search_all" } }        │
+│     Gateway: Resolves virtual tool to scatter-gather            │
+│     Gateway: Calls multiple backends in parallel                │
+│     Gateway: Aggregates and returns results                     │
+│                                                                 │
+│  5. COMPOSITION CALL (MCP tools only)                           │
+│     Client: POST /mcp { method: "tools/call",                   │
+│                         params: { name: "order_saga" } }        │
+│     Gateway: Executes saga pattern with MCP tools               │
+│     Gateway: Handles compensation on failure                    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Phase 2 Demo (Future)
+
+Phase 2 adds A2A agent invocation:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Additional in Phase 2                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  AGENT DISCOVERY                                                │
+│     Client: GET /.well-known/agents                             │
+│     Response: List of registered agents                         │
+│                                                                 │
+│  AGENT-AS-TOOL COMPOSITION                                      │
+│     Pipeline steps can invoke A2A agents as tools               │
+│     - Input mapped to A2A DataPart                              │
+│     - Output extracted from A2A response                        │
+│     - Schema validation via skill inputSchema/outputSchema      │
+│                                                                 │
+│  DIRECT A2A (multiplexed)                                       │
+│     Client: POST /a2a/research-agent { method: "message/send" } │
+│     Gateway: Routes to correct agent backend                    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Runtime Work Packages Summary
+
+**Phase 1 (MVP) - Agent-to-MCP-Tool:**
+
+**WP10: Caller Identity**
+- Extract caller identity from headers/JWT/MCP clientInfo
+- Add to request context for downstream use
+- Files: `src/mcp/identity.rs`
+
+**WP11: Dependency-Scoped Discovery**
+- Modify `merge_tools()` to filter by caller's depends
+- Add configuration for unknown caller policy
+- Files: `src/mcp/handler.rs`
+
+**WP14: Tool Discovery Endpoint** (MCP only)
+- Scoped `tools/list` already exists
+- Add versioned tool metadata
+
+**Phase 2 (Future) - Agent-as-Tool:**
+
+**WP12: Agent Multiplexing** — *Phase 2*
+- Implement agent registry lookup
+- Add path-based or discovery-based routing
+- Files: `src/a2a/router.rs` (new), `src/a2a/mod.rs`
+
+**WP13: Agent-as-Tool Executor** — *Phase 2*
+- Implement `AgentCall` in composition executor
+- Map tool I/O to A2A DataPart
+- Files: `src/mcp/registry/executor/agent.rs` (new)
+
+**WP15: Agent Discovery Endpoints** — *Phase 2*
+- `/.well-known/agents` - list registered agents
+- Aggregated agent cards with gateway URLs
+- Files: `src/a2a/discovery.rs` (new)
+
+## Phased Implementation
+
+### Phase 1: Agent-to-MCP-Tool (MVP)
+
+Focus on enabling agents to access MCP tools through the gateway with versioning and dependency tracking.
+
+**Scope:**
+- ✅ Full registry data model (schemas, servers, tools, agents)
+- ✅ Versioned tools with source references
+- ✅ Virtual tools (aliases, projections, compositions)
+- ✅ Agent definitions with SBOM `depends` clauses
+- ✅ Caller identity extraction (headers, MCP clientInfo)
+- ✅ Dependency-scoped `tools/list`
+- ✅ Startup validation (dependencies, schemas)
+- ✅ Runtime validation (optional, configurable)
+- ✅ SBOM export
+
+**Out of Scope for Phase 1:**
+- ❌ A2A agent multiplexing
+- ❌ Agent-as-tool invocation in compositions
+- ❌ `/.well-known/agents` discovery endpoint
+- ❌ Strongly-typed A2A calls via skill schemas
+
+### Phase 2: Agent-as-Tool (Future)
+
+Extend the gateway to invoke A2A agents as steps in compositions.
+
+**Scope:**
+- A2A agent multiplexing (path-based routing)
+- Agent skill invocation with schema validation
+- Compositions that mix MCP tools and A2A agents
+- Agent discovery endpoints
+
+This will be designed once Phase 1 is validated and working.
+
+---
+
 ## Implementation Roadmap
 
 ### TDD Approach
@@ -441,7 +874,7 @@ Enable startup and runtime validation.
 3. **Write Failing Tests** - Tests that compile but fail
 4. **Implement Parsing** - JSON → IR conversion
 5. **Implement Validation** - Startup checks
-6. **Implement Runtime** - Runtime validation hooks
+6. **Implement Runtime** - Caller identity, scoped discovery
 
 ### File Changes
 
@@ -700,9 +1133,11 @@ Distributed transaction with compensation on failure.
 }
 ```
 
-### Agent-as-Tool
+### Agent-as-Tool — *Phase 2*
 
-Using an agent skill as a step in a pipeline.
+> **Note**: This pattern is Phase 2 functionality.
+
+Using an agent skill as a step in a pipeline (Phase 2):
 
 ```json
 {
@@ -742,7 +1177,9 @@ Using an agent skill as a step in a pipeline.
 
 ---
 
-## Appendix B: A2A DataPart Validation
+## Appendix B: A2A DataPart Validation — *Phase 2*
+
+> **Note**: This section describes Phase 2 functionality.
 
 A2A agents receive messages containing `Part[]`:
 
