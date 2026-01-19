@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registry v2 & Virtual Tools - AgentGateway</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+  <style>
+    :root {
+      --r-main-font-size: 32px;
+      --r-heading1-size: 2.0em;
+      --r-heading2-size: 1.5em;
+    }
+    .reveal pre { width: 100%; font-size: 0.55em; }
+    .reveal pre code { max-height: 500px; }
+    .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
+    .reveal .small { font-size: 0.7em; }
+    .reveal .highlight { color: #42affa; }
+    .reveal .warning { color: #f5a623; }
+    .reveal ul { text-align: left; }
+    .reveal .two-col { display: flex; gap: 2em; }
+    .reveal .two-col > div { flex: 1; }
+    .fragment.fade-in-then-semi-out.visible:not(.current-fragment) { opacity: 0.4; }
+  </style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- Title -->
+<section>
+  <h1>Registry v2 &<br>Virtual Tools</h1>
+  <h3 class="highlight">AgentGateway Architecture</h3>
+  <p class="small">Versioned, Immutable Tool Contracts for Agentic Systems</p>
+</section>
+
+<!-- Agenda -->
+<section>
+  <h2>Overview</h2>
+  <ol>
+    <li><strong>Registry Service</strong> - The source of truth</li>
+    <li><strong>AgentGateway Runtime</strong> - Enforcement & dataplane</li>
+    <li><strong>Virtual Tools</strong> - Abstraction layer
+      <ul class="small">
+        <li>Versioning & pinning</li>
+        <li>Agent-specific overrides</li>
+        <li>Schema transformations</li>
+        <li>Stateless composition</li>
+        <li>Stateful composition</li>
+      </ul>
+    </li>
+  </ol>
+</section>
+
+<!-- Part 1: Registry Service -->
+<section>
+  <section>
+    <h2>Part 1</h2>
+    <h1 class="highlight">The Registry Service</h1>
+    <p>Versioned, Immutable Contracts</p>
+  </section>
+
+  <section>
+    <h2>What the Registry Manages</h2>
+    <pre><code class="language-json">{
+  "schemaVersion": "2.0",
+  "schemas":  [ ... ],  // Reusable JSON Schemas
+  "servers":  [ ... ],  // MCP Server declarations
+  "tools":    [ ... ],  // Virtual Tools & Compositions
+  "agents":   [ ... ]   // A2A Agent definitions
+}</code></pre>
+    <p class="fragment">All entities are <span class="highlight">versioned</span> and <span class="highlight">immutable</span></p>
+  </section>
+
+  <section>
+    <h2>Schemas: Reusable Type Definitions</h2>
+    <pre><code class="language-json">{
+  "name": "SearchQuery",
+  "version": "1.0.0",
+  "description": "Standard search parameters",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "query": { "type": "string" },
+      "limit": { "type": "integer", "default": 10 }
+    },
+    "required": ["query"]
+  }
+}</code></pre>
+    <p class="small">Referenced as <code class="highlight">#/schemas/SearchQuery</code> or <code class="highlight">#SearchQuery:1.0.0</code></p>
+  </section>
+
+  <section>
+    <h2>Servers: Backend MCP Declarations</h2>
+    <pre><code class="language-json">{
+  "name": "document-service",
+  "version": "1.2.0",
+  "description": "Document management backend",
+  "tools": [
+    { "name": "search", "version": "1.0.0" },
+    { "name": "create", "version": "2.0.0" }
+  ],
+  "deprecated": false
+}</code></pre>
+    <p class="fragment small">Lookup key: <code class="highlight">"document-service:1.2.0"</code></p>
+  </section>
+
+  <section>
+    <h2>Agents: A2A Protocol Integration</h2>
+    <pre><code class="language-json">{
+  "name": "claude-demo-agent",
+  "version": "1.0.0",
+  "capabilities": {
+    "extensions": [{
+      "uri": "urn:agentgateway:sbom",
+      "params": {
+        "depends": [
+          { "type": "tool", "name": "search_documents", "version": "1.0.0" },
+          { "type": "tool", "name": "fetch_and_store", "version": "1.0.0" }
+        ]
+      }
+    }]
+  }
+}</code></pre>
+    <p class="fragment">SBOM extension declares <span class="highlight">tool dependencies</span></p>
+  </section>
+
+  <section>
+    <h2>Dependency Graph</h2>
+    <pre style="text-align: center; font-size: 0.6em;">
+┌─────────────┐     depends      ┌─────────────┐
+│   Agent     │─────────────────▶│    Tool     │
+│ claude@1.0  │                  │ fetch@1.2.3 │
+└─────────────┘                  └──────┬──────┘
+                                        │ source
+┌─────────────┐     provides     ┌──────▼──────┐
+│   Schema    │◀─────────────────│   Server    │
+│ Query@1.0   │                  │ fetch@1.2.0 │
+└─────────────┘                  └─────────────┘
+    </pre>
+    <p class="small">All references include version constraints</p>
+  </section>
+</section>
+
+<!-- Part 2: AgentGateway Runtime -->
+<section>
+  <section>
+    <h2>Part 2</h2>
+    <h1 class="highlight">AgentGateway Runtime</h1>
+    <p>Enforcement & Dataplane</p>
+  </section>
+
+  <section>
+    <h2>Runtime Responsibilities</h2>
+    <div class="two-col">
+      <div>
+        <h3 class="highlight">Enforcement</h3>
+        <ul class="small">
+          <li>Tool visibility scoping</li>
+          <li>Dependency validation</li>
+          <li>Version constraint checking</li>
+          <li>CEL policy evaluation</li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="highlight">Dataplane</h3>
+        <ul class="small">
+          <li>Virtual tool resolution</li>
+          <li>Composition execution</li>
+          <li>Output transformation</li>
+          <li>Backend routing</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Caller Identity Extraction</h2>
+    <pre><code class="language-http">GET /mcp/tools/list HTTP/1.1
+X-Agent-Name: claude-demo-agent
+X-Agent-Version: 1.0.0</code></pre>
+    <pre class="fragment"><code class="language-rust">pub struct CallerIdentity {
+    pub agent_name: Option&lt;String&gt;,
+    pub agent_version: Option&lt;String&gt;,
+    pub declared_deps: HashSet&lt;String&gt;, // From registry SBOM
+}</code></pre>
+  </section>
+
+  <section>
+    <h2>Per-Agent Tool Visibility</h2>
+    <pre style="text-align: center; font-size: 0.55em;">
+┌──────────────────────────────────────────────────────────────┐
+│                     AgentGateway                             │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │                   Registry v2                           │ │
+│  │  [search] [create] [fetch] [saga] [tasks] [notify] ...  │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                          │                                   │
+│          ┌───────────────┴───────────────┐                   │
+│          ▼                               ▼                   │
+│   ┌─────────────┐                 ┌─────────────┐            │
+│   │   Claude    │                 │    ADK      │            │
+│   │  [search]   │                 │   [tasks]   │            │
+│   │  [create]   │                 │   [saga]    │            │
+│   │  [fetch]    │                 │  [notify]   │            │
+│   └─────────────┘                 └─────────────┘            │
+└──────────────────────────────────────────────────────────────┘
+    </pre>
+    <p class="small">Same gateway, different views per declared dependencies</p>
+  </section>
+
+  <section>
+    <h2>Pre-Call Validation</h2>
+    <pre><code class="language-rust">fn check_pre_call_dependencies(
+    &self,
+    tool_name: &str,
+    caller: &CallerIdentity,
+) -> DependencyCheckResult {
+    // 1. Tool exists in registry?
+    // 2. Caller declared this dependency?
+    // 3. Transitive deps satisfied?
+    // 4. Version constraints match?
+}</code></pre>
+    <p class="fragment warning">Undeclared tool calls are <strong>rejected</strong></p>
+  </section>
+</section>
+
+<!-- Part 3: Virtual Tools -->
+<section>
+  <section>
+    <h2>Part 3</h2>
+    <h1 class="highlight">Virtual Tools</h1>
+    <p>The Abstraction Layer</p>
+  </section>
+</section>
+
+<!-- 3a: Versioning & Pinning -->
+<section>
+  <section>
+    <h3>Virtual Tools</h3>
+    <h2 class="highlight">3a. Versioning & Pinning</h2>
+  </section>
+
+  <section>
+    <h2>Tool Version Pinning</h2>
+    <pre><code class="language-json">{
+  "name": "fetch",
+  "version": "1.2.3",
+  "implementation": {
+    "source": {
+      "target": "fetch-server",
+      "tool": "fetch_url",
+      "serverVersion": "1.2.0"
+    }
+  }
+}</code></pre>
+    <ul class="small fragment">
+      <li>Virtual tool version: <code class="highlight">1.2.3</code></li>
+      <li>Backend server constraint: <code class="highlight">&gt;=1.2.0</code></li>
+      <li>Decoupled evolution</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Immutability Contract</h2>
+    <ul>
+      <li class="fragment">Same name + version = identical behavior</li>
+      <li class="fragment">Schema changes require version bump</li>
+      <li class="fragment">Deprecation metadata for migration</li>
+    </ul>
+    <pre class="fragment"><code class="language-json">{
+  "name": "old_search",
+  "version": "0.9.0",
+  "deprecated": "Use 'search_documents@1.0.0' instead"
+}</code></pre>
+  </section>
+</section>
+
+<!-- 3b: Agent Overrides -->
+<section>
+  <section>
+    <h3>Virtual Tools</h3>
+    <h2 class="highlight">3b. Agent-Specific Overrides</h2>
+  </section>
+
+  <section>
+    <h2>Rename & Describe</h2>
+    <pre><code class="language-json">{
+  "name": "get_webpage",              // Agent sees this name
+  "description": "Retrieve webpage content for analysis",
+  "implementation": {
+    "source": {
+      "target": "fetch-server",
+      "tool": "http_get"              // Backend tool name
+    }
+  }
+}</code></pre>
+    <p class="fragment small">Multiple virtual tools can alias the same backend</p>
+  </section>
+
+  <section>
+    <h2>Field Injection & Redaction</h2>
+    <pre><code class="language-json">{
+  "name": "search_internal",
+  "implementation": {
+    "source": {
+      "target": "search-server",
+      "tool": "search",
+      "defaults": {
+        "api_key": "${SEARCH_API_KEY}",
+        "tenant_id": "internal"
+      },
+      "hideFields": ["debug_mode", "raw_query"]
+    }
+  }
+}</code></pre>
+    <p class="fragment small"><code>defaults</code>: inject at call time &nbsp;|&nbsp; <code>hideFields</code>: remove from schema</p>
+  </section>
+
+  <section>
+    <h2>Tags & Metadata</h2>
+    <pre><code class="language-json">{
+  "name": "fetch",
+  "version": "1.2.3",
+  "tags": ["web", "http", "retrieval"],
+  "metadata": {
+    "costTier": "low",
+    "rateLimit": 100,
+    "owner": "platform-team"
+  }
+}</code></pre>
+    <p class="small">Discoverability and operational metadata</p>
+  </section>
+</section>
+
+<!-- 3c: Schema Overrides -->
+<section>
+  <section>
+    <h3>Virtual Tools</h3>
+    <h2 class="highlight">3c. Schema Transformations</h2>
+  </section>
+
+  <section>
+    <h2>Input Schema Override</h2>
+    <pre><code class="language-json">{
+  "name": "simple_search",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "q": { "type": "string", "description": "Search query" }
+    },
+    "required": ["q"]
+  },
+  "implementation": {
+    "source": {
+      "target": "elastic-server",
+      "tool": "complex_search"  // Has 20+ parameters
+    }
+  }
+}</code></pre>
+    <p class="fragment small">Simplified interface for agents</p>
+  </section>
+
+  <section>
+    <h2>Output Transform</h2>
+    <pre><code class="language-json">{
+  "outputTransform": {
+    "mappings": {
+      "title":   { "path": "$.hits[0]._source.name" },
+      "url":     { "path": "$.hits[0]._source.link" },
+      "score":   { "path": "$.hits[0]._score" },
+      "source":  { "literal": { "stringValue": "elastic" } }
+    }
+  }
+}</code></pre>
+    <p class="small">JSONPath-based extraction and reshaping</p>
+  </section>
+
+  <section>
+    <h2>Transform Operations</h2>
+    <ul class="small">
+      <li><code class="highlight">path</code> - JSONPath extraction</li>
+      <li><code class="highlight">literal</code> - Constant injection</li>
+      <li><code class="highlight">coalesce</code> - First non-null</li>
+      <li><code class="highlight">template</code> - String interpolation</li>
+      <li><code class="highlight">concat</code> - Join with separator</li>
+      <li><code class="highlight">nested</code> - Recursive mapping</li>
+    </ul>
+    <pre class="fragment"><code class="language-json">{
+  "summary": {
+    "template": "{title} by {author} ({year})"
+  }
+}</code></pre>
+  </section>
+</section>
+
+<!-- 3d: Stateless Composition -->
+<section>
+  <section>
+    <h3>Virtual Tools</h3>
+    <h2 class="highlight">3d. Stateless Composition</h2>
+  </section>
+
+  <section>
+    <h2>Pipeline Pattern</h2>
+    <pre><code class="language-json">{
+  "name": "fetch_and_store",
+  "spec": {
+    "pipeline": {
+      "steps": [
+        {
+          "id": "fetch",
+          "operation": { "tool": { "name": "fetch" } },
+          "input": { "input": { "path": "$.url" } }
+        },
+        {
+          "id": "store",
+          "operation": { "tool": { "name": "create_document" } },
+          "input": {
+            "construct": {
+              "fields": {
+                "content": { "step": { "stepId": "fetch", "path": "$.body" } }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}</code></pre>
+  </section>
+
+  <section>
+    <h2>Pipeline Data Flow</h2>
+    <pre style="text-align: center; font-size: 0.6em;">
+Input ──▶ Step 1 ──▶ Step 2 ──▶ Step 3 ──▶ Output
+  │         │          │          │
+  │    { result }  { result }  { result }
+  │         │          │          │
+  └─────────┴──────────┴──────────┘
+          Available in subsequent steps
+    </pre>
+    <p class="small">Data bindings: <code>input</code>, <code>step</code>, <code>constant</code>, <code>construct</code></p>
+  </section>
+
+  <section>
+    <h2>Scatter-Gather Pattern</h2>
+    <pre><code class="language-json">{
+  "name": "multi_search",
+  "spec": {
+    "scatterGather": {
+      "targets": [
+        { "tool": "search_documents" },
+        { "tool": "search_knowledge_graph" },
+        { "tool": "search_web" }
+      ],
+      "aggregation": {
+        "ops": [
+          { "flatten": true },
+          { "sort": { "field": "$.score", "order": "desc" } },
+          { "dedupe": { "field": "$.id" } },
+          { "limit": { "count": 10 } }
+        ]
+      },
+      "timeoutMs": 5000,
+      "failFast": false
+    }
+  }
+}</code></pre>
+  </section>
+
+  <section>
+    <h2>Scatter-Gather Flow</h2>
+    <pre style="text-align: center; font-size: 0.6em;">
+                    ┌─── Tool A ───┐
+                    │              │
+Input ──┬──────────▶│   [1,2,3]    │──────┐
+        │           │              │      │
+        │           └──────────────┘      │
+        │                                 │     ┌────────────┐
+        │           ┌─── Tool B ───┐      ├────▶│ Aggregate  │──▶ Output
+        │           │              │      │     │ flatten    │
+        ├──────────▶│   [4,5]      │──────┤     │ sort       │
+        │           │              │      │     │ dedupe     │
+        │           └──────────────┘      │     │ limit      │
+        │                                 │     └────────────┘
+        │           ┌─── Tool C ───┐      │
+        │           │              │      │
+        └──────────▶│   [6,7,8]    │──────┘
+                    │              │
+                    └──────────────┘
+    </pre>
+  </section>
+
+  <section>
+    <h2>Other Stateless Patterns</h2>
+    <ul>
+      <li><span class="highlight">Filter</span> - Predicate-based array filtering</li>
+      <li><span class="highlight">SchemaMap</span> - Field-level transformation</li>
+      <li><span class="highlight">MapEach</span> - Apply operation to array elements</li>
+      <li><span class="highlight">Router</span> - Content-based routing</li>
+      <li><span class="highlight">Enricher</span> - Parallel data augmentation</li>
+    </ul>
+  </section>
+</section>
+
+<!-- 3e: Stateful Composition -->
+<section>
+  <section>
+    <h3>Virtual Tools</h3>
+    <h2 class="highlight">3e. Stateful Composition</h2>
+  </section>
+
+  <section>
+    <h2>Saga Pattern</h2>
+    <pre><code class="language-json" style="font-size: 0.5em;">{
+  "name": "process_order",
+  "spec": {
+    "saga": {
+      "steps": [
+        {
+          "id": "reserve",
+          "action": { "tool": { "name": "inventory_reserve" } },
+          "compensate": { "tool": { "name": "inventory_release" } }
+        },
+        {
+          "id": "charge",
+          "action": { "tool": { "name": "payment_charge" } },
+          "compensate": { "tool": { "name": "payment_refund" } }
+        },
+        {
+          "id": "ship",
+          "action": { "tool": { "name": "shipping_create" } },
+          "compensate": { "tool": { "name": "shipping_cancel" } }
+        }
+      ],
+      "sagaIdPath": "$.orderId",
+      "timeoutMs": 30000
+    }
+  }
+}</code></pre>
+  </section>
+
+  <section>
+    <h2>Saga: Compensation Flow</h2>
+    <pre style="text-align: center; font-size: 0.55em;">
+Forward Execution:
+  Reserve ──▶ Charge ──▶ Ship ──▶ ✓ Complete
+     │          │         │
+     ▼          ▼         ▼
+  [state]    [state]   [state]
+
+On Failure at Step 3:
+  Reserve ──▶ Charge ──▶ Ship ──▶ ✗ Failed
+                           │
+                           ▼
+                    Compensate Ship
+                           │
+                           ▼
+                    Compensate Charge
+                           │
+                           ▼
+                    Compensate Reserve
+                           │
+                           ▼
+                      ✗ Rolled Back
+    </pre>
+  </section>
+
+  <section>
+    <h2>Retry Pattern</h2>
+    <pre><code class="language-json">{
+  "name": "reliable_fetch",
+  "spec": {
+    "retry": {
+      "operation": { "tool": { "name": "fetch" } },
+      "maxAttempts": 3,
+      "backoff": {
+        "strategy": "exponential",
+        "initialDelayMs": 100,
+        "maxDelayMs": 5000,
+        "multiplier": 2.0
+      },
+      "retryIf": "error.code in ['TIMEOUT', 'RATE_LIMITED']"
+    }
+  }
+}</code></pre>
+  </section>
+
+  <section>
+    <h2>Circuit Breaker Pattern</h2>
+    <pre><code class="language-json">{
+  "name": "protected_api",
+  "spec": {
+    "circuitBreaker": {
+      "operation": { "tool": { "name": "external_api" } },
+      "failureThreshold": 5,
+      "resetTimeoutMs": 30000,
+      "halfOpenRequests": 3,
+      "fallback": { "tool": { "name": "cached_response" } }
+    }
+  }
+}</code></pre>
+    <p class="small fragment">States: <span class="highlight">Closed</span> → <span class="warning">Open</span> → <span class="highlight">Half-Open</span></p>
+  </section>
+
+  <section>
+    <h2>Other Stateful Patterns</h2>
+    <ul class="small">
+      <li><span class="highlight">Timeout</span> - Enforce max execution duration</li>
+      <li><span class="highlight">Cache</span> - Read-through with TTL</li>
+      <li><span class="highlight">Idempotent</span> - Duplicate detection</li>
+      <li><span class="highlight">Dead-Letter</span> - Failed message capture</li>
+      <li><span class="highlight">Throttle</span> - Rate limiting strategies</li>
+      <li><span class="highlight">Claim-Check</span> - Externalize large payloads</li>
+    </ul>
+  </section>
+</section>
+
+<!-- Summary -->
+<section>
+  <section>
+    <h2>Architecture Summary</h2>
+    <pre style="text-align: center; font-size: 0.5em;">
+┌────────────────────────────────────────────────────────────────────────────┐
+│                           Registry v2                                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │
+│  │ Schemas  │  │ Servers  │  │  Tools   │  │  Agents  │  │ Dependencies │  │
+│  │ @version │  │ @version │  │ @version │  │ @version │  │    graph     │  │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────────┘  │
+└───────────────────────────────────┬────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         AgentGateway Runtime                               │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐ │
+│  │   Enforcement   │  │    Dataplane    │  │     Composition Executor    │ │
+│  │ • Scoping       │  │ • Tool routing  │  │ • Pipeline                  │ │
+│  │ • Validation    │  │ • Transforms    │  │ • Scatter-gather            │ │
+│  │ • CEL policies  │  │ • Defaults      │  │ • Saga / Retry / Circuit    │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────────────┘
+    </pre>
+  </section>
+
+  <section>
+    <h2>Key Benefits</h2>
+    <ul>
+      <li class="fragment"><strong>Versioned & Immutable</strong> - Reproducible agent behavior</li>
+      <li class="fragment"><strong>Agent-Scoped Views</strong> - Least-privilege tool access</li>
+      <li class="fragment"><strong>Decoupled Evolution</strong> - Backend changes don't break agents</li>
+      <li class="fragment"><strong>Composition Patterns</strong> - Complex workflows as single tools</li>
+      <li class="fragment"><strong>Operational Control</strong> - Retry, circuit breaker, observability</li>
+    </ul>
+  </section>
+
+  <section>
+    <h1>Questions?</h1>
+    <p class="small">
+      <a href="https://github.com/agentgateway/agentgateway">github.com/agentgateway/agentgateway</a>
+    </p>
+  </section>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: true,
+    plugins: [ RevealHighlight, RevealNotes ],
+    transition: 'slide',
+    backgroundTransition: 'fade'
+  });
+</script>
+</body>
+</html>
