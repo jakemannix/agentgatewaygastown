@@ -16,6 +16,9 @@ Usage:
     # Connect to a different gateway
     python -m google_adk_agent --demo --gateway-url http://gateway:3000
 
+    # Use a specific LLM provider
+    python -m google_adk_agent --demo --llm-provider anthropic
+
 The ADK CLI provides the best interactive experience with built-in
 multi-turn conversation support, tool execution visualization, and
 session management.
@@ -32,6 +35,17 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def display_provider_info() -> None:
+    """Display information about the configured LLM provider."""
+    from .agent import get_provider_info
+
+    info = get_provider_info()
+    print(f"\nLLM Provider: {info['provider']}")
+    print(f"Model: {info['model']}")
+    print(f"Detection: {info['method']}")
+    print()
 
 
 def run_with_gateway(gateway_url: str) -> None:
@@ -54,6 +68,9 @@ def run_with_gateway(gateway_url: str) -> None:
         AgentGatewayMCPClient,
         discover_gateway_tools,
     )
+
+    # Display configured provider
+    display_provider_info()
 
     async def main() -> None:
         # Check gateway connectivity
@@ -155,6 +172,21 @@ Examples:
 
   # One-shot demo
   python -m google_adk_agent --demo
+
+  # Use specific LLM provider
+  python -m google_adk_agent --demo --llm-provider anthropic
+  python -m google_adk_agent --demo --llm-provider openai
+  python -m google_adk_agent --demo --llm-provider google
+
+  # Use a custom model
+  python -m google_adk_agent --demo --llm-model anthropic/claude-3-5-sonnet-20241022
+
+Environment Variables:
+  ANTHROPIC_API_KEY  - Anthropic Claude API key (highest priority)
+  OPENAI_API_KEY     - OpenAI API key (second priority)
+  GOOGLE_API_KEY     - Google Gemini API key (lowest priority)
+  LLM_PROVIDER       - Force provider: anthropic, openai, or google
+  LLM_MODEL          - Override model string directly
 """,
     )
     parser.add_argument(
@@ -180,12 +212,37 @@ Examples:
         default=os.environ.get("AGENTGATEWAY_URL", "http://localhost:3000"),
         help="URL of the agentgateway instance",
     )
+    parser.add_argument(
+        "--llm-provider",
+        choices=["anthropic", "openai", "google"],
+        help="LLM provider to use (overrides auto-detection)",
+    )
+    parser.add_argument(
+        "--llm-model",
+        help="Specific model string to use (overrides provider default)",
+    )
+    parser.add_argument(
+        "--show-provider",
+        action="store_true",
+        help="Show LLM provider info and exit",
+    )
 
     args = parser.parse_args()
 
-    if args.chat:
+    # Set environment variables from CLI args (before any agent code runs)
+    if args.llm_provider:
+        os.environ["LLM_PROVIDER"] = args.llm_provider
+    if args.llm_model:
+        os.environ["LLM_MODEL"] = args.llm_model
+
+    if args.show_provider:
+        display_provider_info()
+        sys.exit(0)
+    elif args.chat:
+        display_provider_info()
         run_interactive(web=False)
     elif args.web:
+        display_provider_info()
         run_interactive(web=True)
     elif args.demo:
         run_with_gateway(args.gateway_url)

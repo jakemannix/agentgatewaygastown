@@ -45,14 +45,58 @@ If Step 3 fails, the saga automatically executes compensating actions for Steps 
 
 - Python 3.10+
 - [uv](https://github.com/astral-sh/uv) (recommended) or pip
-- Google API key (for Gemini models)
+- API key for at least one LLM provider (see below)
 - Node.js/npx (for MCP servers)
+
+## LLM Provider Support
+
+This agent supports multiple LLM providers through Google ADK's LiteLLM integration. The agent automatically detects which provider to use based on available API keys.
+
+### Supported Providers
+
+| Provider | API Key Variable | Default Model |
+|----------|------------------|---------------|
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic/claude-opus-4-5-20251101` |
+| OpenAI | `OPENAI_API_KEY` | `openai/gpt-4o` |
+| Google | `GOOGLE_API_KEY` | `gemini-2.0-flash` |
+
+### Auto-Detection Priority
+
+If multiple API keys are set, the agent uses this priority order:
+1. **Anthropic** (highest priority)
+2. **OpenAI**
+3. **Google** (default fallback)
+
+### Overriding the Provider
+
+You can override auto-detection using:
+
+```bash
+# Via environment variable
+export LLM_PROVIDER=openai  # Options: anthropic, openai, google
+
+# Via CLI flag
+python -m google_adk_agent --demo --llm-provider anthropic
+
+# Or specify exact model
+export LLM_MODEL=anthropic/claude-3-5-sonnet-20241022
+python -m google_adk_agent --demo --llm-model openai/gpt-4-turbo
+```
 
 ## Setup
 
-### 1. Set up Google API credentials
+### 1. Set up LLM credentials
+
+Set the API key for your preferred provider:
 
 ```bash
+# Option 1: Anthropic Claude (recommended)
+export ANTHROPIC_API_KEY="your-api-key"
+
+# Option 2: OpenAI
+export OPENAI_API_KEY="your-api-key"
+
+# Option 3: Google Gemini
 export GOOGLE_API_KEY="your-api-key"
 ```
 
@@ -198,9 +242,14 @@ google_adk_agent/
 ### Agent Composition (ADK's sub_agents)
 
 ```python
+from agent import get_configured_model
+
+# Model is auto-detected from available API keys
+model = get_configured_model()
+
 coordinator = Agent(
     name="project_setup_coordinator",
-    model="gemini-2.0-flash",
+    model=model,  # Works with Anthropic, OpenAI, or Google
     sub_agents=[project_init, git_agent, config_agent, deps_agent],
     tools=[execute_saga, get_saga_status],
 )

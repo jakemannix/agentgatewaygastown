@@ -276,7 +276,10 @@ def create_gateway_echo_tool(gateway_url: str = "http://localhost:3000") -> Func
 
 
 # Example of creating an agent with gateway tools
-def create_gateway_enhanced_agent(gateway_url: str = "http://localhost:3000"):
+def create_gateway_enhanced_agent(
+    gateway_url: str = "http://localhost:3000",
+    model: str | None = None,
+):
     """
     Create an ADK agent enhanced with tools from agentgateway.
 
@@ -285,11 +288,14 @@ def create_gateway_enhanced_agent(gateway_url: str = "http://localhost:3000"):
 
     Args:
         gateway_url: URL of the agentgateway
+        model: Optional model string. If None, auto-detects from environment.
 
     Returns:
         An ADK Agent with gateway tools
     """
     from google.adk.agents import Agent
+
+    from .agent import get_configured_model
 
     # Discover tools from gateway (sync wrapper for simplicity)
     async def _discover():
@@ -307,7 +313,7 @@ def create_gateway_enhanced_agent(gateway_url: str = "http://localhost:3000"):
 
     return Agent(
         name="gateway_enhanced_agent",
-        model="gemini-2.0-flash",
+        model=model or get_configured_model(),
         description="An ADK agent with tools from agentgateway",
         instruction="""You are an assistant with access to tools provided by agentgateway.
 

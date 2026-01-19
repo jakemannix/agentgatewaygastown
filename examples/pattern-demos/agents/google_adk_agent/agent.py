@@ -30,6 +30,162 @@ from google.adk.tools import FunctionTool
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# LLM Provider Configuration
+# =============================================================================
+
+# Default models for each provider (using LiteLLM format for non-Google models)
+DEFAULT_MODELS = {
+    "anthropic": "anthropic/claude-opus-4-5-20251101",
+    "openai": "openai/gpt-4o",
+    "google": "gemini-2.0-flash",
+}
+
+# Environment variable names for API keys
+API_KEY_ENV_VARS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+}
+
+# Provider detection priority (first available wins)
+PROVIDER_PRIORITY = ["anthropic", "openai", "google"]
+
+
+def detect_llm_provider() -> str | None:
+    """
+    Detect which LLM provider is available based on API keys.
+
+    Checks for API keys in priority order: Anthropic, OpenAI, Google.
+
+    Returns:
+        Provider name ('anthropic', 'openai', 'google') or None if no keys found.
+    """
+    for provider in PROVIDER_PRIORITY:
+        env_var = API_KEY_ENV_VARS[provider]
+        if os.environ.get(env_var):
+            return provider
+    return None
+
+
+def get_model_for_provider(provider: str | None = None) -> str:
+    """
+    Get the model string for a provider.
+
+    Args:
+        provider: Provider name. If None, auto-detects from environment.
+
+    Returns:
+        Model string suitable for ADK Agent's model parameter.
+
+    Raises:
+        ValueError: If no provider is specified and none can be detected.
+    """
+    if provider is None:
+        provider = detect_llm_provider()
+
+    if provider is None:
+        raise ValueError(
+            "No LLM provider detected. Set one of: "
+            f"{', '.join(API_KEY_ENV_VARS.values())}"
+        )
+
+    # Check for custom model override
+    model_override = os.environ.get("LLM_MODEL")
+    if model_override:
+        return model_override
+
+    return DEFAULT_MODELS.get(provider, DEFAULT_MODELS["google"])
+
+
+def get_configured_model() -> str:
+    """
+    Get the configured LLM model, with support for explicit override.
+
+    Checks in order:
+    1. LLM_MODEL env var (explicit model override)
+    2. LLM_PROVIDER env var (explicit provider selection)
+    3. Auto-detect from available API keys
+
+    Returns:
+        Model string for ADK Agent configuration.
+    """
+    # Check for explicit model override
+    model_override = os.environ.get("LLM_MODEL")
+    if model_override:
+        logger.info(f"Using explicit model override: {model_override}")
+        return model_override
+
+    # Check for explicit provider selection
+    provider_override = os.environ.get("LLM_PROVIDER")
+    if provider_override:
+        provider_override = provider_override.lower()
+        if provider_override in DEFAULT_MODELS:
+            model = DEFAULT_MODELS[provider_override]
+            logger.info(f"Using {provider_override} provider: {model}")
+            return model
+        else:
+            logger.warning(
+                f"Unknown provider '{provider_override}', "
+                f"valid options: {', '.join(DEFAULT_MODELS.keys())}"
+            )
+
+    # Auto-detect from API keys
+    provider = detect_llm_provider()
+    if provider:
+        model = DEFAULT_MODELS[provider]
+        logger.info(f"Auto-detected {provider} provider: {model}")
+        return model
+
+    # Fall back to Gemini (original default)
+    logger.warning(
+        "No LLM API key detected. Set one of: "
+        f"{', '.join(API_KEY_ENV_VARS.values())}. "
+        "Falling back to gemini-2.0-flash (requires GOOGLE_API_KEY)."
+    )
+    return DEFAULT_MODELS["google"]
+
+
+def get_provider_info() -> dict[str, Any]:
+    """
+    Get information about the current LLM provider configuration.
+
+    Returns:
+        Dictionary with provider, model, and detection method.
+    """
+    model_override = os.environ.get("LLM_MODEL")
+    provider_override = os.environ.get("LLM_PROVIDER")
+
+    if model_override:
+        return {
+            "model": model_override,
+            "provider": "custom",
+            "method": "LLM_MODEL environment variable",
+        }
+
+    if provider_override and provider_override.lower() in DEFAULT_MODELS:
+        provider = provider_override.lower()
+        return {
+            "model": DEFAULT_MODELS[provider],
+            "provider": provider,
+            "method": "LLM_PROVIDER environment variable",
+        }
+
+    provider = detect_llm_provider()
+    if provider:
+        return {
+            "model": DEFAULT_MODELS[provider],
+            "provider": provider,
+            "method": f"auto-detected from {API_KEY_ENV_VARS[provider]}",
+        }
+
+    return {
+        "model": DEFAULT_MODELS["google"],
+        "provider": "google",
+        "method": "default (no API key detected)",
+    }
+
+
 class StepStatus(Enum):
     """Status of a saga step."""
 
@@ -608,11 +764,11 @@ def get_saga_status(project_name: str) -> dict[str, Any]:
 # =============================================================================
 
 
-def create_project_init_agent() -> Agent:
+def create_project_init_agent(model: str | None = None) -> Agent:
     """Create the project initialization sub-agent."""
     return Agent(
         name="project_init_agent",
-        model="gemini-2.0-flash",
+        model=model or get_configured_model(),
         description="Handles project structure creation and cleanup",
         instruction="""You are a project initialization specialist. Your role is to:
 1. Create project directory structures based on project type
@@ -627,11 +783,11 @@ Always verify operations completed successfully before reporting completion.""",
     )
 
 
-def create_git_agent() -> Agent:
+def create_git_agent(model: str | None = None) -> Agent:
     """Create the git management sub-agent."""
     return Agent(
         name="git_agent",
-        model="gemini-2.0-flash",
+        model=model or get_configured_model(),
         description="Handles git repository initialization and management",
         instruction="""You are a git operations specialist. Your role is to:
 1. Initialize git repositories with proper configuration
@@ -646,11 +802,11 @@ Ensure proper branch naming and initial commit setup.""",
     )
 
 
-def create_config_agent() -> Agent:
+def create_config_agent(model: str | None = None) -> Agent:
     """Create the configuration management sub-agent."""
     return Agent(
         name="config_agent",
-        model="gemini-2.0-flash",
+        model=model or get_configured_model(),
         description="Handles project configuration files",
         instruction="""You are a configuration specialist. Your role is to:
 1. Create project manifests (pyproject.toml, package.json, Cargo.toml)
@@ -665,11 +821,11 @@ Use appropriate configuration standards for each project type.""",
     )
 
 
-def create_dependencies_agent() -> Agent:
+def create_dependencies_agent(model: str | None = None) -> Agent:
     """Create the dependencies management sub-agent."""
     return Agent(
         name="dependencies_agent",
-        model="gemini-2.0-flash",
+        model=model or get_configured_model(),
         description="Handles dependency setup and management",
         instruction="""You are a dependency management specialist. Your role is to:
 1. Configure dependency specifications
@@ -684,24 +840,30 @@ Recommend appropriate dependencies based on project type.""",
     )
 
 
-def create_coordinator_agent() -> Agent:
+def create_coordinator_agent(model: str | None = None) -> Agent:
     """
     Create the main coordinator agent that orchestrates the saga.
 
     This demonstrates ADK's agent composition features by creating
     a hierarchical agent structure where the coordinator delegates
     to specialized sub-agents.
+
+    Args:
+        model: Optional model string. If None, auto-detects from environment.
     """
-    # Create sub-agents
-    project_init = create_project_init_agent()
-    git_agent = create_git_agent()
-    config_agent = create_config_agent()
-    deps_agent = create_dependencies_agent()
+    # Get model once and use for all agents
+    configured_model = model or get_configured_model()
+
+    # Create sub-agents with the same model
+    project_init = create_project_init_agent(model=configured_model)
+    git_agent = create_git_agent(model=configured_model)
+    config_agent = create_config_agent(model=configured_model)
+    deps_agent = create_dependencies_agent(model=configured_model)
 
     # Create coordinator with sub-agents
     coordinator = Agent(
         name="project_setup_coordinator",
-        model="gemini-2.0-flash",
+        model=configured_model,
         description="Coordinates multi-step project setup using saga pattern",
         instruction="""You are a project setup coordinator implementing the saga pattern.
 
