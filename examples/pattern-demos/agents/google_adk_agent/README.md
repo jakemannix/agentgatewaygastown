@@ -230,6 +230,56 @@ async def discover_gateway_tools(gateway_url: str) -> list[FunctionTool]:
     return [create_gateway_tool(client, tool) for tool in mcp_tools]
 ```
 
+## Tool Scoping (Registry v2)
+
+This agent identifies itself to the gateway as `adk-demo-agent` via HTTP headers. The gateway uses this identity to scope tool visibility based on the agent's declared dependencies in the registry.
+
+### How It Works
+
+1. **Agent identity headers** are sent with every request:
+   ```python
+   headers = {
+       "X-Agent-Name": "adk-demo-agent",
+       "X-Agent-Version": "1.0.0",
+   }
+   ```
+
+2. **Registry declaration** in `configs/registry-v2-example.json`:
+   ```json
+   {
+     "name": "adk-demo-agent",
+     "capabilities": {
+       "extensions": [{
+         "uri": "urn:agentgateway:sbom",
+         "params": {
+           "depends": [
+             { "type": "tool", "name": "create_task", "version": "1.0.0" },
+             { "type": "tool", "name": "process_order", "version": "1.0.0" }
+           ]
+         }
+       }]
+     }
+   }
+   ```
+
+3. **Gateway runtime hooks** match the agent identity to its declared dependencies and filter the tool list accordingly.
+
+### Tools Available to This Agent
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `create_task` | Source | Create tasks |
+| `list_tasks` | Source | List/filter tasks |
+| `complete_task` | Source | Mark tasks done |
+| `list_users` | Source | List users |
+| `search_users_by_bio` | Source | Semantic user search |
+| `send_notification` | Source | Send notifications |
+| `multi_search` | Scatter-Gather | Parallel search across services |
+| `process_order` | Saga | Order with inventory/payment/shipping |
+| `create_task_and_notify` | Pipeline | Create task → notify assignee |
+
+This is a focused subset optimized for **task orchestration and distributed transactions**. The Claude demo agent has a different subset focused on research and knowledge management.
+
 ## Integration with AgentGateway
 
 The agent can discover and use MCP tools from agentgateway:

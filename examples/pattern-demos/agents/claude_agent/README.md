@@ -209,6 +209,54 @@ Created 3 tasks based on API design documents:
 3. Set up API rate limiting
 ```
 
+## Tool Scoping (Registry v2)
+
+This agent identifies itself to the gateway as `claude-demo-agent` via HTTP headers. The gateway uses this identity to scope tool visibility based on the agent's declared dependencies in the registry.
+
+### How It Works
+
+1. **Agent identity headers** are sent with every request:
+   ```python
+   headers = {
+       "X-Agent-Name": "claude-demo-agent",
+       "X-Agent-Version": "1.0.0",
+   }
+   ```
+
+2. **Registry declaration** in `configs/registry-v2-example.json`:
+   ```json
+   {
+     "name": "claude-demo-agent",
+     "capabilities": {
+       "extensions": [{
+         "uri": "urn:agentgateway:sbom",
+         "params": {
+           "depends": [
+             { "type": "tool", "name": "search_documents", "version": "1.0.0" },
+             { "type": "tool", "name": "fetch_and_store", "version": "1.0.0" }
+           ]
+         }
+       }]
+     }
+   }
+   ```
+
+3. **Gateway runtime hooks** match the agent identity to its declared dependencies and filter the tool list accordingly.
+
+### Tools Available to This Agent
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `search_documents` | Source | Semantic document search |
+| `create_document` | Source | Create searchable documents |
+| `fetch` | Source | Fetch web content |
+| `read_graph` | Source | Query knowledge graph |
+| `create_entities` | Source | Add to knowledge graph |
+| `get_current_time` | Source | Timezone operations |
+| `fetch_and_store` | Pipeline | Fetch URL → store as document |
+
+This is a focused subset optimized for **research and knowledge management** workflows. The ADK demo agent has a different subset focused on task orchestration.
+
 ## Architecture
 
 ```

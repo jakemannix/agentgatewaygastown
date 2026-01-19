@@ -208,9 +208,41 @@ make start-services
 cd agents/claude_agent && python agent.py --chat
 ```
 
-### Agent Tool Scoping
+### Agent Tool Scoping (Registry v2)
 
-Each agent declares its tool dependencies in the registry. When connecting, agents pass their identity via HTTP headers (`X-Agent-Name`, `X-Agent-Version`), and the gateway scopes their tool visibility accordingly.
+The gateway uses a **single registry** (`configs/registry-v2-example.json`) that contains:
+- **Schemas**: Reusable JSON Schema definitions
+- **Servers**: Backend MCP server declarations with version info
+- **Tools**: Virtual tools (source mappings, pipelines, scatter-gather, sagas)
+- **Agents**: Agent definitions with their declared tool dependencies
+
+**How tool scoping works:**
+
+1. **Agents declare dependencies** in the registry via the SBOM extension:
+   ```json
+   {
+     "name": "claude-demo-agent",
+     "capabilities": {
+       "extensions": [{
+         "uri": "urn:agentgateway:sbom",
+         "params": {
+           "depends": [
+             { "type": "tool", "name": "search_documents", "version": "1.0.0" },
+             { "type": "tool", "name": "fetch_and_store", "version": "1.0.0" }
+           ]
+         }
+       }]
+     }
+   }
+   ```
+
+2. **Agents identify themselves** when connecting via HTTP headers:
+   ```
+   X-Agent-Name: claude-demo-agent
+   X-Agent-Version: 1.0.0
+   ```
+
+3. **Gateway scopes visibility** using runtime hooks to show only declared tools
 
 **Claude Agent** (`claude-demo-agent`) - Research & Knowledge focus:
 | Tool | Type | Description |
@@ -220,6 +252,7 @@ Each agent declares its tool dependencies in the registry. When connecting, agen
 | `fetch` | Source | Fetch web content |
 | `read_graph` | Source | Query knowledge graph |
 | `create_entities` | Source | Add to knowledge graph |
+| `get_current_time` | Source | Timezone operations |
 | `fetch_and_store` | Pipeline | Fetch URL → store as document |
 
 **ADK Agent** (`adk-demo-agent`) - Task Orchestration & Saga focus:
@@ -227,12 +260,15 @@ Each agent declares its tool dependencies in the registry. When connecting, agen
 |------|------|-------------|
 | `create_task` | Source | Create tasks |
 | `list_tasks` | Source | List/filter tasks |
+| `complete_task` | Source | Mark tasks done |
+| `list_users` | Source | List users |
+| `search_users_by_bio` | Source | Semantic user search |
 | `send_notification` | Source | Send notifications |
 | `multi_search` | Scatter-Gather | Parallel search across services |
 | `process_order` | Saga | Order with inventory/payment/shipping |
 | `create_task_and_notify` | Pipeline | Create task → notify assignee |
 
-This demonstrates how different agents can have different tool views from the same gateway, based on their declared dependencies in the registry.
+This demonstrates how different agents can have different tool views from the same gateway, based on their declared dependencies in the registry. The registry is the single source of truth for all tool definitions and agent capabilities.
 
 ## Framework Integration Examples
 
