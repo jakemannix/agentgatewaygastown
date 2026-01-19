@@ -32,6 +32,9 @@
 // Core types
 export * from './types.js';
 
+// Registry v2 builders
+export * from './builder.js';
+
 // Path builder
 export * from './path-builder.js';
 
