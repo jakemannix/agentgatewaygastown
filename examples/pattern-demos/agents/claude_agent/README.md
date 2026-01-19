@@ -41,14 +41,36 @@ pip install -e .
 
 ## Running agentgateway
 
-Before running the agent, start agentgateway with MCP tools. You can use the provided config or your own:
+Before running the agent, start agentgateway with MCP tools.
+
+### Full Demo (Recommended) - Sophisticated Virtual Tools
+
+For access to pipelines, scatter-gather, sagas, and all v2 features:
 
 ```bash
-# From the repository root, using the sample config
-cargo run -- -f examples/pattern-demos/agents/claude_agent/config.yaml
+# From the pattern-demos directory
+cd examples/pattern-demos
 
-# Or use the basic example
-cargo run -- -f examples/basic/config.yaml
+# Start the custom MCP services (document, task, user, notification)
+make start-mcp-services
+
+# Start the gateway with full v2 registry
+make start-services
+# Or: cargo run -- -f examples/pattern-demos/configs/demo-config.yaml
+```
+
+This gives you access to:
+- **Pipelines**: `fetch_and_store`, `search_and_summarize`, `document_workflow`
+- **Scatter-Gather**: `multi_search` (parallel search across services)
+- **Saga**: `order_saga` (distributed transaction with compensation)
+- **27 virtual tools** with schemas, servers, and compositions
+
+### Minimal Setup
+
+For a quick test with just the basic `everything` server:
+
+```bash
+cargo run -- -f examples/pattern-demos/agents/claude_agent/config.yaml
 ```
 
 ## Usage

@@ -63,10 +63,28 @@ cd examples/pattern-demos/agents/google_adk_agent
 uv sync
 ```
 
-### 3. Start agentgateway (optional, for MCP tools)
+### 3. Start agentgateway (for MCP tools)
+
+For access to sophisticated virtual tools (pipelines, scatter-gather, sagas):
 
 ```bash
-# From the repository root
+# From the pattern-demos directory
+cd examples/pattern-demos
+
+# Start the custom MCP services
+make start-mcp-services
+
+# Start the gateway with full v2 registry
+make start-services
+```
+
+This gives you access to 27 virtual tools including:
+- **Pipelines**: `fetch_and_store`, `search_and_summarize`
+- **Scatter-Gather**: `multi_search` (parallel search)
+- **Saga**: `order_saga` (distributed transactions)
+
+For minimal setup with just basic tools:
+```bash
 cargo run -- -f examples/pattern-demos/agents/google_adk_agent/config.yaml
 ```
 

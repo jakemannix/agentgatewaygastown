@@ -159,6 +159,7 @@ binds:
 
 # Registry for virtual tool mappings
 # This provides tool renaming, output projection, compositions, etc.
+# Using v2 registry with sophisticated patterns: pipelines, scatter-gather, sagas
 registry:
-  source: file://./examples/pattern-demos/configs/registry.json
+  source: file://./examples/pattern-demos/configs/registry-v2-example.json
   refreshInterval: 30s

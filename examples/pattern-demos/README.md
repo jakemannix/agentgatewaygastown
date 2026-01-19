@@ -194,16 +194,33 @@ The ADK agent uses Google's built-in `adk run` (terminal) and `adk web` (browser
 ### Prerequisites
 
 Both agents require:
-1. AgentGateway running (`make start-services`)
+1. AgentGateway running with MCP services
 2. API credentials (Anthropic API key for Claude, Google API key for ADK)
 
 ```bash
-# Start the gateway first
+# Terminal 1: Start the custom MCP services (document, task, user, notification)
+make start-mcp-services
+
+# Terminal 2: Start the gateway with full v2 registry
 make start-services
 
-# Then in another terminal, start an agent
+# Terminal 3: Start an agent
 cd agents/claude_agent && python agent.py --chat
 ```
+
+### Available Sophisticated Tools
+
+With the full demo setup, agents have access to:
+
+| Tool | Type | Description |
+|------|------|-------------|
+| `fetch_and_store` | Pipeline | Fetch URL → store as document |
+| `search_and_summarize` | Pipeline | Search → combine → summarize |
+| `document_workflow` | Pipeline | Multi-step document processing |
+| `multi_search` | Scatter-Gather | Parallel search across services |
+| `order_saga` | Saga | Distributed transaction with rollback |
+
+Plus 22 more virtual tools with aliasing, projection, and transformation.
 
 ## Framework Integration Examples
 
