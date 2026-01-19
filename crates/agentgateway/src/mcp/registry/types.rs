@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::patterns::{FieldSource, PatternSpec, SchemaMapSpec};
 
@@ -70,8 +70,12 @@ pub struct Schema {
 	pub metadata: HashMap<String, serde_json::Value>,
 }
 
-/// SchemaRef allows referencing either an inline schema or a $ref to a named schema
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// SchemaRef allows referencing either an inline schema or a $ref to a named schema.
+/// Supports multiple JSON formats:
+/// - `{ "$ref": "#/schemas/Name" }` → Ref variant
+/// - `{ "type": "object", ... }` → Inline variant (raw JSON Schema)
+/// - `{ "inline": { ... } }` → Inline variant (explicit)
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SchemaRef {
 	/// Inline JSON Schema definition
@@ -80,6 +84,33 @@ pub enum SchemaRef {
 	/// Reference to a named schema (e.g., "#/schemas/SearchQuery" or "#SearchQuery:1.0.0")
 	#[serde(rename = "$ref")]
 	Ref(String),
+}
+
+// Custom deserialization to support multiple JSON formats:
+// - If has "$ref" key: treat as Ref variant
+// - If has "inline" key: unwrap and treat as Inline
+// - Otherwise: treat entire object as Inline (raw JSON Schema)
+impl<'de> Deserialize<'de> for SchemaRef {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		let value = serde_json::Value::deserialize(deserializer)?;
+
+		if let serde_json::Value::Object(ref map) = value {
+			// Check for $ref first
+			if let Some(serde_json::Value::String(ref_str)) = map.get("$ref") {
+				return Ok(SchemaRef::Ref(ref_str.clone()));
+			}
+			// Check for explicit "inline" wrapper
+			if let Some(inline_val) = map.get("inline") {
+				return Ok(SchemaRef::Inline(inline_val.clone()));
+			}
+		}
+
+		// Otherwise treat the entire value as inline JSON Schema
+		Ok(SchemaRef::Inline(value))
+	}
 }
 
 // =============================================================================
@@ -384,7 +415,8 @@ pub enum ToolImplementation {
 #[serde(rename_all = "camelCase")]
 pub struct SourceTool {
 	/// Target name (MCP server/backend name)
-	/// Note: Proto uses "server" but we keep "target" for v1 compatibility
+	/// Accepts either "target" (v1) or "server" (v2) in JSON
+	#[serde(alias = "server")]
 	pub target: String,
 
 	/// Original tool name on that target

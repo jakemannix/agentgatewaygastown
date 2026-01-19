@@ -4,9 +4,33 @@ use std::collections::HashMap;
 
 use agentgateway::mcp::registry::{
 	CompiledRegistry, OutputField, OutputSchema, Registry, RegistryClient, RegistryStore,
-	RegistryStoreRef, VirtualToolDef,
+	RegistryStoreRef, ToolDefinition, ToolImplementation, VirtualToolDef,
 };
 use tempfile::NamedTempFile;
+
+/// Helper to extract source tool info from ToolImplementation
+fn get_source_info(tool: &ToolDefinition) -> Option<(&str, &str)> {
+	match &tool.implementation {
+		ToolImplementation::Source(src) => Some((src.target.as_str(), src.tool.as_str())),
+		_ => None,
+	}
+}
+
+/// Helper to get defaults from a source tool
+fn get_defaults(tool: &ToolDefinition) -> Option<&HashMap<String, serde_json::Value>> {
+	match &tool.implementation {
+		ToolImplementation::Source(src) => Some(&src.defaults),
+		_ => None,
+	}
+}
+
+/// Helper to get hide_fields from a source tool
+fn get_hide_fields(tool: &ToolDefinition) -> Option<&Vec<String>> {
+	match &tool.implementation {
+		ToolImplementation::Source(src) => Some(&src.hide_fields),
+		_ => None,
+	}
+}
 
 /// Test loading a registry from a file source
 #[tokio::test]
@@ -44,8 +68,9 @@ async fn test_registry_file_loading() -> anyhow::Result<()> {
 
 	assert_eq!(registry.len(), 1);
 	assert_eq!(registry.tools[0].name, "get_weather");
-	assert_eq!(registry.tools[0].source.target, "weather-backend");
-	assert_eq!(registry.tools[0].source.tool, "fetch_weather_data");
+	let (target, tool) = get_source_info(&registry.tools[0]).expect("should be source tool");
+	assert_eq!(target, "weather-backend");
+	assert_eq!(tool, "fetch_weather_data");
 
 	Ok(())
 }
@@ -198,14 +223,20 @@ async fn test_registry_store_update() -> anyhow::Result<()> {
 /// Test registry with full JSON parsing from file
 #[tokio::test]
 async fn test_registry_full_json_parsing() -> anyhow::Result<()> {
+	// Note: v2 format has defaults/hideFields inside the source object
 	let registry_json = r#"{
-		"schemaVersion": "1.0",
+		"schemaVersion": "2.0",
 		"tools": [
 			{
 				"name": "get_weather",
 				"source": {
 					"target": "weather",
-					"tool": "fetch_weather"
+					"tool": "fetch_weather",
+					"defaults": {
+						"api_key": "test-key",
+						"units": "metric"
+					},
+					"hideFields": ["debug_mode", "raw_output"]
 				},
 				"description": "Get current weather for a city",
 				"inputSchema": {
@@ -215,11 +246,6 @@ async fn test_registry_full_json_parsing() -> anyhow::Result<()> {
 					},
 					"required": ["city"]
 				},
-				"defaults": {
-					"api_key": "test-key",
-					"units": "metric"
-				},
-				"hideFields": ["debug_mode", "raw_output"],
 				"outputSchema": {
 					"type": "object",
 					"properties": {
@@ -264,14 +290,15 @@ async fn test_registry_full_json_parsing() -> anyhow::Result<()> {
 	// Check first tool
 	let weather_tool = &registry.tools[0];
 	assert_eq!(weather_tool.name, "get_weather");
-	assert_eq!(weather_tool.source.target, "weather");
-	assert_eq!(weather_tool.source.tool, "fetch_weather");
+	let (target, tool) = get_source_info(weather_tool).expect("should be source tool");
+	assert_eq!(target, "weather");
+	assert_eq!(tool, "fetch_weather");
 	assert_eq!(
 		weather_tool.description,
 		Some("Get current weather for a city".to_string())
 	);
-	assert_eq!(weather_tool.defaults.len(), 2);
-	assert_eq!(weather_tool.hide_fields.len(), 2);
+	assert_eq!(get_defaults(weather_tool).unwrap().len(), 2);
+	assert_eq!(get_hide_fields(weather_tool).unwrap().len(), 2);
 	assert!(weather_tool.output_schema.is_some());
 	assert_eq!(weather_tool.version, Some("2.1.0".to_string()));
 	assert_eq!(weather_tool.metadata.len(), 2);
@@ -279,9 +306,10 @@ async fn test_registry_full_json_parsing() -> anyhow::Result<()> {
 	// Check second tool
 	let search_tool = &registry.tools[1];
 	assert_eq!(search_tool.name, "search_web");
-	assert_eq!(search_tool.source.target, "search");
-	assert!(search_tool.defaults.is_empty());
-	assert!(search_tool.hide_fields.is_empty());
+	let (target, _) = get_source_info(search_tool).expect("should be source tool");
+	assert_eq!(target, "search");
+	assert!(get_defaults(search_tool).unwrap().is_empty());
+	assert!(get_hide_fields(search_tool).unwrap().is_empty());
 
 	// Compile and verify lookups work
 	let compiled = CompiledRegistry::compile(registry)?;
@@ -341,11 +369,8 @@ async fn test_output_transformation_passthrough() -> anyhow::Result<()> {
 // =============================================================================
 
 use agentgateway::mcp::registry::{
-	ToolDefinition, PatternSpec, PipelineSpec, PipelineStep, StepOperation, ToolCall,
+	PatternSpec, PipelineSpec, PipelineStep, StepOperation, ToolCall,
 	ScatterGatherSpec, ScatterTarget, AggregationStrategy, AggregationOp,
-	FilterSpec, FieldPredicate, PredicateValue,
-	SchemaMapSpec, FieldSource, LiteralValue,
-	MapEachSpec, MapEachInner,
 };
 
 /// Test parsing and compiling a composition-based tool
@@ -469,12 +494,12 @@ async fn test_composition_references() -> anyhow::Result<()> {
 			steps: vec![
 				PipelineStep {
 					id: "step1".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "search".to_string() }),
+					operation: StepOperation::Tool(ToolCall::new("search")),
 					input: None,
 				},
 				PipelineStep {
 					id: "step2".to_string(),
-					operation: StepOperation::Tool(ToolCall { name: "process".to_string() }),
+					operation: StepOperation::Tool(ToolCall::new("process")),
 					input: None,
 				},
 			],
@@ -637,6 +662,198 @@ async fn test_prepare_call_args_composition_error() -> anyhow::Result<()> {
 	// Should error because compositions require the executor
 	let result = compiled.prepare_call_args("my_composition", serde_json::json!({}));
 	assert!(result.is_err());
+
+	Ok(())
+}
+
+// =============================================================================
+// Registry v2 Demo Config Integration Tests
+// =============================================================================
+
+use agentgateway::mcp::registry::{validate_registry, ValidationError};
+use std::path::PathBuf;
+
+/// Get path to the demo registry file
+fn demo_registry_path() -> PathBuf {
+	PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+		.join("../../examples/pattern-demos/configs/registry-v2-example.json")
+}
+
+/// Test loading and parsing the full v2 demo registry
+#[tokio::test]
+async fn test_load_demo_registry_v2() -> anyhow::Result<()> {
+	let path = demo_registry_path();
+	let content = std::fs::read_to_string(&path)?;
+	let registry: Registry = serde_json::from_str(&content)?;
+
+	// Verify counts match expected
+	assert_eq!(registry.schemas.len(), 12, "Expected 12 schemas");
+	assert_eq!(registry.servers.len(), 10, "Expected 10 servers");
+	assert_eq!(registry.tools.len(), 27, "Expected 27 tools");
+	assert_eq!(registry.agents.len(), 3, "Expected 3 agents");
+
+	Ok(())
+}
+
+/// Test that the demo registry passes validation
+#[tokio::test]
+async fn test_demo_registry_validation() -> anyhow::Result<()> {
+	let path = demo_registry_path();
+	let content = std::fs::read_to_string(&path)?;
+	let registry: Registry = serde_json::from_str(&content)?;
+
+	let result = validate_registry(&registry);
+
+	// The demo registry should be valid (no errors)
+	assert!(
+		result.is_ok(),
+		"Demo registry should pass validation, got errors: {:?}",
+		result.errors
+	);
+
+	// It may have warnings (e.g., deprecations), that's OK
+	if result.has_warnings() {
+		println!(
+			"Demo registry has {} warnings (expected for deprecation demos)",
+			result.warnings.len()
+		);
+	}
+
+	Ok(())
+}
+
+/// Test that the demo registry compiles successfully
+#[tokio::test]
+async fn test_demo_registry_compilation() -> anyhow::Result<()> {
+	let path = demo_registry_path();
+	let content = std::fs::read_to_string(&path)?;
+	let registry: Registry = serde_json::from_str(&content)?;
+
+	let compiled = CompiledRegistry::compile(registry)?;
+
+	// Verify some key tools exist
+	assert!(
+		compiled.get_tool("search_documents").is_some(),
+		"search_documents tool should exist"
+	);
+	assert!(compiled.get_tool("fetch").is_some(), "fetch tool should exist");
+
+	// Verify compositions exist (tools with spec.pipeline/scatterGather/saga)
+	assert!(
+		compiled.is_composition("fetch_and_store"),
+		"fetch_and_store should be a composition"
+	);
+
+	Ok(())
+}
+
+/// Test v2 features: schema references, servers, agents
+#[tokio::test]
+async fn test_demo_registry_v2_features() -> anyhow::Result<()> {
+	let path = demo_registry_path();
+	let content = std::fs::read_to_string(&path)?;
+	let registry: Registry = serde_json::from_str(&content)?;
+
+	// Check schema features
+	let search_query_schema = registry.schemas.iter().find(|s| s.name == "SearchQuery");
+	assert!(search_query_schema.is_some(), "SearchQuery schema should exist");
+	assert_eq!(
+		search_query_schema.unwrap().version,
+		Some("1.0.0".to_string()),
+		"Schema should be versioned"
+	);
+
+	// Check server features
+	let doc_server = registry.servers.iter().find(|s| s.name == "document-service");
+	assert!(doc_server.is_some(), "document-service should exist");
+	assert!(
+		doc_server.unwrap().version.is_some(),
+		"Server should be versioned"
+	);
+
+	// Check agent features
+	let research_agent = registry.agents.iter().find(|a| a.name == "research-agent");
+	assert!(research_agent.is_some(), "research-agent should exist");
+	assert!(
+		!research_agent.unwrap().skills.is_empty(),
+		"Agent should have skills"
+	);
+
+	Ok(())
+}
+
+/// Test validation catches cycles when present
+#[tokio::test]
+async fn test_validation_detects_cycle_in_demo_extension() -> anyhow::Result<()> {
+	let path = demo_registry_path();
+	let content = std::fs::read_to_string(&path)?;
+	let mut registry: Registry = serde_json::from_str(&content)?;
+
+	// Add a cycle: make a tool depend on itself via another tool
+	// Find two tools and create a cycle
+	if registry.tools.len() >= 2 {
+		use agentgateway::mcp::registry::{Dependency, DependencyType};
+
+		// Create cycle: tool_0 -> tool_1 -> tool_0
+		let tool_0_name = registry.tools[0].name.clone();
+		let tool_1_name = registry.tools[1].name.clone();
+
+		registry.tools[0].depends.push(Dependency {
+			dep_type: DependencyType::Tool,
+			name: tool_1_name.clone(),
+			version: None,
+			skill: None,
+		});
+		registry.tools[1].depends.push(Dependency {
+			dep_type: DependencyType::Tool,
+			name: tool_0_name.clone(),
+			version: None,
+			skill: None,
+		});
+
+		let result = validate_registry(&registry);
+
+		// Should detect the cycle
+		assert!(
+			!result.is_ok(),
+			"Should detect cycle we introduced"
+		);
+		assert!(
+			result.errors.iter().any(|e| matches!(e, ValidationError::DependencyCycle(_))),
+			"Should have DependencyCycle error"
+		);
+	}
+
+	Ok(())
+}
+
+/// Test runtime hooks with demo registry
+#[tokio::test]
+async fn test_demo_registry_runtime_hooks() -> anyhow::Result<()> {
+	use agentgateway::mcp::registry::{RuntimeHooks, CallerIdentity};
+
+	let path = demo_registry_path();
+	let content = std::fs::read_to_string(&path)?;
+	let registry: Registry = serde_json::from_str(&content)?;
+
+	let hooks = RuntimeHooks::new(&registry);
+
+	// Anonymous caller should see all tools
+	let anonymous = CallerIdentity::default();
+	let visible = hooks.get_visible_tools(&anonymous);
+	assert_eq!(visible.len(), 27, "Anonymous caller should see all 27 tools");
+
+	// Caller with declared deps should only see those deps
+	let restricted = CallerIdentity {
+		agent_name: Some("test-agent".to_string()),
+		agent_version: Some("1.0.0".to_string()),
+		declared_deps: ["search_documents", "fetch"]
+			.iter()
+			.map(|s| s.to_string())
+			.collect(),
+	};
+	let visible = hooks.get_visible_tools(&restricted);
+	assert_eq!(visible.len(), 2, "Restricted caller should only see 2 tools");
 
 	Ok(())
 }

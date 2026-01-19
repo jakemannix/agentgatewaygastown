@@ -32,8 +32,9 @@ pub use patterns::{
 };
 pub use store::{RegistryStore, RegistryStoreRef};
 pub use types::{
-	OutputField, OutputSchema, OutputTransform, Registry, SourceTool, ToolDefinition,
-	ToolImplementation, ToolSource, VirtualToolDef,
+	AgentDefinition, Dependency, DependencyType, OutputField, OutputSchema, OutputTransform,
+	Registry, Schema, Server, SourceTool, ToolDefinition, ToolImplementation, ToolSource,
+	VirtualToolDef,
 };
 pub use validation::{validate_registry, RegistryValidator, ValidationError, ValidationResult, ValidationWarning};
 pub use runtime_hooks::{CallerIdentity, CallContext, DependencyCheckResult, RuntimeHooks, ToolVisibility};

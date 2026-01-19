@@ -1,6 +1,6 @@
 // Pipeline pattern types
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::PatternSpec;
 
@@ -117,7 +117,7 @@ pub struct AgentCall {
 }
 
 /// DataBinding specifies where step input comes from
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DataBinding {
 	/// From composition input
@@ -132,6 +132,48 @@ pub enum DataBinding {
 	/// Construct an object from multiple bindings
 	/// This enables input schema construction from prior step outputs
 	Construct(ConstructBinding),
+}
+
+// Custom deserialization to support multiple JSON formats:
+// - Explicit tagged: { "input": { "path": "..." } }
+// - Shorthand: { "path": "..." } (treated as input binding)
+// - Reference alias: { "reference": { ... } } (alias for step)
+impl<'de> Deserialize<'de> for DataBinding {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		// Helper enum with all supported formats
+		#[derive(Deserialize)]
+		#[serde(rename_all = "camelCase")]
+		enum DataBindingHelper {
+			// Explicit tagged variants
+			Input(InputBinding),
+			#[serde(alias = "reference")]
+			Step(StepBinding),
+			Constant(serde_json::Value),
+			Construct(ConstructBinding),
+		}
+
+		// First try the shorthand format { "path": "..." }
+		// This is just InputBinding without a wrapper
+		#[derive(Deserialize)]
+		#[serde(untagged)]
+		enum MaybeShorthand {
+			Tagged(DataBindingHelper),
+			Shorthand(InputBinding),
+		}
+
+		match MaybeShorthand::deserialize(deserializer)? {
+			MaybeShorthand::Tagged(DataBindingHelper::Input(ib)) => Ok(DataBinding::Input(ib)),
+			MaybeShorthand::Tagged(DataBindingHelper::Step(sb)) => Ok(DataBinding::Step(sb)),
+			MaybeShorthand::Tagged(DataBindingHelper::Constant(v)) => Ok(DataBinding::Constant(v)),
+			MaybeShorthand::Tagged(DataBindingHelper::Construct(cb)) => {
+				Ok(DataBinding::Construct(cb))
+			}
+			MaybeShorthand::Shorthand(ib) => Ok(DataBinding::Input(ib)),
+		}
+	}
 }
 
 impl Default for DataBinding {
@@ -155,6 +197,8 @@ pub struct InputBinding {
 #[serde(rename_all = "camelCase")]
 pub struct StepBinding {
 	/// ID of the step to reference
+	/// Accepts either "stepId" or "step" in JSON
+	#[serde(alias = "step")]
 	pub step_id: String,
 
 	/// JSONPath into step output
