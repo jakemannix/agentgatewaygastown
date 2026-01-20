@@ -1,0 +1,297 @@
+{
+  "$comment": "eCommerce Demo Registry - Virtual tools for customer and merchandiser workflows",
+  "schemaVersion": "1.0",
+
+  "tools": [
+    {
+      "name": "browse_products",
+      "description": "Browse the product catalog with optional category filter",
+      "source": {"target": "catalog-service", "tool": "list_products"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "category": {"type": "string", "description": "Filter by category"},
+          "page": {"type": "integer", "description": "Page number", "default": 1},
+          "limit": {"type": "integer", "description": "Products per page", "default": 20}
+        }
+      }
+    },
+
+    {
+      "name": "search_products",
+      "description": "Search products using natural language queries",
+      "source": {"target": "catalog-service", "tool": "search_products"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Natural language search query"},
+          "category": {"type": "string", "description": "Filter by category"},
+          "max_results": {"type": "integer", "description": "Maximum results", "default": 10}
+        },
+        "required": ["query"]
+      }
+    },
+
+    {
+      "name": "get_product_details",
+      "description": "Get detailed information about a specific product",
+      "source": {"target": "catalog-service", "tool": "get_product"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string", "description": "Product ID"}
+        },
+        "required": ["product_id"]
+      }
+    },
+
+    {
+      "name": "get_categories",
+      "description": "Get all available product categories",
+      "source": {"target": "catalog-service", "tool": "get_categories"}
+    },
+
+    {
+      "name": "view_cart",
+      "description": "View shopping cart contents and total",
+      "source": {"target": "cart-service", "tool": "view_cart"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {"type": "string", "description": "User identifier"}
+        },
+        "required": ["user_id"]
+      }
+    },
+
+    {
+      "name": "add_to_cart",
+      "description": "Add a product to the shopping cart",
+      "source": {"target": "cart-service", "tool": "add_to_cart"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {"type": "string", "description": "User identifier"},
+          "product_id": {"type": "string", "description": "Product to add"},
+          "quantity": {"type": "integer", "description": "Quantity", "default": 1}
+        },
+        "required": ["user_id", "product_id"]
+      }
+    },
+
+    {
+      "name": "update_cart_item",
+      "description": "Update quantity of an item in cart (0 to remove)",
+      "source": {"target": "cart-service", "tool": "update_cart_item"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cart_item_id": {"type": "string", "description": "Cart item ID"},
+          "quantity": {"type": "integer", "description": "New quantity (0 to remove)"}
+        },
+        "required": ["cart_item_id", "quantity"]
+      }
+    },
+
+    {
+      "name": "remove_from_cart",
+      "description": "Remove an item from the cart",
+      "source": {"target": "cart-service", "tool": "remove_from_cart"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "cart_item_id": {"type": "string", "description": "Cart item ID to remove"}
+        },
+        "required": ["cart_item_id"]
+      }
+    },
+
+    {
+      "name": "clear_cart",
+      "description": "Clear all items from the cart",
+      "source": {"target": "cart-service", "tool": "clear_cart"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {"type": "string", "description": "User identifier"}
+        },
+        "required": ["user_id"]
+      }
+    },
+
+    {
+      "name": "checkout",
+      "description": "Create order from cart",
+      "source": {"target": "order-service", "tool": "checkout"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {"type": "string"},
+          "shipping_address": {"type": "string"}
+        },
+        "required": ["user_id", "shipping_address"]
+      }
+    },
+
+    {
+      "name": "get_order",
+      "description": "Get details of a specific order",
+      "source": {"target": "order-service", "tool": "get_order"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "order_id": {"type": "string", "description": "Order ID"}
+        },
+        "required": ["order_id"]
+      }
+    },
+
+    {
+      "name": "list_orders",
+      "description": "List orders for a user",
+      "source": {"target": "order-service", "tool": "list_orders"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {"type": "string", "description": "User identifier"},
+          "status": {"type": "string", "description": "Filter by status"}
+        }
+      }
+    },
+
+    {
+      "name": "cancel_order",
+      "description": "Cancel an order",
+      "source": {"target": "order-service", "tool": "cancel_order"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "order_id": {"type": "string"}
+        },
+        "required": ["order_id"]
+      }
+    },
+
+    {
+      "name": "get_inventory_report",
+      "description": "Get full inventory status report with stock levels",
+      "source": {"target": "inventory-service", "tool": "get_inventory_report"}
+    },
+
+    {
+      "name": "get_low_stock_alerts",
+      "description": "Get products with stock below reorder threshold",
+      "source": {"target": "inventory-service", "tool": "get_low_stock_alerts"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "threshold": {"type": "integer", "description": "Custom threshold (optional)"}
+        }
+      }
+    },
+
+    {
+      "name": "adjust_inventory",
+      "description": "Manually adjust inventory levels with audit trail",
+      "source": {"target": "inventory-service", "tool": "adjust_inventory"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string", "description": "Product ID"},
+          "quantity_change": {"type": "integer", "description": "Amount to add/remove"},
+          "reason": {"type": "string", "description": "Reason for adjustment"}
+        },
+        "required": ["product_id", "quantity_change", "reason"]
+      }
+    },
+
+    {
+      "name": "list_suppliers",
+      "description": "Get all available suppliers",
+      "source": {"target": "supplier-service", "tool": "list_suppliers"}
+    },
+
+    {
+      "name": "get_supplier",
+      "description": "Get supplier details",
+      "source": {"target": "supplier-service", "tool": "get_supplier"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "supplier_id": {"type": "string", "description": "Supplier ID"}
+        },
+        "required": ["supplier_id"]
+      }
+    },
+
+    {
+      "name": "create_purchase_order",
+      "description": "Create a purchase order to restock inventory",
+      "source": {"target": "supplier-service", "tool": "create_purchase_order"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string", "description": "Product to order"},
+          "supplier_id": {"type": "string", "description": "Supplier to order from"},
+          "quantity": {"type": "integer", "description": "Quantity to order"},
+          "notes": {"type": "string", "description": "Optional notes"}
+        },
+        "required": ["product_id", "supplier_id", "quantity"]
+      }
+    },
+
+    {
+      "name": "list_purchase_orders",
+      "description": "List purchase orders with optional filtering",
+      "source": {"target": "supplier-service", "tool": "list_purchase_orders"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string", "description": "Filter by status"},
+          "supplier_id": {"type": "string", "description": "Filter by supplier"}
+        }
+      }
+    },
+
+    {
+      "name": "receive_shipment",
+      "description": "Mark a purchase order as received and add to inventory",
+      "source": {"target": "supplier-service", "tool": "receive_shipment"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "po_id": {"type": "string", "description": "Purchase order ID"},
+          "quantity_received": {"type": "integer", "description": "Quantity received (defaults to ordered)"}
+        },
+        "required": ["po_id"]
+      }
+    },
+
+    {
+      "name": "update_order_status",
+      "description": "Update order status (admin function)",
+      "source": {"target": "order-service", "tool": "update_order_status"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "order_id": {"type": "string", "description": "Order ID"},
+          "status": {"type": "string", "description": "New status", "enum": ["pending", "confirmed", "shipped", "delivered", "cancelled"]}
+        },
+        "required": ["order_id", "status"]
+      }
+    },
+
+    {
+      "name": "get_sales_report",
+      "description": "Get sales analytics report",
+      "source": {"target": "order-service", "tool": "get_sales_report"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "start_date": {"type": "string", "description": "Start date (ISO format)"},
+          "end_date": {"type": "string", "description": "End date (ISO format)"}
+        }
+      }
+    }
+  ]
+}

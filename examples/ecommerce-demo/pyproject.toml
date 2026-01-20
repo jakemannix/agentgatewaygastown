@@ -1,0 +1,67 @@
+[project]
+name = "ecommerce-demo"
+version = "0.1.0"
+description = "eCommerce demo showcasing agentgateway virtual tools with A2A agents"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # MCP backend services
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "sentence-transformers>=2.2.0",
+    "sqlite-vec>=0.1.1",
+
+    # Web UI
+    "python-fasthtml>=0.4.0",
+    "uvicorn>=0.30.0",
+    "httpx>=0.27.0",
+    "starlette>=0.37.0",
+
+    # Agent frameworks
+    "google-adk>=0.5.0",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+
+    # LLM providers (optional - install based on which you use)
+    "langchain-anthropic>=0.2.0",
+    "langchain-openai>=0.2.0",
+    "langchain-google-genai>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+]
+
+# Minimal install without all LLM providers
+minimal = [
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "sentence-transformers>=2.2.0",
+    "sqlite-vec>=0.1.1",
+    "python-fasthtml>=0.4.0",
+    "uvicorn>=0.30.0",
+    "httpx>=0.27.0",
+    "starlette>=0.37.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_tools", "agents", "web_ui"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

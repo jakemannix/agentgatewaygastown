@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=../../../schema/config.json
+#
+# eCommerce Demo Gateway Configuration
+#
+# This configuration demonstrates agentgateway's virtual tools functionality with:
+# - Customer-facing tools (search, cart, checkout)
+# - Merchandiser/backend tools (inventory, suppliers, purchase orders)
+# - Composition patterns (pipeline, scatter-gather, saga)
+#
+# MCP backend services run on HTTP ports:
+#   - Catalog Service:   http://localhost:8001
+#   - Cart Service:      http://localhost:8002
+#   - Order Service:     http://localhost:8003
+#   - Inventory Service: http://localhost:8004
+#   - Supplier Service:  http://localhost:8005
+#
+# Start services first:
+#   cd examples/ecommerce-demo && ./start_services.sh
+#
+# Then start gateway:
+#   ./target/release/agentgateway -f examples/ecommerce-demo/gateway-configs/config.yaml
+#
+# MCP endpoint: http://localhost:3000 (Streamable HTTP)
+# UI: http://localhost:15000/ui
+
+# Virtual tool registry - loads composition patterns
+registry:
+  source: file://./examples/ecommerce-demo/gateway-configs/ecommerce_registry.json
+  refreshInterval: 30s
+
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+          exposeHeaders:
+          - "Mcp-Session-Id"
+      backends:
+      - mcp:
+          targets:
+          # Catalog Service - product management and semantic search
+          - name: catalog-service
+            mcp:
+              host: http://localhost:8001/mcp
+
+          # Cart Service - shopping cart management
+          - name: cart-service
+            mcp:
+              host: http://localhost:8002/mcp
+
+          # Order Service - order management
+          - name: order-service
+            mcp:
+              host: http://localhost:8003/mcp
+
+          # Inventory Service - stock management
+          - name: inventory-service
+            mcp:
+              host: http://localhost:8004/mcp
+
+          # Supplier Service - purchase order management
+          - name: supplier-service
+            mcp:
+              host: http://localhost:8005/mcp
