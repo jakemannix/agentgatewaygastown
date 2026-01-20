@@ -1,0 +1,908 @@
+{
+  "$comment": "eCommerce Demo Registry v2 - Virtual tools with compositions, simplifications, and sagas",
+  "schemaVersion": "1.0",
+
+  "tools": [
+    {"$comment": "========== SECTION 1: SCHEMA SIMPLIFICATIONS =========="},
+    {"$comment": "Backend tools are generic with many parameters. These virtual tools are agent-specific with reduced schemas."},
+
+    {
+      "$comment": "--- Shopper-Friendly Product Search ---",
+      "$comment2": "Backend search_products has: query, category, min_price, max_price, in_stock_only, sort_by, sort_order, page, limit, include_embeddings, debug_scores",
+      "$comment3": "Shopper just needs: query and optional category. Hide complexity.",
+      "name": "find_products",
+      "description": "Search for products using natural language (e.g., 'comfortable running shoes under $100')",
+      "source": {
+        "target": "catalog-service",
+        "tool": "search_products",
+        "defaults": {
+          "in_stock_only": true,
+          "limit": 8
+        },
+        "hideFields": ["include_embeddings", "debug_scores", "sort_order", "page"]
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "What are you looking for?"},
+          "category": {"type": "string", "description": "Optional category filter"}
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "price": {"type": "number"},
+                "description": {"type": "string"},
+                "in_stock": {"type": "boolean"}
+              }
+            }
+          },
+          "total_found": {"type": "integer"}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "products": {"path": "$.products[*]"},
+          "products[*].id": {"path": "$.id"},
+          "products[*].name": {"path": "$.name"},
+          "products[*].price": {"path": "$.price"},
+          "products[*].description": {"path": "$.description"},
+          "products[*].in_stock": {"path": "$.stock_quantity > 0"},
+          "total_found": {"path": "$.total"}
+        }
+      }
+    },
+
+    {
+      "$comment": "--- Simple Cart View for Shoppers ---",
+      "$comment2": "Backend view_cart returns: items with product details, totals, tax calculations, shipping estimates",
+      "$comment3": "Shopper wants: what's in my cart and the total",
+      "name": "my_cart",
+      "description": "See what's in your shopping cart",
+      "source": {
+        "target": "cart-service",
+        "tool": "view_cart",
+        "defaults": {
+          "user_id": "web-user"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string"},
+                "quantity": {"type": "integer"},
+                "price": {"type": "number"},
+                "subtotal": {"type": "number"}
+              }
+            }
+          },
+          "total": {"type": "number"},
+          "item_count": {"type": "integer"}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "items": {"path": "$.items[*]"},
+          "items[*].name": {"path": "$.product_name"},
+          "items[*].quantity": {"path": "$.quantity"},
+          "items[*].price": {"path": "$.unit_price"},
+          "items[*].subtotal": {"path": "$.subtotal"},
+          "total": {"path": "$.total"},
+          "item_count": {"path": "$.item_count"}
+        }
+      }
+    },
+
+    {
+      "$comment": "--- Quick Add to Cart ---",
+      "$comment2": "Backend add_to_cart needs: user_id, product_id, quantity, check_inventory, reserve_stock",
+      "$comment3": "Shopper just says: add this product",
+      "name": "add_item",
+      "description": "Add a product to your cart",
+      "source": {
+        "target": "cart-service",
+        "tool": "add_to_cart",
+        "defaults": {
+          "user_id": "web-user",
+          "quantity": 1,
+          "check_inventory": true
+        },
+        "hideFields": ["reserve_stock"]
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string", "description": "Product ID to add"},
+          "quantity": {"type": "integer", "description": "How many (default: 1)"}
+        },
+        "required": ["product_id"]
+      }
+    },
+
+    {
+      "$comment": "--- Merchandiser Inventory Summary ---",
+      "$comment2": "Backend get_inventory_report returns: products, stock_levels, reorder_points, supplier_info, cost_basis, turnover_rates",
+      "$comment3": "Merchandiser quick check: just stock status and alerts",
+      "name": "stock_status",
+      "description": "Quick inventory status check for merchandisers",
+      "source": {
+        "target": "inventory-service",
+        "tool": "get_inventory_report"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total_products": {"type": "integer"},
+          "total_units": {"type": "integer"},
+          "low_stock_count": {"type": "integer"},
+          "out_of_stock_count": {"type": "integer"}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "total_products": {"path": "$.summary.total_products"},
+          "total_units": {"path": "$.summary.total_units"},
+          "low_stock_count": {"path": "$.summary.low_stock_count"},
+          "out_of_stock_count": {"path": "$.summary.out_of_stock_count"}
+        }
+      }
+    },
+
+
+    {"$comment": "========== SECTION 2: PIPELINE COMPOSITIONS =========="},
+    {"$comment": "Multi-step workflows where output of one step feeds into the next"},
+
+    {
+      "$comment": "--- Personalized Search Pipeline ---",
+      "$comment2": "Step 1: search_index - fast token matching, returns (id, score) pairs",
+      "$comment3": "Step 2: hydrate_products - fetch full product details for IDs",
+      "$comment4": "Step 3: personalize_ranking - re-rank based on user preferences",
+      "name": "personalized_search",
+      "description": "Search products and personalize results based on your preferences",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "search",
+              "operation": {"tool": {"name": "search_index"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "hydrate",
+              "operation": {"tool": {"name": "hydrate_products"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "product_ids": {"step": {"stepId": "search", "path": "$.matches[*].id"}},
+                    "fields": {"literal": ["id", "name", "price", "category", "brand", "description", "image_url"]}
+                  }
+                }
+              }
+            },
+            {
+              "id": "personalize",
+              "operation": {"tool": {"name": "personalize_ranking"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "items": {"step": {"stepId": "hydrate", "path": "$.products"}},
+                    "scores": {"step": {"stepId": "search", "path": "$.matches[*].score"}},
+                    "user_id": {"input": {"path": "$.user_id"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"},
+          "user_id": {"type": "string", "description": "User ID for personalization"},
+          "limit": {"type": "integer", "description": "Max results", "default": 10}
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "price": {"type": "number"},
+                "relevance_score": {"type": "number"},
+                "personalization_boost": {"type": "number"}
+              }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "$comment": "--- Product Details with Availability ---",
+      "$comment2": "Get product info and real-time stock in one call",
+      "name": "product_with_availability",
+      "description": "Get product details including real-time stock availability",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "product",
+              "operation": {"tool": {"name": "get_product"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "stock",
+              "operation": {"tool": {"name": "check_stock"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "product_id": {"input": {"path": "$.product_id"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string"}
+        },
+        "required": ["product_id"]
+      },
+      "outputTransform": {
+        "mappings": {
+          "product": {"step": {"stepId": "product", "path": "$"}},
+          "stock_quantity": {"step": {"stepId": "stock", "path": "$.quantity"}},
+          "in_stock": {"step": {"stepId": "stock", "path": "$.quantity > 0"}},
+          "low_stock_warning": {"step": {"stepId": "stock", "path": "$.quantity < $.reorder_threshold"}}
+        }
+      }
+    },
+
+
+    {"$comment": "========== SECTION 3: SCATTER-GATHER COMPOSITIONS =========="},
+    {"$comment": "Parallel execution to multiple tools, aggregating results"},
+
+    {
+      "$comment": "--- Merchandiser Dashboard ---",
+      "$comment2": "Parallel fetch: inventory status + low stock alerts + pending POs + recent sales",
+      "name": "merchandiser_dashboard",
+      "description": "Get a complete dashboard view with inventory, alerts, orders, and sales",
+      "spec": {
+        "scatterGather": {
+          "branches": [
+            {
+              "id": "inventory",
+              "operation": {"tool": {"name": "get_inventory_report"}}
+            },
+            {
+              "id": "alerts",
+              "operation": {"tool": {"name": "get_low_stock_alerts"}}
+            },
+            {
+              "id": "pending_pos",
+              "operation": {"tool": {"name": "list_purchase_orders"}},
+              "input": {"literal": {"status": "pending"}}
+            },
+            {
+              "id": "sales",
+              "operation": {"tool": {"name": "get_sales_report"}}
+            }
+          ],
+          "aggregator": {
+            "type": "merge"
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "inventory_summary": {"type": "object"},
+          "low_stock_items": {"type": "array"},
+          "pending_orders": {"type": "array"},
+          "sales_summary": {"type": "object"}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "inventory_summary": {"path": "$.inventory.summary"},
+          "low_stock_items": {"path": "$.alerts.alerts"},
+          "pending_orders": {"path": "$.pending_pos.purchase_orders"},
+          "sales_summary": {"path": "$.sales"}
+        }
+      }
+    },
+
+    {
+      "$comment": "--- Product Comparison ---",
+      "$comment2": "Fetch multiple products in parallel for side-by-side comparison",
+      "name": "compare_products",
+      "description": "Compare multiple products side by side",
+      "spec": {
+        "scatterGather": {
+          "branches": [
+            {
+              "id": "products",
+              "operation": {
+                "pattern": {
+                  "mapEach": {
+                    "arrayPath": "$.product_ids",
+                    "inner": {"tool": {"name": "get_product_details"}}
+                  }
+                }
+              }
+            }
+          ],
+          "aggregator": {
+            "type": "collect",
+            "outputKey": "products"
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Product IDs to compare",
+            "maxItems": 4
+          }
+        },
+        "required": ["product_ids"]
+      }
+    },
+
+    {
+      "$comment": "--- Multi-Supplier Price Check ---",
+      "$comment2": "Query all suppliers for a product's pricing in parallel",
+      "name": "get_best_supplier_price",
+      "description": "Check all suppliers for the best price on a product",
+      "spec": {
+        "scatterGather": {
+          "branches": [
+            {
+              "id": "supplier_quotes",
+              "operation": {
+                "pattern": {
+                  "mapEach": {
+                    "arrayPath": "$.supplier_ids",
+                    "inner": {"tool": {"name": "get_supplier_quote"}}
+                  }
+                }
+              }
+            }
+          ],
+          "aggregator": {
+            "type": "custom",
+            "expression": "min_by($.supplier_quotes, '$.unit_price')"
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string"},
+          "quantity": {"type": "integer"},
+          "supplier_ids": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["product_id", "quantity"]
+      }
+    },
+
+
+    {"$comment": "========== SECTION 4: SAGA COMPOSITIONS =========="},
+    {"$comment": "Distributed transactions with compensation on failure"},
+
+    {
+      "$comment": "--- Purchase Saga ---",
+      "$comment2": "Full checkout flow with rollback on any failure",
+      "$comment3": "Steps: validate cart -> reserve inventory -> process payment -> create order",
+      "$comment4": "Compensation: release inventory, refund payment, notify user of failure",
+      "name": "purchase",
+      "description": "Complete a purchase with automatic rollback on failure",
+      "spec": {
+        "saga": {
+          "steps": [
+            {
+              "id": "validate_cart",
+              "name": "Validate shopping cart",
+              "action": {
+                "name": "validate_cart_for_checkout",
+                "arguments": {}
+              },
+              "input": {
+                "user_id": {"path": "$.input.user_id"}
+              }
+            },
+            {
+              "id": "reserve_stock",
+              "name": "Reserve inventory",
+              "action": {
+                "name": "reserve_inventory_batch",
+                "arguments": {}
+              },
+              "compensate": {
+                "name": "release_inventory_batch",
+                "arguments": {}
+              },
+              "input": {
+                "items": {"path": "$.steps.validate_cart.items"},
+                "reservation_id": {"path": "$.steps.validate_cart.cart_id"}
+              }
+            },
+            {
+              "id": "process_payment",
+              "name": "Process payment",
+              "action": {
+                "name": "charge_payment",
+                "arguments": {}
+              },
+              "compensate": {
+                "name": "refund_payment",
+                "arguments": {}
+              },
+              "input": {
+                "user_id": {"path": "$.input.user_id"},
+                "amount": {"path": "$.steps.validate_cart.total"},
+                "payment_method": {"path": "$.input.payment_method"}
+              }
+            },
+            {
+              "id": "create_order",
+              "name": "Create order record",
+              "action": {
+                "name": "create_order",
+                "arguments": {}
+              },
+              "compensate": {
+                "name": "cancel_order",
+                "arguments": {}
+              },
+              "input": {
+                "user_id": {"path": "$.input.user_id"},
+                "items": {"path": "$.steps.validate_cart.items"},
+                "payment_id": {"path": "$.steps.process_payment.transaction_id"},
+                "shipping_address": {"path": "$.input.shipping_address"}
+              }
+            },
+            {
+              "id": "clear_cart",
+              "name": "Clear the shopping cart",
+              "action": {
+                "name": "clear_cart",
+                "arguments": {}
+              },
+              "input": {
+                "user_id": {"path": "$.input.user_id"}
+              }
+            }
+          ],
+          "timeout": "30s",
+          "output": {
+            "order_id": {"path": "$.steps.create_order.order_id"},
+            "order_status": {"path": "$.steps.create_order.status"},
+            "total_charged": {"path": "$.steps.process_payment.amount"},
+            "estimated_delivery": {"path": "$.steps.create_order.estimated_delivery"}
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {"type": "string"},
+          "payment_method": {
+            "type": "object",
+            "properties": {
+              "type": {"type": "string", "enum": ["card", "paypal", "applepay"]},
+              "token": {"type": "string"}
+            }
+          },
+          "shipping_address": {
+            "type": "object",
+            "properties": {
+              "street": {"type": "string"},
+              "city": {"type": "string"},
+              "state": {"type": "string"},
+              "zip": {"type": "string"},
+              "country": {"type": "string"}
+            },
+            "required": ["street", "city", "zip", "country"]
+          }
+        },
+        "required": ["user_id", "shipping_address"]
+      }
+    },
+
+    {
+      "$comment": "--- Restock Saga ---",
+      "$comment2": "Create PO, receive shipment, update inventory",
+      "$comment3": "If receiving fails after PO confirmed, may need to arrange return/refund with supplier",
+      "name": "restock_product",
+      "description": "Order products from supplier and update inventory when received",
+      "spec": {
+        "saga": {
+          "steps": [
+            {
+              "id": "check_supplier",
+              "name": "Verify supplier can fulfill order",
+              "action": {
+                "name": "check_supplier_availability",
+                "arguments": {}
+              },
+              "input": {
+                "supplier_id": {"path": "$.input.supplier_id"},
+                "product_id": {"path": "$.input.product_id"},
+                "quantity": {"path": "$.input.quantity"}
+              }
+            },
+            {
+              "id": "create_po",
+              "name": "Create purchase order",
+              "action": {
+                "name": "create_purchase_order",
+                "arguments": {}
+              },
+              "compensate": {
+                "name": "cancel_purchase_order",
+                "arguments": {}
+              },
+              "input": {
+                "supplier_id": {"path": "$.input.supplier_id"},
+                "product_id": {"path": "$.input.product_id"},
+                "quantity": {"path": "$.input.quantity"},
+                "unit_price": {"path": "$.steps.check_supplier.unit_price"}
+              }
+            },
+            {
+              "id": "confirm_po",
+              "name": "Confirm PO with supplier",
+              "action": {
+                "name": "confirm_purchase_order",
+                "arguments": {}
+              },
+              "compensate": {
+                "name": "request_po_cancellation_with_fees",
+                "arguments": {}
+              },
+              "input": {
+                "po_id": {"path": "$.steps.create_po.po_id"}
+              }
+            }
+          ],
+          "timeout": "60s",
+          "output": {
+            "po_id": {"path": "$.steps.create_po.po_id"},
+            "status": {"path": "$.steps.confirm_po.status"},
+            "expected_delivery": {"path": "$.steps.confirm_po.expected_delivery"},
+            "total_cost": {"path": "$.steps.create_po.total_cost"}
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string"},
+          "supplier_id": {"type": "string"},
+          "quantity": {"type": "integer", "minimum": 1}
+        },
+        "required": ["product_id", "supplier_id", "quantity"]
+      }
+    },
+
+    {
+      "$comment": "--- Quick Buy Saga (simplified purchase for single item) ---",
+      "$comment2": "Add to cart -> checkout in one action, with full rollback",
+      "name": "quick_buy",
+      "description": "One-click purchase of a single item",
+      "spec": {
+        "saga": {
+          "steps": [
+            {
+              "id": "check_stock",
+              "name": "Verify item is in stock",
+              "action": {
+                "name": "check_stock",
+                "arguments": {}
+              },
+              "input": {
+                "product_id": {"path": "$.input.product_id"}
+              }
+            },
+            {
+              "id": "reserve",
+              "name": "Reserve the item",
+              "action": {
+                "name": "reserve_inventory",
+                "arguments": {}
+              },
+              "compensate": {
+                "name": "release_inventory",
+                "arguments": {}
+              },
+              "input": {
+                "product_id": {"path": "$.input.product_id"},
+                "quantity": {"path": "$.input.quantity"}
+              }
+            },
+            {
+              "id": "charge",
+              "name": "Charge payment",
+              "action": {
+                "name": "charge_payment",
+                "arguments": {}
+              },
+              "compensate": {
+                "name": "refund_payment",
+                "arguments": {}
+              },
+              "input": {
+                "user_id": {"path": "$.input.user_id"},
+                "amount": {"path": "$.steps.check_stock.price"},
+                "quantity": {"path": "$.input.quantity"}
+              }
+            },
+            {
+              "id": "create_order",
+              "name": "Create order",
+              "action": {
+                "name": "create_single_item_order",
+                "arguments": {}
+              },
+              "input": {
+                "user_id": {"path": "$.input.user_id"},
+                "product_id": {"path": "$.input.product_id"},
+                "quantity": {"path": "$.input.quantity"},
+                "payment_id": {"path": "$.steps.charge.transaction_id"},
+                "shipping_address": {"path": "$.input.shipping_address"}
+              }
+            }
+          ],
+          "output": {
+            "order_id": {"path": "$.steps.create_order.order_id"},
+            "message": {"literal": {"stringValue": "Order placed successfully!"}}
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string"},
+          "quantity": {"type": "integer", "default": 1},
+          "user_id": {"type": "string"},
+          "shipping_address": {"type": "object"}
+        },
+        "required": ["product_id", "user_id", "shipping_address"]
+      }
+    },
+
+
+    {"$comment": "========== SECTION 5: PASS-THROUGH TOOLS =========="},
+    {"$comment": "Standard 1:1 mappings for tools that don't need transformation"},
+
+    {
+      "name": "browse_products",
+      "description": "Browse the product catalog with optional category filter",
+      "source": {"target": "catalog-service", "tool": "list_products"}
+    },
+    {
+      "name": "search_products",
+      "description": "Search products using natural language queries",
+      "source": {"target": "catalog-service", "tool": "search_products"}
+    },
+    {
+      "name": "get_product_details",
+      "description": "Get detailed information about a specific product",
+      "source": {"target": "catalog-service", "tool": "get_product"}
+    },
+    {
+      "name": "get_categories",
+      "description": "Get all available product categories",
+      "source": {"target": "catalog-service", "tool": "get_categories"}
+    },
+    {
+      "name": "view_cart",
+      "description": "View shopping cart contents and total",
+      "source": {"target": "cart-service", "tool": "view_cart"}
+    },
+    {
+      "name": "add_to_cart",
+      "description": "Add a product to the shopping cart",
+      "source": {"target": "cart-service", "tool": "add_to_cart"}
+    },
+    {
+      "name": "checkout",
+      "description": "Complete checkout and create an order",
+      "source": {"target": "order-service", "tool": "checkout"}
+    },
+    {
+      "name": "list_orders",
+      "description": "List orders for a user",
+      "source": {"target": "order-service", "tool": "list_orders"}
+    },
+    {
+      "name": "get_inventory_report",
+      "description": "Get comprehensive inventory status report",
+      "source": {"target": "inventory-service", "tool": "get_inventory_report"}
+    },
+    {
+      "name": "get_low_stock_alerts",
+      "description": "Get products below reorder threshold",
+      "source": {"target": "inventory-service", "tool": "get_low_stock_alerts"}
+    },
+    {
+      "name": "adjust_inventory",
+      "description": "Manually adjust inventory levels",
+      "source": {"target": "inventory-service", "tool": "adjust_inventory"}
+    },
+    {
+      "name": "reserve_inventory",
+      "description": "Reserve inventory for an order",
+      "source": {"target": "inventory-service", "tool": "reserve_inventory"}
+    },
+    {
+      "name": "release_inventory",
+      "description": "Release reserved inventory",
+      "source": {"target": "inventory-service", "tool": "release_inventory"}
+    },
+    {
+      "name": "reserve_inventory_batch",
+      "description": "Reserve inventory for multiple items",
+      "source": {"target": "inventory-service", "tool": "reserve_inventory_batch"}
+    },
+    {
+      "name": "release_inventory_batch",
+      "description": "Release reserved inventory for multiple items",
+      "source": {"target": "inventory-service", "tool": "release_inventory_batch"}
+    },
+    {
+      "name": "list_suppliers",
+      "description": "Get all available suppliers",
+      "source": {"target": "supplier-service", "tool": "list_suppliers"}
+    },
+    {
+      "name": "create_purchase_order",
+      "description": "Create a purchase order to restock inventory",
+      "source": {"target": "supplier-service", "tool": "create_purchase_order"}
+    },
+    {
+      "name": "list_purchase_orders",
+      "description": "List purchase orders with optional filtering",
+      "source": {"target": "supplier-service", "tool": "list_purchase_orders"}
+    },
+    {
+      "name": "receive_shipment",
+      "description": "Mark a purchase order as received",
+      "source": {"target": "supplier-service", "tool": "receive_shipment"}
+    },
+    {
+      "name": "get_sales_report",
+      "description": "Get sales analytics report",
+      "source": {"target": "order-service", "tool": "get_sales_report"}
+    },
+    {
+      "name": "update_order_status",
+      "description": "Update order status",
+      "source": {"target": "order-service", "tool": "update_order_status"}
+    },
+
+
+    {"$comment": "========== SECTION 6: BACKEND SUPPORT TOOLS =========="},
+    {"$comment": "Tools needed by compositions - these would be implemented in backend services"},
+
+    {
+      "$comment": "--- Search Pipeline Support ---",
+      "name": "search_index",
+      "description": "Fast index search returning IDs and scores (for pipeline step 1)",
+      "source": {"target": "catalog-service", "tool": "search_index"}
+    },
+    {
+      "name": "hydrate_products",
+      "description": "Fetch product details for a list of IDs (for pipeline step 2)",
+      "source": {"target": "catalog-service", "tool": "hydrate_products"}
+    },
+    {
+      "name": "personalize_ranking",
+      "description": "Re-rank products based on user preferences (for pipeline step 3)",
+      "source": {"target": "catalog-service", "tool": "personalize_ranking"}
+    },
+    {
+      "name": "check_stock",
+      "description": "Check stock level for a single product",
+      "source": {"target": "inventory-service", "tool": "check_stock"}
+    },
+
+    {
+      "$comment": "--- Saga Compensation Tools ---",
+      "name": "validate_cart_for_checkout",
+      "description": "Validate cart has items and user can checkout",
+      "source": {"target": "cart-service", "tool": "validate_cart_for_checkout"}
+    },
+    {
+      "name": "charge_payment",
+      "description": "Process a payment charge",
+      "source": {"target": "payment-service", "tool": "charge"}
+    },
+    {
+      "name": "refund_payment",
+      "description": "Refund a payment (compensation)",
+      "source": {"target": "payment-service", "tool": "refund"}
+    },
+    {
+      "name": "create_order",
+      "description": "Create an order record",
+      "source": {"target": "order-service", "tool": "create_order"}
+    },
+    {
+      "name": "cancel_order",
+      "description": "Cancel an order (compensation)",
+      "source": {"target": "order-service", "tool": "cancel_order"}
+    },
+    {
+      "name": "create_single_item_order",
+      "description": "Create order for a single item (quick buy)",
+      "source": {"target": "order-service", "tool": "create_single_item_order"}
+    },
+    {
+      "name": "clear_cart",
+      "description": "Clear all items from cart",
+      "source": {"target": "cart-service", "tool": "clear_cart"}
+    },
+    {
+      "name": "check_supplier_availability",
+      "description": "Check if supplier can fulfill an order",
+      "source": {"target": "supplier-service", "tool": "check_availability"}
+    },
+    {
+      "name": "confirm_purchase_order",
+      "description": "Confirm a purchase order with supplier",
+      "source": {"target": "supplier-service", "tool": "confirm_po"}
+    },
+    {
+      "name": "cancel_purchase_order",
+      "description": "Cancel a purchase order",
+      "source": {"target": "supplier-service", "tool": "cancel_po"}
+    },
+    {
+      "name": "request_po_cancellation_with_fees",
+      "description": "Request PO cancellation after confirmation (may incur fees)",
+      "source": {"target": "supplier-service", "tool": "cancel_confirmed_po"}
+    },
+    {
+      "name": "get_supplier_quote",
+      "description": "Get price quote from a supplier",
+      "source": {"target": "supplier-service", "tool": "get_quote"}
+    }
+  ]
+}
