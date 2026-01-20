@@ -232,6 +232,49 @@ mod tests {
 		assert_eq!(result, serde_json::json!(1));
 	}
 
+	/// A mock invoker that tracks call order and validates inputs.
+	/// Used to verify DAG execution correctness and detect race conditions.
+	struct OrderTrackingInvoker {
+		responses: std::collections::HashMap<String, Value>,
+		/// Records (tool_name, input) for each invocation in order
+		call_log: std::sync::Arc<std::sync::Mutex<Vec<(String, Value)>>>,
+	}
+
+	impl OrderTrackingInvoker {
+		fn new() -> Self {
+			Self {
+				responses: std::collections::HashMap::new(),
+				call_log: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+			}
+		}
+
+		fn with_response(mut self, tool_name: &str, response: Value) -> Self {
+			self.responses.insert(tool_name.to_string(), response);
+			self
+		}
+
+		fn get_call_log(&self) -> Vec<(String, Value)> {
+			self.call_log.lock().unwrap().clone()
+		}
+
+		fn get_call_order(&self) -> Vec<String> {
+			self.call_log.lock().unwrap().iter().map(|(name, _)| name.clone()).collect()
+		}
+	}
+
+	#[async_trait::async_trait]
+	impl super::super::ToolInvoker for OrderTrackingInvoker {
+		async fn invoke(&self, tool_name: &str, args: Value) -> Result<Value, super::super::ExecutionError> {
+			// Record the call
+			self.call_log.lock().unwrap().push((tool_name.to_string(), args.clone()));
+
+			self.responses
+				.get(tool_name)
+				.cloned()
+				.ok_or_else(|| super::super::ExecutionError::ToolNotFound(tool_name.to_string()))
+		}
+	}
+
 	#[tokio::test]
 	async fn test_dag_pattern_with_parallel_branches() {
 		// This test demonstrates that the IR already supports DAG structures.
@@ -345,5 +388,238 @@ mod tests {
 		let embed_result = ctx.get_step_result("embed").await;
 		assert!(embed_result.is_some(), "embed step result should be stored");
 		assert_eq!(embed_result.unwrap()["embedding"], serde_json::json!([0.1, 0.2, 0.3, 0.4]));
+	}
+
+	#[tokio::test]
+	async fn test_complex_dag_with_multi_parent_joins_and_skip_wave_deps() {
+		// This test creates a complex DAG that would expose race conditions
+		// if parallelization is not done correctly.
+		//
+		// DAG structure:
+		//
+		//            input
+		//          /   |   \
+		//         v    v    v
+		//         a    b    c           <- Wave 0: all depend only on input
+		//         |\   |   /|
+		//         | \  |  / |
+		//         |  \ | /  |
+		//         v   vvv   v
+		//         d    e    f           <- Wave 1: d(a), e(a+b+c), f(c)
+		//          \   |   /
+		//           \  |  /
+		//            v v v
+		//              g                <- Wave 2: g(d+e+f)
+		//              |
+		//              v
+		//              h                <- Wave 3: h(g + b) <- SKIP-WAVE dep on b!
+		//
+		// Race condition risks:
+		// 1. e starts before a, b, c all complete
+		// 2. g starts before d, e, f all complete
+		// 3. h starts before g completes, or forgets b is still needed
+		//
+		// The skip-wave dependency (h -> b) is critical: b is from wave 0,
+		// but h is in wave 3. A naive impl might not preserve b's result.
+
+		use crate::mcp::registry::patterns::ConstructBinding;
+		use crate::mcp::registry::CompiledRegistry;
+		use crate::mcp::registry::types::Registry;
+		use std::collections::HashMap;
+
+		let invoker = OrderTrackingInvoker::new()
+			// Wave 0 tools - each returns a unique marker
+			.with_response("tool_a", serde_json::json!({"id": "a", "value": 10}))
+			.with_response("tool_b", serde_json::json!({"id": "b", "value": 20, "extra": "b_data"}))
+			.with_response("tool_c", serde_json::json!({"id": "c", "value": 30}))
+			// Wave 1 tools
+			.with_response("tool_d", serde_json::json!({"id": "d", "sum": 100}))
+			.with_response("tool_e", serde_json::json!({"id": "e", "combined": 60}))
+			.with_response("tool_f", serde_json::json!({"id": "f", "result": 300}))
+			// Wave 2 tool
+			.with_response("tool_g", serde_json::json!({"id": "g", "aggregated": 999}))
+			// Wave 3 tool - final output
+			.with_response("tool_h", serde_json::json!({"id": "h", "final": "complete"}));
+
+		let invoker = std::sync::Arc::new(invoker);
+
+		let registry = Registry::new();
+		let compiled = std::sync::Arc::new(CompiledRegistry::compile(registry).unwrap());
+		let ctx = ExecutionContext::new(serde_json::json!({}), compiled.clone(), invoker.clone());
+		let executor = super::super::CompositionExecutor::new(compiled, invoker.clone());
+
+		let spec = PipelineSpec {
+			steps: vec![
+				// === Wave 0: Independent steps, all depend only on input ===
+				PipelineStep {
+					id: "a".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("tool_a")),
+					input: Some(DataBinding::Input(InputBinding { path: "$.x".to_string() })),
+				},
+				PipelineStep {
+					id: "b".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("tool_b")),
+					input: Some(DataBinding::Input(InputBinding { path: "$.y".to_string() })),
+				},
+				PipelineStep {
+					id: "c".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("tool_c")),
+					input: Some(DataBinding::Input(InputBinding { path: "$.z".to_string() })),
+				},
+
+				// === Wave 1: Various dependency patterns ===
+				// d depends only on a
+				PipelineStep {
+					id: "d".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("tool_d")),
+					input: Some(DataBinding::Step(StepBinding {
+						step_id: "a".to_string(),
+						path: "$.value".to_string(),
+					})),
+				},
+				// e depends on a, b, AND c (multi-parent join)
+				PipelineStep {
+					id: "e".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("tool_e")),
+					input: Some(DataBinding::Construct(ConstructBinding {
+						fields: HashMap::from([
+							("from_a".to_string(), DataBinding::Step(StepBinding {
+								step_id: "a".to_string(),
+								path: "$.value".to_string(),
+							})),
+							("from_b".to_string(), DataBinding::Step(StepBinding {
+								step_id: "b".to_string(),
+								path: "$.value".to_string(),
+							})),
+							("from_c".to_string(), DataBinding::Step(StepBinding {
+								step_id: "c".to_string(),
+								path: "$.value".to_string(),
+							})),
+						]),
+					})),
+				},
+				// f depends only on c
+				PipelineStep {
+					id: "f".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("tool_f")),
+					input: Some(DataBinding::Step(StepBinding {
+						step_id: "c".to_string(),
+						path: "$.value".to_string(),
+					})),
+				},
+
+				// === Wave 2: Join of d, e, f ===
+				PipelineStep {
+					id: "g".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("tool_g")),
+					input: Some(DataBinding::Construct(ConstructBinding {
+						fields: HashMap::from([
+							("d_result".to_string(), DataBinding::Step(StepBinding {
+								step_id: "d".to_string(),
+								path: "$.sum".to_string(),
+							})),
+							("e_result".to_string(), DataBinding::Step(StepBinding {
+								step_id: "e".to_string(),
+								path: "$.combined".to_string(),
+							})),
+							("f_result".to_string(), DataBinding::Step(StepBinding {
+								step_id: "f".to_string(),
+								path: "$.result".to_string(),
+							})),
+						]),
+					})),
+				},
+
+				// === Wave 3: Skip-wave dependency ===
+				// h depends on g (wave 2) AND b (wave 0!) - tests that early results persist
+				PipelineStep {
+					id: "h".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("tool_h")),
+					input: Some(DataBinding::Construct(ConstructBinding {
+						fields: HashMap::from([
+							("g_aggregated".to_string(), DataBinding::Step(StepBinding {
+								step_id: "g".to_string(),
+								path: "$.aggregated".to_string(),
+							})),
+							// Critical: reference back to wave 0's step b
+							("b_extra".to_string(), DataBinding::Step(StepBinding {
+								step_id: "b".to_string(),
+								path: "$.extra".to_string(),
+							})),
+						]),
+					})),
+				},
+			],
+		};
+
+		let input = serde_json::json!({
+			"x": "input_for_a",
+			"y": "input_for_b",
+			"z": "input_for_c"
+		});
+
+		let result = PipelineExecutor::execute(&spec, input, &ctx, &executor).await;
+
+		// Verify execution succeeded
+		assert!(result.is_ok(), "Complex DAG execution should succeed: {:?}", result.err());
+		let output = result.unwrap();
+		assert_eq!(output["id"], "h", "Final output should be from step h");
+		assert_eq!(output["final"], "complete");
+
+		// Verify call order respects dependencies
+		let call_order = invoker.get_call_order();
+		assert_eq!(call_order.len(), 8, "All 8 tools should be called");
+
+		// Helper to find position of a tool in call order
+		let pos = |tool: &str| -> usize {
+			call_order.iter().position(|t| t == tool).expect(&format!("{} should be in call order", tool))
+		};
+
+		// Wave 0 tools must complete before their dependents
+		// (In sequential execution, they'll be in order a, b, c, but that's fine)
+		assert!(pos("tool_a") < pos("tool_d"), "a must complete before d");
+		assert!(pos("tool_a") < pos("tool_e"), "a must complete before e");
+		assert!(pos("tool_b") < pos("tool_e"), "b must complete before e");
+		assert!(pos("tool_c") < pos("tool_e"), "c must complete before e");
+		assert!(pos("tool_c") < pos("tool_f"), "c must complete before f");
+
+		// Wave 1 tools must complete before g
+		assert!(pos("tool_d") < pos("tool_g"), "d must complete before g");
+		assert!(pos("tool_e") < pos("tool_g"), "e must complete before g");
+		assert!(pos("tool_f") < pos("tool_g"), "f must complete before g");
+
+		// g must complete before h (and b must still be accessible for h)
+		assert!(pos("tool_g") < pos("tool_h"), "g must complete before h");
+		assert!(pos("tool_b") < pos("tool_h"), "b must complete before h (skip-wave dep)");
+
+		// Verify the inputs were correctly constructed for multi-dependency steps
+		let call_log = invoker.get_call_log();
+
+		// Find the call to tool_e and verify its input was constructed from a, b, c
+		let e_call = call_log.iter().find(|(name, _)| name == "tool_e").expect("tool_e should be called");
+		assert_eq!(e_call.1["from_a"], 10, "e should receive a's value");
+		assert_eq!(e_call.1["from_b"], 20, "e should receive b's value");
+		assert_eq!(e_call.1["from_c"], 30, "e should receive c's value");
+
+		// Find the call to tool_g and verify its input was constructed from d, e, f
+		let g_call = call_log.iter().find(|(name, _)| name == "tool_g").expect("tool_g should be called");
+		assert_eq!(g_call.1["d_result"], 100, "g should receive d's sum");
+		assert_eq!(g_call.1["e_result"], 60, "g should receive e's combined");
+		assert_eq!(g_call.1["f_result"], 300, "g should receive f's result");
+
+		// Find the call to tool_h and verify skip-wave dependency worked
+		let h_call = call_log.iter().find(|(name, _)| name == "tool_h").expect("tool_h should be called");
+		assert_eq!(h_call.1["g_aggregated"], 999, "h should receive g's aggregated");
+		assert_eq!(h_call.1["b_extra"], "b_data", "h should receive b's extra (skip-wave dep)");
+
+		// Verify all intermediate results are still accessible
+		assert!(ctx.get_step_result("a").await.is_some(), "a result should persist");
+		assert!(ctx.get_step_result("b").await.is_some(), "b result should persist");
+		assert!(ctx.get_step_result("c").await.is_some(), "c result should persist");
+		assert!(ctx.get_step_result("d").await.is_some(), "d result should persist");
+		assert!(ctx.get_step_result("e").await.is_some(), "e result should persist");
+		assert!(ctx.get_step_result("f").await.is_some(), "f result should persist");
+		assert!(ctx.get_step_result("g").await.is_some(), "g result should persist");
+		assert!(ctx.get_step_result("h").await.is_some(), "h result should persist");
 	}
 }
