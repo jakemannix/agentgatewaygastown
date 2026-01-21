@@ -1,4 +1,5 @@
 mod handler;
+pub mod identity;
 mod mergestream;
 mod rbac;
 pub mod registry;

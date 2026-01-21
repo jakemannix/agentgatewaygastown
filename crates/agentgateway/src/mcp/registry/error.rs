@@ -63,6 +63,9 @@ pub enum RegistryError {
 	#[error("duplicate server name: '{0}'")]
 	DuplicateServerName(String),
 
+	#[error("duplicate agent name: '{0}'")]
+	DuplicateAgentName(String),
+
 	#[error("invalid schema reference: '{reference}' (expected format: '#SchemaName' or '#SchemaName:version')")]
 	InvalidSchemaReference { reference: String },
 }

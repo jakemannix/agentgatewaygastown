@@ -499,5 +499,70 @@
       "description": "Get price quotes from all suppliers for a product",
       "source": {"target": "supplier-service", "tool": "get_all_quotes"}
     }
+  ],
+
+  "agents": [
+    {
+      "name": "customer-agent",
+      "version": "1.0.0",
+      "description": "Customer-facing shopping assistant (Google ADK)",
+      "url": "http://localhost:9001",
+      "capabilities": {
+        "streaming": true,
+        "extensions": [
+          {
+            "uri": "urn:agentgateway:sbom",
+            "description": "Tool dependencies for scoped discovery",
+            "params": {
+              "depends": [
+                { "type": "tool", "name": "find_products", "version": "1.0.0" },
+                { "type": "tool", "name": "browse_products", "version": "1.0.0" },
+                { "type": "tool", "name": "product_details", "version": "1.0.0" },
+                { "type": "tool", "name": "my_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "add_to_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "remove_from_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "checkout", "version": "1.0.0" },
+                { "type": "tool", "name": "personalized_search", "version": "1.0.0" }
+              ]
+            }
+          }
+        ]
+      },
+      "metadata": {
+        "framework": "google-adk",
+        "owner": "customer-experience-team"
+      }
+    },
+    {
+      "name": "merchandiser-agent",
+      "version": "1.0.0",
+      "description": "Internal merchandiser assistant for inventory and suppliers (LangGraph)",
+      "url": "http://localhost:9002",
+      "capabilities": {
+        "streaming": true,
+        "extensions": [
+          {
+            "uri": "urn:agentgateway:sbom",
+            "description": "Tool dependencies for scoped discovery",
+            "params": {
+              "depends": [
+                { "type": "tool", "name": "stock_status", "version": "1.0.0" },
+                { "type": "tool", "name": "list_suppliers", "version": "1.0.0" },
+                { "type": "tool", "name": "create_purchase_order", "version": "1.0.0" },
+                { "type": "tool", "name": "list_purchase_orders", "version": "1.0.0" },
+                { "type": "tool", "name": "receive_shipment", "version": "1.0.0" },
+                { "type": "tool", "name": "get_sales_report", "version": "1.0.0" },
+                { "type": "tool", "name": "update_order_status", "version": "1.0.0" },
+                { "type": "tool", "name": "smart_replenish", "version": "1.0.0" }
+              ]
+            }
+          }
+        ]
+      },
+      "metadata": {
+        "framework": "langgraph",
+        "owner": "supply-chain-team"
+      }
+    }
   ]
 }

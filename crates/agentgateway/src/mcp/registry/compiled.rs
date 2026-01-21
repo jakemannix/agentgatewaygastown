@@ -13,8 +13,8 @@ use serde_json_path::JsonPath;
 use super::error::RegistryError;
 use super::patterns::{FieldSource, PatternSpec};
 use super::types::{
-	OutputTransform, Registry, Schema, Server, SourceTool, ToolDefinition, ToolImplementation,
-	VirtualToolDef,
+	AgentDefinition, OutputTransform, Registry, Schema, Server, SourceTool, ToolDefinition,
+	ToolImplementation, VirtualToolDef,
 };
 
 /// Maximum depth for reference resolution (safety limit)
@@ -31,6 +31,8 @@ pub struct CompiledRegistry {
 	schemas_by_name: HashMap<String, Arc<Schema>>,
 	/// Server name -> server metadata (for SBOM/validation, not routing)
 	servers_by_name: HashMap<String, Arc<Server>>,
+	/// Agent name -> agent definition (for caller identity and dependency filtering)
+	agents_by_name: HashMap<String, Arc<AgentDefinition>>,
 }
 
 /// A compiled tool - either a source-based tool or a composition
@@ -157,6 +159,15 @@ impl CompiledRegistry {
 			servers_by_name.insert(server.name.clone(), Arc::new(server));
 		}
 
+		// Pass 1c: Index all agents by name
+		let mut agents_by_name: HashMap<String, Arc<AgentDefinition>> = HashMap::new();
+		for agent in registry.agents {
+			if agents_by_name.contains_key(&agent.name) {
+				return Err(RegistryError::DuplicateAgentName(agent.name.clone()));
+			}
+			agents_by_name.insert(agent.name.clone(), Arc::new(agent));
+		}
+
 		// Pass 2: Index all tool definitions by name
 		let mut defs_by_name: HashMap<String, ToolDefinition> = HashMap::new();
 		for tool_def in registry.tools {
@@ -190,6 +201,7 @@ impl CompiledRegistry {
 			tools_by_source,
 			schemas_by_name,
 			servers_by_name,
+			agents_by_name,
 		})
 	}
 
@@ -200,6 +212,7 @@ impl CompiledRegistry {
 			tools_by_source: HashMap::new(),
 			schemas_by_name: HashMap::new(),
 			servers_by_name: HashMap::new(),
+			agents_by_name: HashMap::new(),
 		}
 	}
 
@@ -244,6 +257,66 @@ impl CompiledRegistry {
 			.get(name)
 			.filter(|s| s.deprecated)
 			.and_then(|s| s.deprecation_message.as_deref())
+	}
+
+	/// Get an agent by name (for caller identity lookup)
+	pub fn get_agent(&self, name: &str) -> Option<&Arc<AgentDefinition>> {
+		self.agents_by_name.get(name)
+	}
+
+	/// Get all agent names
+	pub fn agent_names(&self) -> impl Iterator<Item = &String> {
+		self.agents_by_name.keys()
+	}
+
+	/// Get number of agents
+	pub fn agent_count(&self) -> usize {
+		self.agents_by_name.len()
+	}
+
+	/// Get agent's tool dependencies (from SBOM extension or direct depends field)
+	///
+	/// Returns the list of tool names this agent depends on
+	pub fn agent_tool_dependencies(&self, agent_name: &str) -> Option<Vec<String>> {
+		let agent = self.agents_by_name.get(agent_name)?;
+
+		// First try the SBOM extension
+		if let Some(ref capabilities) = agent.capabilities {
+			for ext in &capabilities.extensions {
+				if ext.uri == "urn:agentgateway:sbom" {
+					if let Some(ref params) = ext.params {
+						if let Some(depends) = params.get("depends") {
+							if let Some(deps) = depends.as_array() {
+								let tool_names: Vec<String> = deps
+									.iter()
+									.filter_map(|d| {
+										let dep_type = d.get("type")?.as_str()?;
+										if dep_type == "tool" {
+											d.get("name")?.as_str().map(|s| s.to_string())
+										} else {
+											None
+										}
+									})
+									.collect();
+								if !tool_names.is_empty() {
+									return Some(tool_names);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// No SBOM extension or no tool deps found
+		None
+	}
+
+	/// Check if an agent depends on a specific tool
+	pub fn agent_depends_on_tool(&self, agent_name: &str, tool_name: &str) -> bool {
+		self.agent_tool_dependencies(agent_name)
+			.map(|deps| deps.iter().any(|t| t == tool_name))
+			.unwrap_or(false)
 	}
 
 	/// Look up tool by name
@@ -1969,5 +2042,144 @@ mod tests {
 		assert!(names.contains(&&"service-a".to_string()));
 		assert!(names.contains(&&"service-b".to_string()));
 		assert!(names.contains(&&"service-c".to_string()));
+	}
+
+	// =============================================================================
+	// Agent Indexing Tests
+	// =============================================================================
+
+	#[test]
+	fn test_compile_registry_with_agents() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"agents": [
+				{
+					"name": "customer-agent",
+					"version": "1.0.0",
+					"description": "Handles customer shopping interactions",
+					"url": "http://localhost:9001",
+					"capabilities": {
+						"streaming": true,
+						"extensions": [
+							{
+								"uri": "urn:agentgateway:sbom",
+								"params": {
+									"depends": [
+										{ "type": "tool", "name": "find_products", "version": "1.0.0" },
+										{ "type": "tool", "name": "add_to_cart", "version": "1.0.0" },
+										{ "type": "tool", "name": "checkout", "version": "1.0.0" }
+									]
+								}
+							}
+						]
+					}
+				},
+				{
+					"name": "merchandiser-agent",
+					"version": "2.1.0",
+					"description": "Handles inventory and supplier operations"
+				}
+			],
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Check agent count
+		assert_eq!(compiled.agent_count(), 2);
+
+		// Check customer-agent
+		let customer = compiled.get_agent("customer-agent").unwrap();
+		assert_eq!(customer.version, Some("1.0.0".to_string()));
+		assert_eq!(customer.url, Some("http://localhost:9001".to_string()));
+
+		// Check merchandiser-agent
+		let merch = compiled.get_agent("merchandiser-agent").unwrap();
+		assert_eq!(merch.version, Some("2.1.0".to_string()));
+
+		// Check tool dependencies from SBOM extension
+		let deps = compiled.agent_tool_dependencies("customer-agent").unwrap();
+		assert_eq!(deps.len(), 3);
+		assert!(deps.contains(&"find_products".to_string()));
+		assert!(deps.contains(&"add_to_cart".to_string()));
+		assert!(deps.contains(&"checkout".to_string()));
+
+		// Agent without SBOM should return None
+		assert!(compiled.agent_tool_dependencies("merchandiser-agent").is_none());
+	}
+
+	#[test]
+	fn test_agent_depends_on_tool() {
+		let json = json!({
+			"agents": [
+				{
+					"name": "test-agent",
+					"capabilities": {
+						"extensions": [
+							{
+								"uri": "urn:agentgateway:sbom",
+								"params": {
+									"depends": [
+										{ "type": "tool", "name": "search" },
+										{ "type": "tool", "name": "fetch" },
+										{ "type": "agent", "name": "other-agent", "skill": "summarize" }
+									]
+								}
+							}
+						]
+					}
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Should find tool dependencies
+		assert!(compiled.agent_depends_on_tool("test-agent", "search"));
+		assert!(compiled.agent_depends_on_tool("test-agent", "fetch"));
+
+		// Agent dependencies should not be included (they're type: agent, not tool)
+		assert!(!compiled.agent_depends_on_tool("test-agent", "other-agent"));
+
+		// Unknown tool should return false
+		assert!(!compiled.agent_depends_on_tool("test-agent", "unknown"));
+
+		// Unknown agent should return false
+		assert!(!compiled.agent_depends_on_tool("unknown-agent", "search"));
+	}
+
+	#[test]
+	fn test_duplicate_agent_name_error() {
+		let json = json!({
+			"agents": [
+				{ "name": "duplicate-agent", "version": "1.0.0" },
+				{ "name": "duplicate-agent", "version": "2.0.0" }
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let result = CompiledRegistry::compile(registry);
+		assert!(result.is_err());
+		assert!(result.unwrap_err().to_string().contains("duplicate agent name"));
+	}
+
+	#[test]
+	fn test_agent_names_iterator() {
+		let json = json!({
+			"agents": [
+				{ "name": "agent-a" },
+				{ "name": "agent-b" }
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let names: Vec<_> = compiled.agent_names().collect();
+		assert_eq!(names.len(), 2);
+		assert!(names.contains(&&"agent-a".to_string()));
+		assert!(names.contains(&&"agent-b".to_string()));
 	}
 }

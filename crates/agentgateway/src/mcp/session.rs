@@ -19,6 +19,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::http::Response;
 use crate::mcp::handler::{Relay, RelayToolInvoker, ResolvedToolCall};
+use crate::mcp::identity::CallerIdentity;
 use crate::mcp::mergestream::Messages;
 use crate::mcp::registry::executor::{CompositionExecutor, TracingContext};
 use crate::mcp::streamablehttp::{ServerSseMessage, StreamableHttpPostResponse};
@@ -258,9 +259,15 @@ impl Session {
 						log.non_atomic_mutate(|l| {
 							l.resource = Some(MCPOperation::Tool);
 						});
+						// Extract caller identity from headers for dependency-scoped filtering
+						let caller_identity = CallerIdentity::from_headers(ctx.headers());
 						self
 							.relay
-							.send_fanout(r, ctx, self.relay.merge_tools(cel.clone()))
+							.send_fanout(
+								r,
+								ctx,
+								self.relay.merge_tools_with_identity(cel.clone(), caller_identity),
+							)
 							.await
 					},
 					ClientRequest::PingRequest(_) | ClientRequest::SetLevelRequest(_) => {

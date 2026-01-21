@@ -21,6 +21,7 @@ use crate::cel::ContextBuilder;
 use crate::http::Response;
 use crate::http::jwt::Claims;
 use crate::http::sessionpersistence::MCPSession;
+use crate::mcp::identity::CallerIdentity;
 use crate::mcp::mergestream::MergeFn;
 use crate::mcp::rbac::{Identity, McpAuthorizationSet};
 use crate::mcp::registry::RegistryStoreRef;
@@ -449,6 +450,19 @@ impl Relay {
 	}
 
 	pub fn merge_tools(&self, cel: Arc<ContextBuilder>) -> Box<MergeFn> {
+		self.merge_tools_with_identity(cel, None)
+	}
+
+	/// Like merge_tools but with optional caller identity for dependency-scoped filtering
+	///
+	/// When a caller_identity is provided and the agent is registered in the registry
+	/// with tool dependencies (via SBOM extension), only tools the agent depends on
+	/// will be returned.
+	pub fn merge_tools_with_identity(
+		&self,
+		cel: Arc<ContextBuilder>,
+		caller_identity: Option<CallerIdentity>,
+	) -> Box<MergeFn> {
 		let policies = self.policies.clone();
 		let default_target_name = self.default_target_name.clone();
 		// Clone registry reference for use in closure
@@ -491,10 +505,32 @@ impl Relay {
 				"merge_tools received from transform_tools"
 			);
 
-			// Apply authorization policies and multiplexing renaming
+			// Get agent's allowed tools if caller identity is provided
+			let agent_tool_deps: Option<Vec<String>> = caller_identity.as_ref().and_then(|id| {
+				if let Some(ref reg) = registry {
+					let guard = reg.get();
+					if let Some(ref compiled_registry) = **guard {
+						let deps = compiled_registry.agent_tool_dependencies(&id.name);
+						if deps.is_some() {
+							tracing::debug!(
+								target: "virtual_tools",
+								agent = %id.name,
+								agent_version = ?id.version,
+								tool_deps = ?deps,
+								"filtering tools by agent dependencies"
+							);
+						}
+						return deps;
+					}
+				}
+				None
+			});
+
+			// Apply authorization policies, agent dependency filtering, and multiplexing renaming
 			let tools = transformed_tools
 				.into_iter()
 				.filter(|(server_name, t)| {
+					// First check RBAC policies
 					let allowed = policies.validate(
 						&rbac::ResourceType::Tool(rbac::ResourceId::new(
 							server_name.to_string(),
@@ -509,7 +545,25 @@ impl Relay {
 							"composition tool blocked by policy"
 						);
 					}
-					allowed
+					if !allowed {
+						return false;
+					}
+
+					// Then check agent dependencies if specified
+					if let Some(ref deps) = agent_tool_deps {
+						// Allow if tool is in agent's dependency list
+						let tool_name = t.name.to_string();
+						if !deps.contains(&tool_name) {
+							tracing::trace!(
+								target: "virtual_tools",
+								tool = %tool_name,
+								"tool filtered out - not in agent dependencies"
+							);
+							return false;
+						}
+					}
+
+					true
 				})
 				// Rename to handle multiplexing
 				.map(|(server_name, t)| Tool {
