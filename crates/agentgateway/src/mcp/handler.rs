@@ -24,6 +24,7 @@ use crate::http::sessionpersistence::MCPSession;
 use crate::mcp::identity::CallerIdentity;
 use crate::mcp::mergestream::MergeFn;
 use crate::mcp::rbac::{Identity, McpAuthorizationSet};
+use crate::mcp::registry::types::UnknownCallerPolicy;
 use crate::mcp::registry::RegistryStoreRef;
 use crate::mcp::router::McpBackendGroup;
 use crate::mcp::streamablehttp::ServerSseMessage;
@@ -505,31 +506,85 @@ impl Relay {
 				"merge_tools received from transform_tools"
 			);
 
+			// Get unknown caller policy from registry
+			let unknown_caller_policy = registry.as_ref().and_then(|reg| {
+				let guard = reg.get();
+				(**guard).as_ref().map(|cr| cr.unknown_caller_policy())
+			}).unwrap_or_default();
+
 			// Get agent's allowed tools if caller identity is provided
-			let agent_tool_deps: Option<Vec<String>> = caller_identity.as_ref().and_then(|id| {
-				if let Some(ref reg) = registry {
-					let guard = reg.get();
-					if let Some(ref compiled_registry) = **guard {
-						let deps = compiled_registry.agent_tool_dependencies(&id.name);
-						if deps.is_some() {
-							tracing::debug!(
-								target: "virtual_tools",
-								agent = %id.name,
-								agent_version = ?id.version,
-								tool_deps = ?deps,
-								"filtering tools by agent dependencies"
-							);
+			// Also track whether this is a registered agent (has deps defined)
+			let (agent_tool_deps, is_registered_agent): (Option<Vec<String>>, bool) =
+				caller_identity.as_ref().map(|id| {
+					if let Some(ref reg) = registry {
+						let guard = reg.get();
+						if let Some(ref compiled_registry) = **guard {
+							let deps = compiled_registry.agent_tool_dependencies(&id.name);
+							let is_registered = deps.is_some();
+							if is_registered {
+								tracing::debug!(
+									target: "virtual_tools",
+									agent = %id.name,
+									agent_version = ?id.version,
+									tool_deps = ?deps,
+									"filtering tools by agent dependencies"
+								);
+							} else {
+								tracing::debug!(
+									target: "virtual_tools",
+									agent = %id.name,
+									"agent not registered in registry - applying unknown caller policy"
+								);
+							}
+							return (deps, is_registered);
 						}
-						return deps;
 					}
-				}
-				None
-			});
+					(None, false)
+				}).unwrap_or((None, false));
+
+			// Handle unknown caller policy
+			// - AllowAll: return all tools (default, backwards-compatible)
+			// - DenyAll: return empty list for unknown callers
+			// - AllowUnregistered: registered agents get their deps, unregistered agents get all tools
+			let deny_all = match (caller_identity.as_ref(), unknown_caller_policy) {
+				// No identity provided
+				(None, UnknownCallerPolicy::DenyAll) => {
+					tracing::debug!(
+						target: "virtual_tools",
+						"no caller identity - denying all tools per policy"
+					);
+					true
+				},
+				// Identity provided but agent not registered
+				(Some(id), UnknownCallerPolicy::DenyAll) if !is_registered_agent => {
+					tracing::debug!(
+						target: "virtual_tools",
+						agent = %id.name,
+						"unregistered agent - denying all tools per policy"
+					);
+					true
+				},
+				// AllowUnregistered with no identity - allow all
+				(None, UnknownCallerPolicy::AllowUnregistered) => {
+					tracing::debug!(
+						target: "virtual_tools",
+						"no caller identity - allowing all tools (AllowUnregistered policy)"
+					);
+					false
+				},
+				// Everything else: allow (may still filter by deps)
+				_ => false,
+			};
 
 			// Apply authorization policies, agent dependency filtering, and multiplexing renaming
 			let tools = transformed_tools
 				.into_iter()
 				.filter(|(server_name, t)| {
+					// Check deny_all policy first
+					if deny_all {
+						return false;
+					}
+
 					// First check RBAC policies
 					let allowed = policies.validate(
 						&rbac::ResourceType::Tool(rbac::ResourceId::new(

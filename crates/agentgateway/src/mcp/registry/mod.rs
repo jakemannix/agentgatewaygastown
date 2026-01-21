@@ -15,7 +15,7 @@ pub mod executor;
 pub mod patterns;
 pub mod runtime_hooks;
 mod store;
-mod types;
+pub mod types;
 pub mod validation;
 
 pub use client::{AuthConfig, RegistryClient, RegistrySource, parse_duration};
@@ -34,7 +34,7 @@ pub use store::{RegistryStore, RegistryStoreRef};
 pub use types::{
 	AgentDefinition, Dependency, DependencyType, OutputField, OutputSchema, OutputTransform,
 	Registry, Schema, Server, SourceTool, ToolDefinition, ToolImplementation, ToolSource,
-	VirtualToolDef,
+	UnknownCallerPolicy, VirtualToolDef,
 };
 pub use validation::{validate_registry, RegistryValidator, ValidationError, ValidationResult, ValidationWarning};
 pub use runtime_hooks::{CallerIdentity, CallContext, DependencyCheckResult, RuntimeHooks, ToolVisibility};

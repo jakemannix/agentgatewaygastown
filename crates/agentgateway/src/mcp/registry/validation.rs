@@ -598,6 +598,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -629,6 +630,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -653,6 +655,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -684,6 +687,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -709,6 +713,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -739,6 +744,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -769,6 +775,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -796,6 +803,7 @@ mod tests {
 			schemas: vec![],  // No schemas defined!
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -834,6 +842,7 @@ mod tests {
 			}],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -858,6 +867,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -896,6 +906,7 @@ mod tests {
 				metadata: HashMap::new(),
 			}],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -923,6 +934,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -950,6 +962,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -972,6 +985,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -1010,6 +1024,7 @@ mod tests {
 			],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -1043,6 +1058,7 @@ mod tests {
 			schemas: vec![],
 			servers: vec![],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 
@@ -1086,6 +1102,7 @@ mod tests {
 				metadata: HashMap::new(),
 			}],
 			agents: vec![],
+			unknown_caller_policy: Default::default(),
 			metadata: HashMap::new(),
 		};
 

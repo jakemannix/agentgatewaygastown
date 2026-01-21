@@ -14,7 +14,7 @@ use super::error::RegistryError;
 use super::patterns::{FieldSource, PatternSpec};
 use super::types::{
 	AgentDefinition, OutputTransform, Registry, Schema, Server, SourceTool, ToolDefinition,
-	ToolImplementation, VirtualToolDef,
+	ToolImplementation, UnknownCallerPolicy, VirtualToolDef,
 };
 
 /// Maximum depth for reference resolution (safety limit)
@@ -33,6 +33,8 @@ pub struct CompiledRegistry {
 	servers_by_name: HashMap<String, Arc<Server>>,
 	/// Agent name -> agent definition (for caller identity and dependency filtering)
 	agents_by_name: HashMap<String, Arc<AgentDefinition>>,
+	/// Policy for unknown callers (no agent identity)
+	unknown_caller_policy: UnknownCallerPolicy,
 }
 
 /// A compiled tool - either a source-based tool or a composition
@@ -202,6 +204,7 @@ impl CompiledRegistry {
 			schemas_by_name,
 			servers_by_name,
 			agents_by_name,
+			unknown_caller_policy: registry.unknown_caller_policy,
 		})
 	}
 
@@ -213,7 +216,13 @@ impl CompiledRegistry {
 			schemas_by_name: HashMap::new(),
 			servers_by_name: HashMap::new(),
 			agents_by_name: HashMap::new(),
+			unknown_caller_policy: UnknownCallerPolicy::default(),
 		}
+	}
+
+	/// Get the policy for unknown callers
+	pub fn unknown_caller_policy(&self) -> UnknownCallerPolicy {
+		self.unknown_caller_policy
 	}
 
 	/// Get a schema by name (for $ref resolution)
@@ -2181,5 +2190,62 @@ mod tests {
 		assert_eq!(names.len(), 2);
 		assert!(names.contains(&&"agent-a".to_string()));
 		assert!(names.contains(&&"agent-b".to_string()));
+	}
+
+	// =============================================================================
+	// Unknown Caller Policy Tests
+	// =============================================================================
+
+	#[test]
+	fn test_unknown_caller_policy_default() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Default should be AllowAll
+		assert_eq!(compiled.unknown_caller_policy(), UnknownCallerPolicy::AllowAll);
+	}
+
+	#[test]
+	fn test_unknown_caller_policy_allow_all() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"unknownCallerPolicy": "allowAll",
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+		assert_eq!(compiled.unknown_caller_policy(), UnknownCallerPolicy::AllowAll);
+	}
+
+	#[test]
+	fn test_unknown_caller_policy_deny_all() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"unknownCallerPolicy": "denyAll",
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+		assert_eq!(compiled.unknown_caller_policy(), UnknownCallerPolicy::DenyAll);
+	}
+
+	#[test]
+	fn test_unknown_caller_policy_allow_unregistered() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"unknownCallerPolicy": "allowUnregistered",
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+		assert_eq!(compiled.unknown_caller_policy(), UnknownCallerPolicy::AllowUnregistered);
 	}
 }
