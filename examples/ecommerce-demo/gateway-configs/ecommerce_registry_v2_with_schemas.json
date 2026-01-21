@@ -117,6 +117,66 @@
     }
   ],
 
+  "servers": [
+    {
+      "name": "catalog-service",
+      "version": "1.0.0",
+      "description": "Product catalog with search and browse capabilities",
+      "provides": [
+        { "tool": "search_products", "version": "1.0.0" },
+        { "tool": "list_products", "version": "1.0.0" },
+        { "tool": "get_product", "version": "1.0.0" },
+        { "tool": "get_categories", "version": "1.0.0" }
+      ],
+      "metadata": {
+        "owner": "catalog-team",
+        "healthEndpoint": "/health"
+      }
+    },
+    {
+      "name": "cart-service",
+      "version": "1.0.0",
+      "description": "Shopping cart management",
+      "provides": [
+        { "tool": "view_cart", "version": "1.0.0" },
+        { "tool": "add_to_cart", "version": "1.0.0" },
+        { "tool": "remove_from_cart", "version": "1.0.0" },
+        { "tool": "clear_cart", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "order-service",
+      "version": "1.0.0",
+      "description": "Order processing and management",
+      "provides": [
+        { "tool": "checkout", "version": "1.0.0" },
+        { "tool": "get_order", "version": "1.0.0" },
+        { "tool": "list_orders", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "inventory-service",
+      "version": "1.0.0",
+      "description": "Stock tracking and inventory management",
+      "provides": [
+        { "tool": "check_stock", "version": "1.0.0" },
+        { "tool": "get_inventory_report", "version": "1.0.0" },
+        { "tool": "reserve_inventory", "version": "1.0.0" },
+        { "tool": "release_inventory", "version": "1.0.0" }
+      ]
+    },
+    {
+      "name": "supplier-service",
+      "version": "1.0.0",
+      "description": "Supplier and purchase order management",
+      "provides": [
+        { "tool": "list_suppliers", "version": "1.0.0" },
+        { "tool": "create_purchase_order", "version": "1.0.0" },
+        { "tool": "get_all_quotes", "version": "1.0.0" }
+      ]
+    }
+  ],
+
   "tools": [
     {
       "$comment": "--- Shopper-Friendly Product Search ---",

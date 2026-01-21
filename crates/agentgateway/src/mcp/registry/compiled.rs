@@ -13,7 +13,7 @@ use serde_json_path::JsonPath;
 use super::error::RegistryError;
 use super::patterns::{FieldSource, PatternSpec};
 use super::types::{
-	OutputTransform, Registry, Schema, SourceTool, ToolDefinition, ToolImplementation,
+	OutputTransform, Registry, Schema, Server, SourceTool, ToolDefinition, ToolImplementation,
 	VirtualToolDef,
 };
 
@@ -29,6 +29,8 @@ pub struct CompiledRegistry {
 	tools_by_source: HashMap<(String, String), Vec<String>>,
 	/// Schema name -> resolved schema (for $ref resolution)
 	schemas_by_name: HashMap<String, Arc<Schema>>,
+	/// Server name -> server metadata (for SBOM/validation, not routing)
+	servers_by_name: HashMap<String, Arc<Server>>,
 }
 
 /// A compiled tool - either a source-based tool or a composition
@@ -133,6 +135,7 @@ impl CompiledRegistry {
 	/// Compile a registry from its raw definition using multi-pass compilation
 	///
 	/// Pass 1: Index all schemas by name (for $ref resolution)
+	/// Pass 1b: Index all servers by name (for metadata/SBOM)
 	/// Pass 2: Index all tools by name (order-independent)
 	/// Pass 3: Compile each tool, resolving references and schema refs
 	pub fn compile(registry: Registry) -> Result<Self, RegistryError> {
@@ -143,6 +146,15 @@ impl CompiledRegistry {
 				return Err(RegistryError::DuplicateSchemaName(schema.name.clone()));
 			}
 			schemas_by_name.insert(schema.name.clone(), Arc::new(schema));
+		}
+
+		// Pass 1b: Index all servers by name
+		let mut servers_by_name: HashMap<String, Arc<Server>> = HashMap::new();
+		for server in registry.servers {
+			if servers_by_name.contains_key(&server.name) {
+				return Err(RegistryError::DuplicateServerName(server.name.clone()));
+			}
+			servers_by_name.insert(server.name.clone(), Arc::new(server));
 		}
 
 		// Pass 2: Index all tool definitions by name
@@ -177,6 +189,7 @@ impl CompiledRegistry {
 			tools_by_name,
 			tools_by_source,
 			schemas_by_name,
+			servers_by_name,
 		})
 	}
 
@@ -186,6 +199,7 @@ impl CompiledRegistry {
 			tools_by_name: HashMap::new(),
 			tools_by_source: HashMap::new(),
 			schemas_by_name: HashMap::new(),
+			servers_by_name: HashMap::new(),
 		}
 	}
 
@@ -202,6 +216,34 @@ impl CompiledRegistry {
 	/// Get number of schemas
 	pub fn schema_count(&self) -> usize {
 		self.schemas_by_name.len()
+	}
+
+	/// Get a server by name (for metadata/SBOM, not routing)
+	pub fn get_server(&self, name: &str) -> Option<&Arc<Server>> {
+		self.servers_by_name.get(name)
+	}
+
+	/// Get all server names
+	pub fn server_names(&self) -> impl Iterator<Item = &String> {
+		self.servers_by_name.keys()
+	}
+
+	/// Get number of servers
+	pub fn server_count(&self) -> usize {
+		self.servers_by_name.len()
+	}
+
+	/// Check if a server is deprecated
+	pub fn is_server_deprecated(&self, name: &str) -> Option<bool> {
+		self.servers_by_name.get(name).map(|s| s.deprecated)
+	}
+
+	/// Get server deprecation message if deprecated
+	pub fn server_deprecation_message(&self, name: &str) -> Option<&str> {
+		self.servers_by_name
+			.get(name)
+			.filter(|s| s.deprecated)
+			.and_then(|s| s.deprecation_message.as_deref())
 	}
 
 	/// Look up tool by name
@@ -1821,5 +1863,111 @@ mod tests {
 		// Invalid formats
 		assert!(parse_schema_ref("#").is_err());
 		assert!(parse_schema_ref("NoHash").is_err());
+	}
+
+	// =============================================================================
+	// Server Indexing Tests
+	// =============================================================================
+
+	#[test]
+	fn test_compile_registry_with_servers() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"servers": [
+				{
+					"name": "catalog-service",
+					"version": "1.2.0",
+					"description": "Product catalog service",
+					"provides": [
+						{ "tool": "search_products", "version": "1.0.0" },
+						{ "tool": "get_product", "version": "1.1.0" }
+					]
+				},
+				{
+					"name": "cart-service",
+					"version": "2.0.0",
+					"deprecated": true,
+					"deprecationMessage": "Use cart-service-v2 instead"
+				}
+			],
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Check server count
+		assert_eq!(compiled.server_count(), 2);
+
+		// Check catalog-service
+		let catalog = compiled.get_server("catalog-service").unwrap();
+		assert_eq!(catalog.version, Some("1.2.0".to_string()));
+		assert_eq!(catalog.provides.len(), 2);
+		assert!(!catalog.deprecated);
+
+		// Check cart-service deprecation
+		let cart = compiled.get_server("cart-service").unwrap();
+		assert!(cart.deprecated);
+		assert_eq!(
+			cart.deprecation_message,
+			Some("Use cart-service-v2 instead".to_string())
+		);
+
+		// Check deprecation helpers
+		assert_eq!(compiled.is_server_deprecated("cart-service"), Some(true));
+		assert_eq!(compiled.is_server_deprecated("catalog-service"), Some(false));
+		assert_eq!(
+			compiled.server_deprecation_message("cart-service"),
+			Some("Use cart-service-v2 instead")
+		);
+		assert_eq!(compiled.server_deprecation_message("catalog-service"), None);
+	}
+
+	#[test]
+	fn test_duplicate_server_name_error() {
+		let json = json!({
+			"servers": [
+				{ "name": "duplicate-server", "version": "1.0.0" },
+				{ "name": "duplicate-server", "version": "2.0.0" }
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let result = CompiledRegistry::compile(registry);
+		assert!(result.is_err());
+		assert!(result.unwrap_err().to_string().contains("duplicate server name"));
+	}
+
+	#[test]
+	fn test_empty_servers_section() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"servers": [],
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+		assert_eq!(compiled.server_count(), 0);
+	}
+
+	#[test]
+	fn test_server_names_iterator() {
+		let json = json!({
+			"servers": [
+				{ "name": "service-a" },
+				{ "name": "service-b" },
+				{ "name": "service-c" }
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let names: Vec<_> = compiled.server_names().collect();
+		assert_eq!(names.len(), 3);
+		assert!(names.contains(&&"service-a".to_string()));
+		assert!(names.contains(&&"service-b".to_string()));
+		assert!(names.contains(&&"service-c".to_string()));
 	}
 }
