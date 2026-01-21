@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=../../../schema/config.json
+#
+# eCommerce Demo Gateway Configuration - With Schema References
+#
+# This is a copy of config.yaml that uses the new registry with schema refs.
+# Used for testing schema resolution functionality.
+
+# Virtual tool registry with schema references
+registry:
+  source: file://./examples/ecommerce-demo/gateway-configs/ecommerce_registry_v2_with_schemas.json
+  refreshInterval: 30s
+
+# Telemetry configuration for composition observability
+config:
+  tracing:
+    randomSampling: "true"
+    compositionVerbosity: "full"
+
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+          exposeHeaders:
+          - "Mcp-Session-Id"
+      backends:
+      - mcp:
+          targets:
+          - name: catalog-service
+            mcp:
+              host: http://localhost:8001/mcp
+          - name: cart-service
+            mcp:
+              host: http://localhost:8002/mcp
+          - name: order-service
+            mcp:
+              host: http://localhost:8003/mcp
+          - name: inventory-service
+            mcp:
+              host: http://localhost:8004/mcp
+          - name: supplier-service
+            mcp:
+              host: http://localhost:8005/mcp

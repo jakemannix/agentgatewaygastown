@@ -138,7 +138,19 @@ impl Relay {
 		if let Some(ref reg) = self.registry {
 			let guard = reg.get();
 			if let Some(ref compiled_registry) = **guard {
-				if let Some(tool) = compiled_registry.get_tool(tool_name) {
+				// Try direct lookup first, then try stripping server prefix
+				// (tools are listed with prefix like "catalog-service_find_products" but
+				// stored by virtual name like "find_products")
+				let base_name = tool_name
+					.split_once(DELIMITER)
+					.map(|(_, name)| name)
+					.unwrap_or(tool_name);
+
+				let tool = compiled_registry
+					.get_tool(tool_name)
+					.or_else(|| compiled_registry.get_tool(base_name));
+
+				if let Some(tool) = tool {
 					// Check if this is a composition
 					if tool.is_composition() {
 						tracing::debug!(

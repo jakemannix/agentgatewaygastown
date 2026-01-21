@@ -1,0 +1,443 @@
+{
+  "$comment": "eCommerce Demo Registry v2 - With extracted reusable schemas",
+  "schemaVersion": "2.0",
+
+  "schemas": [
+    {
+      "name": "ProductSummary",
+      "version": "1.0.0",
+      "description": "Basic product info shown in search results and listings",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "name": {"type": "string"},
+          "price": {"type": "number"},
+          "description": {"type": "string"},
+          "in_stock": {"type": "boolean"}
+        }
+      }
+    },
+    {
+      "name": "ProductListOutput",
+      "version": "1.0.0",
+      "description": "Standard product search/list result",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {"$ref": "#ProductSummary"}
+          },
+          "total_found": {"type": "integer"}
+        }
+      }
+    },
+    {
+      "name": "CartItem",
+      "version": "1.0.0",
+      "description": "Item in a shopping cart",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "quantity": {"type": "integer"},
+          "price": {"type": "number"},
+          "subtotal": {"type": "number"}
+        }
+      }
+    },
+    {
+      "name": "CartSummary",
+      "version": "1.0.0",
+      "description": "Shopping cart contents and total",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {"$ref": "#CartItem"}
+          },
+          "total": {"type": "number"},
+          "item_count": {"type": "integer"}
+        }
+      }
+    },
+    {
+      "name": "StockSummary",
+      "version": "1.0.0",
+      "description": "Inventory status summary for merchandisers",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "total_products": {"type": "integer"},
+          "total_units": {"type": "integer"},
+          "low_stock_count": {"type": "integer"},
+          "out_of_stock_count": {"type": "integer"}
+        }
+      }
+    },
+    {
+      "name": "ProductQueryInput",
+      "version": "1.0.0",
+      "description": "Common input for product searches",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "What are you looking for?"},
+          "category": {"type": "string", "description": "Optional category filter"}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "ProductIdInput",
+      "version": "1.0.0",
+      "description": "Input requiring a product ID",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string", "description": "Product ID"}
+        },
+        "required": ["product_id"]
+      }
+    },
+    {
+      "name": "AddToCartInput",
+      "version": "1.0.0",
+      "description": "Input for adding item to cart",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string", "description": "Product ID to add"},
+          "quantity": {"type": "integer", "description": "How many (default: 1)"}
+        },
+        "required": ["product_id"]
+      }
+    }
+  ],
+
+  "tools": [
+    {
+      "$comment": "--- Shopper-Friendly Product Search ---",
+      "name": "find_products",
+      "description": "Search for products using natural language (e.g., 'comfortable running shoes under $100')",
+      "source": {
+        "target": "catalog-service",
+        "tool": "search_products",
+        "defaults": {
+          "in_stock_only": true,
+          "limit": 8
+        },
+        "hideFields": ["include_embeddings", "debug_scores", "sort_order", "page"]
+      },
+      "inputSchema": {"$ref": "#ProductQueryInput"},
+      "outputSchema": {"$ref": "#ProductListOutput"},
+      "outputTransform": {
+        "mappings": {
+          "products": {"path": "$.products"},
+          "total_found": {"path": "$.results_count"}
+        }
+      }
+    },
+
+    {
+      "$comment": "--- Simple Cart View for Shoppers ---",
+      "name": "my_cart",
+      "description": "See what's in your shopping cart",
+      "source": {
+        "target": "cart-service",
+        "tool": "view_cart",
+        "defaults": {
+          "user_id": "web-user"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {"$ref": "#CartSummary"},
+      "outputTransform": {
+        "mappings": {
+          "items": {"path": "$.items"},
+          "total": {"path": "$.total"},
+          "item_count": {"path": "$.item_count"}
+        }
+      }
+    },
+
+    {
+      "$comment": "--- Quick Add to Cart ---",
+      "name": "add_item",
+      "description": "Add a product to your cart",
+      "source": {
+        "target": "cart-service",
+        "tool": "add_to_cart",
+        "defaults": {
+          "user_id": "web-user",
+          "quantity": 1
+        }
+      },
+      "inputSchema": {"$ref": "#AddToCartInput"}
+    },
+
+    {
+      "$comment": "--- Merchandiser Inventory Summary ---",
+      "name": "stock_status",
+      "description": "Quick inventory status check for merchandisers",
+      "source": {
+        "target": "inventory-service",
+        "tool": "get_inventory_report"
+      },
+      "outputSchema": {"$ref": "#StockSummary"},
+      "outputTransform": {
+        "mappings": {
+          "total_products": {"path": "$.summary.total_products"},
+          "total_units": {"path": "$.summary.total_units"},
+          "low_stock_count": {"path": "$.summary.low_stock_count"},
+          "out_of_stock_count": {"path": "$.summary.out_of_stock_count"}
+        }
+      }
+    },
+
+
+    {
+      "$comment": "--- Personalized Search Pipeline ---",
+      "name": "personalized_search",
+      "description": "Search products and personalize results based on your preferences",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "search",
+              "operation": {"tool": {"name": "search_index", "server": "catalog-service"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "hydrate",
+              "operation": {"tool": {"name": "hydrate_products", "server": "catalog-service"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "product_ids": {"step": {"stepId": "search", "path": "$.matches[*].id"}},
+                    "fields": {"constant": ["id", "name", "price", "category", "brand", "description", "image_url"]}
+                  }
+                }
+              }
+            },
+            {
+              "id": "personalize",
+              "operation": {"tool": {"name": "personalize_ranking", "server": "catalog-service"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "items": {"step": {"stepId": "hydrate", "path": "$.products"}},
+                    "scores": {"step": {"stepId": "search", "path": "$.matches[*].score"}},
+                    "user_id": {"input": {"path": "$.user_id"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"},
+          "user_id": {"type": "string", "description": "User ID for personalization"},
+          "limit": {"type": "integer", "description": "Max results", "default": 10}
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "price": {"type": "number"},
+                "relevance_score": {"type": "number"},
+                "personalization_boost": {"type": "number"}
+              }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "$comment": "--- Product Details with Availability ---",
+      "name": "product_with_availability",
+      "description": "Get product details including real-time stock availability",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "product",
+              "operation": {"tool": {"name": "get_product", "server": "catalog-service"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "stock",
+              "operation": {"tool": {"name": "check_stock", "server": "inventory-service"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "product_id": {"input": {"path": "$.product_id"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {"$ref": "#ProductIdInput"}
+    },
+
+
+
+    {
+      "name": "browse_products",
+      "description": "Browse the product catalog with optional category filter",
+      "source": {"target": "catalog-service", "tool": "list_products"}
+    },
+    {
+      "name": "search_products",
+      "description": "Search products using natural language queries",
+      "source": {"target": "catalog-service", "tool": "search_products"}
+    },
+    {
+      "name": "get_product_details",
+      "description": "Get detailed information about a specific product",
+      "source": {"target": "catalog-service", "tool": "get_product"}
+    },
+    {
+      "name": "get_categories",
+      "description": "Get all available product categories",
+      "source": {"target": "catalog-service", "tool": "get_categories"}
+    },
+    {
+      "name": "view_cart",
+      "description": "View shopping cart contents and total",
+      "source": {"target": "cart-service", "tool": "view_cart"}
+    },
+    {
+      "name": "add_to_cart",
+      "description": "Add a product to the shopping cart",
+      "source": {"target": "cart-service", "tool": "add_to_cart"}
+    },
+    {
+      "name": "update_cart_item",
+      "description": "Update quantity of an item in cart",
+      "source": {"target": "cart-service", "tool": "update_cart_item"}
+    },
+    {
+      "name": "remove_from_cart",
+      "description": "Remove an item from the cart",
+      "source": {"target": "cart-service", "tool": "remove_from_cart"}
+    },
+    {
+      "name": "clear_cart",
+      "description": "Clear all items from cart",
+      "source": {"target": "cart-service", "tool": "clear_cart"}
+    },
+    {
+      "name": "checkout",
+      "description": "Complete checkout and create an order",
+      "source": {"target": "order-service", "tool": "checkout"}
+    },
+    {
+      "name": "list_orders",
+      "description": "List orders for a user",
+      "source": {"target": "order-service", "tool": "list_orders"}
+    },
+    {
+      "name": "get_order",
+      "description": "Get details of a specific order",
+      "source": {"target": "order-service", "tool": "get_order"}
+    },
+    {
+      "name": "get_inventory_report",
+      "description": "Get comprehensive inventory status report",
+      "source": {"target": "inventory-service", "tool": "get_inventory_report"}
+    },
+    {
+      "name": "get_low_stock_alerts",
+      "description": "Get products below reorder threshold",
+      "source": {"target": "inventory-service", "tool": "get_low_stock_alerts"}
+    },
+    {
+      "name": "adjust_inventory",
+      "description": "Manually adjust inventory levels",
+      "source": {"target": "inventory-service", "tool": "adjust_inventory"}
+    },
+    {
+      "name": "list_suppliers",
+      "description": "Get all available suppliers",
+      "source": {"target": "supplier-service", "tool": "list_suppliers"}
+    },
+    {
+      "name": "get_supplier",
+      "description": "Get supplier details",
+      "source": {"target": "supplier-service", "tool": "get_supplier"}
+    },
+    {
+      "name": "create_purchase_order",
+      "description": "Create a purchase order to restock inventory",
+      "source": {"target": "supplier-service", "tool": "create_purchase_order"}
+    },
+    {
+      "name": "list_purchase_orders",
+      "description": "List purchase orders with optional filtering",
+      "source": {"target": "supplier-service", "tool": "list_purchase_orders"}
+    },
+    {
+      "name": "receive_shipment",
+      "description": "Mark a purchase order as received",
+      "source": {"target": "supplier-service", "tool": "receive_shipment"}
+    },
+    {
+      "name": "get_sales_report",
+      "description": "Get sales analytics report",
+      "source": {"target": "order-service", "tool": "get_sales_report"}
+    },
+    {
+      "name": "update_order_status",
+      "description": "Update order status",
+      "source": {"target": "order-service", "tool": "update_order_status"}
+    },
+
+
+    {
+      "name": "search_index",
+      "description": "Fast index search returning IDs and relevance scores",
+      "source": {"target": "catalog-service", "tool": "search_index"}
+    },
+    {
+      "name": "hydrate_products",
+      "description": "Fetch product details for a list of IDs",
+      "source": {"target": "catalog-service", "tool": "hydrate_products"}
+    },
+    {
+      "name": "personalize_ranking",
+      "description": "Re-rank products based on user preferences",
+      "source": {"target": "catalog-service", "tool": "personalize_ranking"}
+    },
+    {
+      "name": "check_stock",
+      "description": "Check stock level for a single product",
+      "source": {"target": "inventory-service", "tool": "check_stock"}
+    },
+    {
+      "name": "get_all_supplier_quotes",
+      "description": "Get price quotes from all suppliers for a product",
+      "source": {"target": "supplier-service", "tool": "get_all_quotes"}
+    }
+  ]
+}

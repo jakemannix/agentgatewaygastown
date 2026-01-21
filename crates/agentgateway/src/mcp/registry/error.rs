@@ -53,6 +53,15 @@ pub enum RegistryError {
 
 	#[error("unknown tool reference: '{0}'")]
 	UnknownToolReference(String),
+
+	#[error("schema not found: '{name}'")]
+	SchemaNotFound { name: String },
+
+	#[error("duplicate schema name: '{0}'")]
+	DuplicateSchemaName(String),
+
+	#[error("invalid schema reference: '{reference}' (expected format: '#SchemaName' or '#SchemaName:version')")]
+	InvalidSchemaReference { reference: String },
 }
 
 impl RegistryError {

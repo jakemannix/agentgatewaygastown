@@ -13,7 +13,8 @@ use serde_json_path::JsonPath;
 use super::error::RegistryError;
 use super::patterns::{FieldSource, PatternSpec};
 use super::types::{
-	OutputTransform, Registry, SourceTool, ToolDefinition, ToolImplementation, VirtualToolDef,
+	OutputTransform, Registry, Schema, SourceTool, ToolDefinition, ToolImplementation,
+	VirtualToolDef,
 };
 
 /// Maximum depth for reference resolution (safety limit)
@@ -26,6 +27,8 @@ pub struct CompiledRegistry {
 	tools_by_name: HashMap<String, Arc<CompiledTool>>,
 	/// (target, source_tool) -> virtual tool names (for reverse lookup, source tools only)
 	tools_by_source: HashMap<(String, String), Vec<String>>,
+	/// Schema name -> resolved schema (for $ref resolution)
+	schemas_by_name: HashMap<String, Arc<Schema>>,
 }
 
 /// A compiled tool - either a source-based tool or a composition
@@ -127,12 +130,22 @@ pub struct CompiledOutputField {
 // =============================================================================
 
 impl CompiledRegistry {
-	/// Compile a registry from its raw definition using two-pass compilation
+	/// Compile a registry from its raw definition using multi-pass compilation
 	///
-	/// Pass 1: Index all tools by name (order-independent)
-	/// Pass 2: Compile each tool, resolving references
+	/// Pass 1: Index all schemas by name (for $ref resolution)
+	/// Pass 2: Index all tools by name (order-independent)
+	/// Pass 3: Compile each tool, resolving references and schema refs
 	pub fn compile(registry: Registry) -> Result<Self, RegistryError> {
-		// Pass 1: Index all definitions by name
+		// Pass 1: Index all schemas by name
+		let mut schemas_by_name: HashMap<String, Arc<Schema>> = HashMap::new();
+		for schema in registry.schemas {
+			if schemas_by_name.contains_key(&schema.name) {
+				return Err(RegistryError::DuplicateSchemaName(schema.name.clone()));
+			}
+			schemas_by_name.insert(schema.name.clone(), Arc::new(schema));
+		}
+
+		// Pass 2: Index all tool definitions by name
 		let mut defs_by_name: HashMap<String, ToolDefinition> = HashMap::new();
 		for tool_def in registry.tools {
 			if defs_by_name.contains_key(&tool_def.name) {
@@ -141,12 +154,12 @@ impl CompiledRegistry {
 			defs_by_name.insert(tool_def.name.clone(), tool_def);
 		}
 
-		// Pass 2: Compile each tool
+		// Pass 3: Compile each tool with schema resolution
 		let mut tools_by_name: HashMap<String, Arc<CompiledTool>> = HashMap::new();
 		let mut tools_by_source: HashMap<(String, String), Vec<String>> = HashMap::new();
 
 		for (name, def) in &defs_by_name {
-			let compiled = CompiledTool::compile(def, &defs_by_name, 0)?;
+			let compiled = CompiledTool::compile(def, &defs_by_name, &schemas_by_name, 0)?;
 
 			// Index source-based tools by their source for reverse lookup
 			if let ToolImplementation::Source(ref source) = def.implementation {
@@ -163,6 +176,7 @@ impl CompiledRegistry {
 		Ok(Self {
 			tools_by_name,
 			tools_by_source,
+			schemas_by_name,
 		})
 	}
 
@@ -171,7 +185,23 @@ impl CompiledRegistry {
 		Self {
 			tools_by_name: HashMap::new(),
 			tools_by_source: HashMap::new(),
+			schemas_by_name: HashMap::new(),
 		}
+	}
+
+	/// Get a schema by name (for $ref resolution)
+	pub fn get_schema(&self, name: &str) -> Option<&Arc<Schema>> {
+		self.schemas_by_name.get(name)
+	}
+
+	/// Get all schema names
+	pub fn schema_names(&self) -> impl Iterator<Item = &String> {
+		self.schemas_by_name.keys()
+	}
+
+	/// Get number of schemas
+	pub fn schema_count(&self) -> usize {
+		self.schemas_by_name.len()
 	}
 
 	/// Look up tool by name
@@ -354,14 +384,37 @@ impl CompiledRegistry {
 // =============================================================================
 
 impl CompiledTool {
-	/// Compile a tool definition
+	/// Compile a tool definition with schema resolution
 	pub fn compile(
 		def: &ToolDefinition,
 		all_defs: &HashMap<String, ToolDefinition>,
+		schemas: &HashMap<String, Arc<Schema>>,
 		depth: usize,
 	) -> Result<Self, RegistryError> {
 		if depth > MAX_REFERENCE_DEPTH {
 			return Err(RegistryError::ReferenceDepthExceeded(def.name.clone()));
+		}
+
+		// Resolve $ref in input/output schemas
+		let resolved_input_schema = def
+			.input_schema
+			.as_ref()
+			.map(|s| resolve_schema_refs(s, schemas))
+			.transpose()?;
+
+		let resolved_output_schema = def
+			.output_schema
+			.as_ref()
+			.map(|s| resolve_schema_refs(s, schemas))
+			.transpose()?;
+
+		// Create a modified definition with resolved schemas
+		let mut resolved_def = def.clone();
+		if resolved_input_schema.is_some() {
+			resolved_def.input_schema = resolved_input_schema;
+		}
+		if resolved_output_schema.is_some() {
+			resolved_def.output_schema = resolved_output_schema;
 		}
 
 		let compiled = match &def.implementation {
@@ -408,7 +461,7 @@ impl CompiledTool {
 		};
 
 		Ok(Self {
-			def: def.clone(),
+			def: resolved_def,
 			compiled,
 		})
 	}
@@ -417,7 +470,8 @@ impl CompiledTool {
 	pub fn compile_legacy(legacy_def: VirtualToolDef) -> Result<Self, RegistryError> {
 		let def = ToolDefinition::from_legacy(legacy_def);
 		let defs = HashMap::new();
-		Self::compile(&def, &defs, 0)
+		let schemas = HashMap::new();
+		Self::compile(&def, &defs, &schemas, 0)
 	}
 
 	/// Check if this is a source-based tool
@@ -784,6 +838,79 @@ impl CompiledFieldSource {
 // Helper Functions
 // =============================================================================
 
+/// Resolve $ref references in a JSON Schema value
+///
+/// Supports the following reference formats:
+/// - `{ "$ref": "#SchemaName" }` - Reference to schema by name
+/// - `{ "$ref": "#SchemaName:1.0.0" }` - Reference with version (version currently ignored)
+/// - `{ "$ref": "#/schemas/SchemaName" }` - JSON Pointer style reference
+///
+/// The function recursively resolves references throughout the schema.
+fn resolve_schema_refs(
+	value: &serde_json::Value,
+	schemas: &HashMap<String, Arc<Schema>>,
+) -> Result<serde_json::Value, RegistryError> {
+	match value {
+		serde_json::Value::Object(obj) => {
+			// Check if this object is a $ref
+			if let Some(serde_json::Value::String(ref_str)) = obj.get("$ref") {
+				// Parse the reference and look up the schema
+				let schema_name = parse_schema_ref(ref_str)?;
+				let schema = schemas.get(&schema_name).ok_or_else(|| {
+					RegistryError::SchemaNotFound {
+						name: schema_name.clone(),
+					}
+				})?;
+				// Return the resolved schema (recursively resolve any nested refs)
+				return resolve_schema_refs(&schema.schema, schemas);
+			}
+
+			// Not a $ref, recursively process all fields
+			let mut new_obj = serde_json::Map::new();
+			for (k, v) in obj {
+				new_obj.insert(k.clone(), resolve_schema_refs(v, schemas)?);
+			}
+			Ok(serde_json::Value::Object(new_obj))
+		},
+		serde_json::Value::Array(arr) => {
+			let new_arr: Result<Vec<_>, _> =
+				arr.iter().map(|v| resolve_schema_refs(v, schemas)).collect();
+			Ok(serde_json::Value::Array(new_arr?))
+		},
+		other => Ok(other.clone()),
+	}
+}
+
+/// Parse a schema reference string into a schema name
+///
+/// Supported formats:
+/// - "#SchemaName" -> "SchemaName"
+/// - "#SchemaName:1.0.0" -> "SchemaName" (version ignored for now)
+/// - "#/schemas/SchemaName" -> "SchemaName"
+fn parse_schema_ref(ref_str: &str) -> Result<String, RegistryError> {
+	// Handle JSON Pointer style: "#/schemas/SchemaName"
+	if ref_str.starts_with("#/schemas/") {
+		return Ok(ref_str[10..].to_string());
+	}
+
+	// Handle shorthand: "#SchemaName" or "#SchemaName:version"
+	if ref_str.starts_with('#') {
+		let rest = &ref_str[1..];
+		// Strip version if present
+		let name = rest.split(':').next().unwrap_or(rest);
+		if name.is_empty() {
+			return Err(RegistryError::InvalidSchemaReference {
+				reference: ref_str.to_string(),
+			});
+		}
+		return Ok(name.to_string());
+	}
+
+	Err(RegistryError::InvalidSchemaReference {
+		reference: ref_str.to_string(),
+	})
+}
+
 /// Resolve ${ENV_VAR} patterns in a JSON value
 fn resolve_env_vars(value: &serde_json::Value) -> Result<serde_json::Value, RegistryError> {
 	match value {
@@ -1107,7 +1234,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let source = create_source_tool("fetch_weather", "Weather");
 		let virtual_tool = compiled.create_virtual_tool(&source).unwrap();
@@ -1126,7 +1253,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let args = json!({"city": "Seattle"});
 		let result = compiled.inject_defaults(args).unwrap();
@@ -1143,7 +1270,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let args = json!({"city": "Seattle", "units": "imperial"});
 		let result = compiled.inject_defaults(args).unwrap();
@@ -1164,7 +1291,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let args = json!({});
 		let result = compiled.inject_defaults(args).unwrap();
@@ -1193,7 +1320,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let response = json!({
 			"temperature": 72.5,
@@ -1214,7 +1341,7 @@ mod tests {
 		let tool = VirtualToolDef::new("test", "backend", "tool");
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let response = json!({"original": "data"});
 		let result = compiled.transform_output(response.clone()).unwrap();
@@ -1241,7 +1368,7 @@ mod tests {
 
 		let def: ToolDefinition = serde_json::from_str(json).unwrap();
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let response = json!({
 			"total_count": 2,
@@ -1296,7 +1423,7 @@ mod tests {
 
 		let def: ToolDefinition = serde_json::from_str(json).unwrap();
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		// First path has value
 		let response = json!({"pdf_url": "http://pdf.example.com"});
@@ -1324,7 +1451,7 @@ mod tests {
 
 		let def: ToolDefinition = serde_json::from_str(json).unwrap();
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let response = json!({});
 		let result = compiled.transform_output(response).unwrap();
@@ -1445,5 +1572,254 @@ mod tests {
 
 		assert!(json.is_array());
 		assert_eq!(json.as_array().unwrap().len(), 3);
+	}
+
+	// =============================================================================
+	// Schema Resolution Tests
+	// =============================================================================
+
+	#[test]
+	fn test_compile_registry_with_schemas() {
+		let json = r#"{
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "WeatherInput",
+					"version": "1.0.0",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"city": { "type": "string" }
+						},
+						"required": ["city"]
+					}
+				}
+			],
+			"tools": []
+		}"#;
+
+		let registry: Registry = serde_json::from_str(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		assert_eq!(compiled.schema_count(), 1);
+		assert!(compiled.get_schema("WeatherInput").is_some());
+	}
+
+	#[test]
+	fn test_schema_ref_resolution_shorthand() {
+		// Build registry programmatically to avoid $ escaping issues
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "SearchQuery",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"query": { "type": "string" },
+							"limit": { "type": "integer" }
+						},
+						"required": ["query"]
+					}
+				}
+			],
+			"tools": [
+				{
+					"name": "search",
+					"source": { "target": "search-service", "tool": "search" },
+					"inputSchema": { "$ref": "#SearchQuery" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let tool = compiled.get_tool("search").unwrap();
+		let input_schema = tool.def.input_schema.as_ref().unwrap();
+
+		// The $ref should be resolved to the actual schema
+		assert_eq!(input_schema["type"], "object");
+		assert!(input_schema["properties"]["query"].is_object());
+		assert!(input_schema["properties"]["limit"].is_object());
+	}
+
+	#[test]
+	fn test_schema_ref_resolution_json_pointer() {
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "ProductOutput",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"id": { "type": "string" },
+							"name": { "type": "string" },
+							"price": { "type": "number" }
+						}
+					}
+				}
+			],
+			"tools": [
+				{
+					"name": "get_product",
+					"source": { "target": "catalog", "tool": "get_product" },
+					"outputSchema": { "$ref": "#/schemas/ProductOutput" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let tool = compiled.get_tool("get_product").unwrap();
+		let output_schema = tool.def.output_schema.as_ref().unwrap();
+
+		// The $ref should be resolved to the actual schema
+		assert_eq!(output_schema["type"], "object");
+		assert!(output_schema["properties"]["id"].is_object());
+	}
+
+	#[test]
+	fn test_schema_ref_resolution_with_version() {
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "QueryParams",
+					"version": "2.0.0",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"q": { "type": "string" }
+						}
+					}
+				}
+			],
+			"tools": [
+				{
+					"name": "query",
+					"source": { "target": "backend", "tool": "query" },
+					"inputSchema": { "$ref": "#QueryParams:2.0.0" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let tool = compiled.get_tool("query").unwrap();
+		let input_schema = tool.def.input_schema.as_ref().unwrap();
+
+		// Version is currently ignored in lookup, just uses name
+		assert_eq!(input_schema["type"], "object");
+		assert!(input_schema["properties"]["q"].is_object());
+	}
+
+	#[test]
+	fn test_schema_ref_not_found_error() {
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [],
+			"tools": [
+				{
+					"name": "search",
+					"source": { "target": "search", "tool": "search" },
+					"inputSchema": { "$ref": "#NonExistentSchema" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let result = CompiledRegistry::compile(registry);
+
+		assert!(result.is_err());
+		let err = result.unwrap_err();
+		assert!(matches!(err, RegistryError::SchemaNotFound { .. }));
+	}
+
+	#[test]
+	fn test_duplicate_schema_name_error() {
+		let json = r#"{
+			"schemaVersion": "2.0",
+			"schemas": [
+				{ "name": "DuplicateName", "schema": { "type": "string" } },
+				{ "name": "DuplicateName", "schema": { "type": "number" } }
+			],
+			"tools": []
+		}"#;
+
+		let registry: Registry = serde_json::from_str(json).unwrap();
+		let result = CompiledRegistry::compile(registry);
+
+		assert!(result.is_err());
+		let err = result.unwrap_err();
+		assert!(matches!(err, RegistryError::DuplicateSchemaName(_)));
+	}
+
+	#[test]
+	fn test_nested_schema_ref_resolution() {
+		// Test that $ref inside properties also gets resolved
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "Address",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"street": { "type": "string" },
+							"city": { "type": "string" }
+						}
+					}
+				},
+				{
+					"name": "Person",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"name": { "type": "string" },
+							"address": { "$ref": "#Address" }
+						}
+					}
+				}
+			],
+			"tools": [
+				{
+					"name": "get_person",
+					"source": { "target": "people", "tool": "get" },
+					"inputSchema": { "$ref": "#Person" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let tool = compiled.get_tool("get_person").unwrap();
+		let input_schema = tool.def.input_schema.as_ref().unwrap();
+
+		// The nested $ref should also be resolved
+		assert_eq!(input_schema["type"], "object");
+		assert_eq!(input_schema["properties"]["name"]["type"], "string");
+		// The nested address $ref should be resolved to the Address schema
+		assert_eq!(input_schema["properties"]["address"]["type"], "object");
+		assert_eq!(
+			input_schema["properties"]["address"]["properties"]["street"]["type"],
+			"string"
+		);
+	}
+
+	#[test]
+	fn test_parse_schema_ref_formats() {
+		// Test various ref format parsing
+		assert_eq!(parse_schema_ref("#MySchema").unwrap(), "MySchema");
+		assert_eq!(parse_schema_ref("#MySchema:1.0.0").unwrap(), "MySchema");
+		assert_eq!(parse_schema_ref("#/schemas/MySchema").unwrap(), "MySchema");
+
+		// Invalid formats
+		assert!(parse_schema_ref("#").is_err());
+		assert!(parse_schema_ref("NoHash").is_err());
 	}
 }
