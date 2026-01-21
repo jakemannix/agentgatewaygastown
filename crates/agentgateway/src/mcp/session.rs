@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use ::http::StatusCode;
 use ::http::header::CONTENT_TYPE;
@@ -34,9 +34,27 @@ pub struct Session {
 	relay: Arc<Relay>,
 	pub id: Arc<str>,
 	tx: Option<Sender<ServerJsonRpcMessage>>,
+	/// Caller identity extracted from MCP initialize clientInfo.
+	/// Set during InitializeRequest, used for subsequent requests like tools/list.
+	caller_identity: Arc<RwLock<Option<CallerIdentity>>>,
 }
 
 impl Session {
+	/// Get the caller identity for this session (if set during initialize).
+	/// Returns None if no identity was extracted from clientInfo.
+	pub fn caller_identity(&self) -> Option<CallerIdentity> {
+		self.caller_identity.read().ok()?.clone()
+	}
+
+	/// Set the caller identity (called during InitializeRequest).
+	/// This stores the identity extracted from MCP clientInfo for use
+	/// in subsequent requests like tools/list.
+	fn set_caller_identity(&self, identity: CallerIdentity) {
+		if let Ok(mut guard) = self.caller_identity.write() {
+			*guard = Some(identity);
+		}
+	}
+
 	/// send a message to upstream server(s)
 	pub async fn send(&mut self, parts: Parts, message: ClientJsonRpcMessage) -> Response {
 		let req_id = match &message {
@@ -602,6 +620,7 @@ impl SessionManager {
 			relay: Arc::new(relay),
 			tx: None,
 			encoder: self.encoder.clone(),
+			caller_identity: Default::default(),
 		};
 		let mut sm = self.sessions.write().expect("write lock");
 		sm.insert(id.to_string(), sess.clone());
@@ -618,6 +637,7 @@ impl SessionManager {
 			relay: Arc::new(relay),
 			tx: None,
 			encoder: self.encoder.clone(),
+			caller_identity: Default::default(),
 		}
 	}
 
@@ -637,6 +657,7 @@ impl SessionManager {
 			relay: Arc::new(relay),
 			tx: None,
 			encoder: self.encoder.clone(),
+			caller_identity: Default::default(),
 		}
 	}
 
@@ -650,6 +671,7 @@ impl SessionManager {
 			relay: Arc::new(relay),
 			tx: Some(tx),
 			encoder: self.encoder.clone(),
+			caller_identity: Default::default(),
 		};
 		let mut sm = self.sessions.write().expect("write lock");
 		sm.insert(id.to_string(), sess.clone());

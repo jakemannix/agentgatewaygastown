@@ -1030,3 +1030,150 @@ mod legacymockserver {
 		}
 	}
 }
+
+// =============================================================================
+// Session Identity Tests
+// =============================================================================
+//
+// These tests verify that caller identity from MCP clientInfo is:
+// 1. Extracted during InitializeRequest
+// 2. Stored in the session
+// 3. Used for subsequent requests like tools/list
+
+/// Test that a client connecting with a specific clientInfo.name gets that
+/// identity stored in the session and used for tool filtering.
+///
+/// This test creates a client with clientInfo.name = "customer-agent",
+/// connects to a gateway with a registry that has "customer-agent" defined
+/// with specific tool dependencies, and verifies that tools/list returns
+/// only those dependencies.
+#[tokio::test]
+async fn session_identity_from_client_info_filters_tools() {
+	use crate::mcp::registry::{Registry, RegistryStore, RegistryStoreRef};
+	use serde_json::json;
+
+	// Create a registry with an agent that depends on specific tools
+	let registry_json = json!({
+		"schemaVersion": "2.0",
+		"tools": [
+			// These tools should be visible to customer-agent
+			{
+				"name": "find_products",
+				"description": "Search for products",
+				"source": { "target": "mcp", "tool": "echo" }
+			},
+			{
+				"name": "add_to_cart",
+				"description": "Add item to cart",
+				"source": { "target": "mcp", "tool": "decrement" }
+			},
+			// This tool should NOT be visible to customer-agent
+			{
+				"name": "admin_tool",
+				"description": "Admin only",
+				"source": { "target": "mcp", "tool": "increment" }
+			}
+		],
+		"agents": [
+			{
+				"name": "customer-agent",
+				"version": "1.0.0",
+				"description": "Customer shopping agent",
+				"capabilities": {
+					"extensions": [
+						{
+							"uri": "urn:agentgateway:sbom",
+							"params": {
+								"depends": [
+									{ "type": "tool", "name": "find_products" },
+									{ "type": "tool", "name": "add_to_cart" }
+								]
+							}
+						}
+					]
+				}
+			}
+		]
+	});
+	let registry: Registry = serde_json::from_value(registry_json).unwrap();
+
+	// Create a registry store and load the registry
+	let store = RegistryStore::new();
+	store.update(registry).unwrap();
+	let _store_ref = RegistryStoreRef::new(store);
+
+	// Create a mock server that provides all 3 tools
+	let mock = mock_streamable_http_server(true).await;
+
+	// Set up proxy with the registry
+	let t = setup_proxy_test("{}")
+		.unwrap()
+		.with_mcp_backend(mock.addr, true, false)
+		.with_bind(simple_bind(basic_route(mock.addr)));
+
+	// TODO: Need to wire the registry into the proxy
+	// For now, this test will fail because we haven't implemented
+	// the registry integration in test helpers
+
+	let io = t.serve_real_listener(BIND_KEY).await;
+
+	// Create client with clientInfo.name = "customer-agent"
+	// This is the identity that should be extracted and stored
+	let client = mcp_streamable_client_with_name(io, "customer-agent").await;
+
+	// List tools - should only see the 2 tools customer-agent depends on
+	let tools = client.list_tools(None).await.unwrap();
+	let tool_names: Vec<String> = tools.tools.iter().map(|t| t.name.to_string()).collect();
+
+	// This assertion will FAIL until we implement:
+	// 1. Storing identity from clientInfo during InitializeRequest
+	// 2. Using stored identity in ListToolsRequest
+	// 3. Wiring registry into the test proxy
+	assert!(
+		tool_names.contains(&"find_products".to_string()),
+		"Expected find_products in {:?}",
+		tool_names
+	);
+	assert!(
+		tool_names.contains(&"add_to_cart".to_string()),
+		"Expected add_to_cart in {:?}",
+		tool_names
+	);
+	assert!(
+		!tool_names.contains(&"admin_tool".to_string()),
+		"Did NOT expect admin_tool in {:?} - should be filtered by agent dependencies",
+		tool_names
+	);
+}
+
+/// Helper to create an MCP client with a specific agent name in clientInfo
+pub async fn mcp_streamable_client_with_name(
+	s: SocketAddr,
+	agent_name: &str,
+) -> RunningService<RoleClient, InitializeRequestParam> {
+	use rmcp::ServiceExt;
+	use rmcp::model::{ClientCapabilities, ClientInfo, Implementation};
+	use rmcp::transport::StreamableHttpClientTransport;
+
+	let transport =
+		StreamableHttpClientTransport::<reqwest::Client>::from_uri(format!("http://{s}/mcp"));
+	let client_info = ClientInfo {
+		protocol_version: Default::default(),
+		capabilities: ClientCapabilities::default(),
+		client_info: Implementation {
+			name: agent_name.to_string(),
+			version: "1.0.0".to_string(),
+			title: None,
+			website_url: None,
+			icons: None,
+		},
+	};
+
+	client_info
+		.serve(transport)
+		.await
+		.inspect_err(|e| {
+			tracing::error!("client error: {:?}", e);
+		})
+		.unwrap()
+}
