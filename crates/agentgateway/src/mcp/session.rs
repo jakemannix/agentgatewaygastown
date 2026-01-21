@@ -20,10 +20,11 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use crate::http::Response;
 use crate::mcp::handler::{Relay, RelayToolInvoker, ResolvedToolCall};
 use crate::mcp::mergestream::Messages;
-use crate::mcp::registry::executor::CompositionExecutor;
+use crate::mcp::registry::executor::{CompositionExecutor, TracingContext};
 use crate::mcp::streamablehttp::{ServerSseMessage, StreamableHttpPostResponse};
 use crate::mcp::upstream::{IncomingRequestContext, UpstreamError};
 use crate::mcp::{ClientError, MCPOperation, rbac};
+use crate::telemetry::log::{CompositionVerbosity, CompositionVerbosityExpr};
 use crate::{mcp, *};
 
 #[derive(Debug, Clone)]
@@ -229,6 +230,12 @@ impl Session {
 					l.method_name = Some(method.to_string());
 					l.session_id = Some(session_id);
 				});
+				// Extract composition verbosity from extensions and evaluate with CEL context
+				let composition_verbosity = parts
+					.extensions
+					.get::<CompositionVerbosityExpr>()
+					.map(|expr| expr.eval(&cel))
+					.unwrap_or(CompositionVerbosity::Minimal);
 				let ctx = IncomingRequestContext::new(parts);
 				match &mut r.request {
 					ClientRequest::InitializeRequest(ir) => {
@@ -395,20 +402,36 @@ impl Session {
 								// Create a ToolInvoker that uses the Relay to make real backend calls
 								let tool_invoker = Arc::new(RelayToolInvoker::new(self.relay.clone(), ctx.clone()));
 
+								// Create tracing context from the current span
+								// Check if the span is recording (sampled) using opentelemetry trait
+								use opentelemetry::trace::Span as OtelSpan;
+								let is_sampled = _span.is_recording();
+
+								// Create tracing context with parent span context
+								// Using composition_verbosity that was extracted before parts was moved
+								let tracing_ctx = TracingContext::new(
+									is_sampled,
+									composition_verbosity,
+									opentelemetry::Context::current(),
+								);
+
 								// Create the executor and run the composition
 								// Spawn as a separate task to avoid scheduler starvation
 								let executor = CompositionExecutor::new(compiled_registry, tool_invoker);
 								let comp_name_clone = comp_name.clone();
 
-								let result =
-									tokio::spawn(async move { executor.execute(&comp_name_clone, comp_args).await })
+								let result = tokio::spawn(async move {
+									executor
+										.execute_with_tracing(&comp_name_clone, comp_args, tracing_ctx)
 										.await
-										.map_err(|e| {
-											UpstreamError::InvalidRequest(format!("Composition task panicked: {}", e))
-										})?
-										.map_err(|e| {
-											UpstreamError::InvalidRequest(format!("Composition execution failed: {}", e))
-										})?;
+								})
+								.await
+								.map_err(|e| {
+									UpstreamError::InvalidRequest(format!("Composition task panicked: {}", e))
+								})?
+								.map_err(|e| {
+									UpstreamError::InvalidRequest(format!("Composition execution failed: {}", e))
+								})?;
 
 								// Build a successful MCP CallToolResult response
 								let call_result = rmcp::model::CallToolResult {

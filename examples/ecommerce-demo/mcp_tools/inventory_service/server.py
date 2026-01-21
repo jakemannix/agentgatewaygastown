@@ -252,6 +252,38 @@ def get_adjustment_history(
     }
 
 
+# ============== PIPELINE SUPPORT TOOLS ==============
+
+
+@mcp.tool()
+def check_stock(
+    product_id: str = Field(description="Product ID to check"),
+) -> dict:
+    """
+    Check stock level for a single product.
+
+    Returns quantity, availability status, and low stock warning.
+    Used by product_with_availability pipeline.
+    """
+    catalog_db = get_catalog_db()
+    product = catalog_db.get_product(product_id)
+
+    if not product:
+        return {"error": f"Product not found: {product_id}"}
+
+    quantity = product["stock_quantity"]
+    threshold = product.get("reorder_threshold", 10)
+
+    return {
+        "product_id": product_id,
+        "quantity": quantity,
+        "in_stock": quantity > 0,
+        "low_stock": quantity <= threshold and quantity > 0,
+        "out_of_stock": quantity == 0,
+        "reorder_threshold": threshold,
+    }
+
+
 def main():
     """Run the MCP server with HTTP transport."""
     mcp.run(transport="streamable-http")

@@ -5,6 +5,8 @@ This agent handles shopping tasks:
 - Cart management
 - Checkout and order tracking
 
+Tools are dynamically discovered from the MCP gateway at startup.
+
 Supports multiple LLM providers via LiteLLM:
 - Anthropic (ANTHROPIC_API_KEY): anthropic/claude-sonnet-4-20250514
 - OpenAI (OPENAI_API_KEY): openai/gpt-4o
@@ -14,21 +16,48 @@ Supports multiple LLM providers via LiteLLM:
 import asyncio
 import logging
 import os
-from typing import Any, Optional
+from typing import Optional
 
 from google.adk import Agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.tools import FunctionTool
 from google.genai import types
 
-from ..shared.gateway_client import GatewayMCPClient
+from ..shared.gateway_client import GatewayMCPClient, discover_and_create_tools
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 AGENT_NAME = "customer-agent"
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://localhost:3000")
+
+# Tools this agent is allowed to use (customer-facing tools)
+# These names must match what's returned by the gateway in multiplexing mode
+# Backend tools are prefixed with their service name (e.g., "catalog-service_")
+# Composition tools use their simple names (e.g., "personalized_search")
+ALLOWED_TOOLS = {
+    # Product discovery (catalog-service)
+    "catalog-service_find_products",
+    "catalog-service_browse_products",
+    "catalog-service_search_products",
+    "catalog-service_get_product_details",
+    "catalog-service_get_categories",
+    # Composition tools for enhanced search (no prefix)
+    "personalized_search",
+    "product_with_availability",
+    # Cart management (cart-service)
+    "cart-service_my_cart",
+    "cart-service_view_cart",
+    "cart-service_add_item",
+    "cart-service_add_to_cart",
+    "cart-service_update_cart_item",
+    "cart-service_remove_from_cart",
+    "cart-service_clear_cart",
+    # Orders (order-service)
+    "order-service_checkout",
+    "order-service_get_order",
+    "order-service_list_orders",
+}
 
 # LLM Provider Configuration (using LiteLLM format for non-Google models)
 DEFAULT_MODELS = {
@@ -90,199 +119,38 @@ def get_configured_model() -> str:
     )
 
 
-# Initialize gateway client
-gateway_client: Optional[GatewayMCPClient] = None
+# Global state for gateway client and tools
+_gateway_client: Optional[GatewayMCPClient] = None
+_adk_tools: Optional[list] = None
+_tools_initialized = False
 
 
-def get_gateway_client() -> GatewayMCPClient:
-    """Get or create the gateway client."""
-    global gateway_client
-    if gateway_client is None:
-        gateway_client = GatewayMCPClient(
-            gateway_url=GATEWAY_URL,
-            agent_name=AGENT_NAME,
-        )
-    return gateway_client
+async def _initialize_tools():
+    """Initialize tools from gateway (called once at startup)."""
+    global _gateway_client, _adk_tools, _tools_initialized
+
+    if _tools_initialized:
+        return
+
+    logger.info(f"Discovering tools from gateway: {GATEWAY_URL}")
+    logger.info(f"Allowed tools for customer agent: {sorted(ALLOWED_TOOLS)}")
+
+    _gateway_client, _adk_tools = await discover_and_create_tools(
+        gateway_url=GATEWAY_URL,
+        agent_name=AGENT_NAME,
+        allowed_tools=ALLOWED_TOOLS,
+    )
+
+    _tools_initialized = True
+    logger.info(f"Customer agent initialized with {len(_adk_tools)} tools")
 
 
-def _call_gateway_tool(name: str, args: dict) -> Any:
-    """Call a gateway tool, handling both sync and async contexts."""
-    import concurrent.futures
+def _get_tools() -> list:
+    """Get the initialized tools (must call _initialize_tools first)."""
+    if not _tools_initialized or _adk_tools is None:
+        raise RuntimeError("Tools not initialized. Call _initialize_tools() first.")
+    return _adk_tools
 
-    client = get_gateway_client()
-
-    try:
-        # Check if there's already a running event loop
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # No running loop - safe to use asyncio.run()
-        return asyncio.run(client.call_tool(name, args))
-
-    # There's a running loop - run in a separate thread to avoid conflicts
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(asyncio.run, client.call_tool(name, args))
-        return future.result()
-
-
-# Tool implementations that call through the gateway
-def search_products(query: str, category: Optional[str] = None, max_results: int = 10) -> dict:
-    """Search for products using natural language.
-
-    Args:
-        query: Natural language search query (e.g., "wireless headphones", "camping gear")
-        category: Optional category filter (e.g., "Electronics", "Sports & Outdoors")
-        max_results: Maximum number of results to return (default 10)
-
-    Returns:
-        Search results with matching products
-    """
-    args = {"query": query, "max_results": max_results}
-    if category:
-        args["category"] = category
-    return _call_gateway_tool("search_products", args)
-
-
-def browse_products(category: Optional[str] = None, page: int = 1, limit: int = 10) -> dict:
-    """Browse the product catalog.
-
-    Args:
-        category: Optional category to filter by
-        page: Page number for pagination (default 1)
-        limit: Number of products per page (default 10)
-
-    Returns:
-        List of products in the catalog
-    """
-    args = {"page": page, "limit": limit}
-    if category:
-        args["category"] = category
-    return _call_gateway_tool("browse_products", args)
-
-
-def get_product_details(product_id: str) -> dict:
-    """Get detailed information about a specific product.
-
-    Args:
-        product_id: The product ID to look up
-
-    Returns:
-        Product details including name, description, price, and availability
-    """
-    return _call_gateway_tool("get_product_details", {"product_id": product_id})
-
-
-def get_categories() -> dict:
-    """Get all available product categories.
-
-    Returns:
-        List of category names
-    """
-    return _call_gateway_tool("get_categories", {})
-
-
-def view_cart(user_id: str) -> dict:
-    """View the contents of the shopping cart.
-
-    Args:
-        user_id: The user's ID
-
-    Returns:
-        Cart contents including items, quantities, and total
-    """
-    return _call_gateway_tool("view_cart", {"user_id": user_id})
-
-
-def add_to_cart(user_id: str, product_id: str, quantity: int = 1) -> dict:
-    """Add a product to the shopping cart.
-
-    Args:
-        user_id: The user's ID
-        product_id: The product to add
-        quantity: Number of items to add (default 1)
-
-    Returns:
-        Updated cart information
-    """
-    return _call_gateway_tool("add_to_cart", {
-        "user_id": user_id,
-        "product_id": product_id,
-        "quantity": quantity,
-    })
-
-
-def update_cart_item(cart_item_id: str, quantity: int) -> dict:
-    """Update the quantity of an item in the cart.
-
-    Args:
-        cart_item_id: The cart item ID to update
-        quantity: New quantity (0 to remove)
-
-    Returns:
-        Updated cart item information
-    """
-    return _call_gateway_tool("update_cart_item", {
-        "cart_item_id": cart_item_id,
-        "quantity": quantity,
-    })
-
-
-def checkout(user_id: str, shipping_address: str) -> dict:
-    """Complete checkout and place an order.
-
-    Args:
-        user_id: The user's ID
-        shipping_address: Delivery address for the order
-
-    Returns:
-        Order confirmation with order ID and details
-    """
-    return _call_gateway_tool("checkout", {
-        "user_id": user_id,
-        "shipping_address": shipping_address,
-    })
-
-
-def get_order(order_id: str) -> dict:
-    """Get details of a specific order.
-
-    Args:
-        order_id: The order ID to look up
-
-    Returns:
-        Order details including items, status, and shipping info
-    """
-    return _call_gateway_tool("get_order", {"order_id": order_id})
-
-
-def list_my_orders(user_id: str, status: Optional[str] = None) -> dict:
-    """List orders for the current user.
-
-    Args:
-        user_id: The user's ID
-        status: Optional status filter (pending, confirmed, shipped, delivered)
-
-    Returns:
-        List of orders
-    """
-    args = {"user_id": user_id}
-    if status:
-        args["status"] = status
-    return _call_gateway_tool("list_orders", args)
-
-
-# Create ADK tools
-CUSTOMER_TOOLS = [
-    FunctionTool(search_products),
-    FunctionTool(browse_products),
-    FunctionTool(get_product_details),
-    FunctionTool(get_categories),
-    FunctionTool(view_cart),
-    FunctionTool(add_to_cart),
-    FunctionTool(update_cart_item),
-    FunctionTool(checkout),
-    FunctionTool(get_order),
-    FunctionTool(list_my_orders),
-]
 
 # System prompt for the customer agent
 CUSTOMER_SYSTEM_PROMPT = """You are a helpful shopping assistant for an ecommerce store.
@@ -297,6 +165,8 @@ Your role is to help customers:
 Guidelines:
 - Always be helpful and friendly
 - When searching, use natural language queries that capture what the customer wants
+- Use personalized_search when you want to provide personalized results for a user
+- Use product_with_availability to check real-time stock for a product
 - Suggest related products when appropriate
 - Confirm actions like adding to cart or completing checkout
 - If a product is out of stock, let the customer know and suggest alternatives
@@ -329,7 +199,9 @@ def create_customer_agent(user_id: str = "default-user") -> Agent:
         Configured ADK Agent
     """
     model = get_configured_model()
-    logger.info(f"Creating customer agent with model: {model}")
+    tools = _get_tools()
+
+    logger.info(f"Creating customer agent with model: {model}, tools: {len(tools)}")
 
     # Inject user_id into system prompt
     system_prompt = CUSTOMER_SYSTEM_PROMPT + f"\n\nCurrent user_id: {user_id}"
@@ -339,7 +211,7 @@ def create_customer_agent(user_id: str = "default-user") -> Agent:
         model=model,
         description="Shopping assistant that helps customers find products, manage cart, and place orders",
         instruction=system_prompt,
-        tools=CUSTOMER_TOOLS,
+        tools=tools,
     )
 
 
@@ -409,6 +281,9 @@ async def run_customer_query(
             "No LLM API key found. Set one of: "
             f"{', '.join(API_KEY_ENV_VARS.values())}"
         )
+
+    # Ensure tools are initialized
+    await _initialize_tools()
 
     runner = get_runner(user_id)
     session_service = _get_session_service()

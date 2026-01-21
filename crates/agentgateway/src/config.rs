@@ -184,7 +184,7 @@ pub fn parse_config(contents: String, filename: Option<PathBuf>) -> anyhow::Resu
 	let termination_max_deadline =
 		parse_duration("CONNECTION_TERMINATION_DEADLINE")?.or(raw.connection_termination_deadline);
 	let otlp = empty_to_none(parse("OTLP_ENDPOINT")?)
-		.or(raw.tracing.as_ref().map(|t| t.otlp_endpoint.clone()));
+		.or(raw.tracing.as_ref().and_then(|t| t.otlp_endpoint.clone()));
 
 	let mut otlp_headers = raw
 		.tracing
@@ -304,6 +304,22 @@ pub fn parse_config(contents: String, filename: Option<PathBuf>) -> anyhow::Resu
 				.as_ref()
 				.and_then(|t| t.path.clone())
 				.unwrap_or_else(|| "/v1/traces".to_string()),
+			composition_verbosity: raw
+				.tracing
+				.as_ref()
+				.and_then(|t| t.composition_verbosity.as_ref())
+				.map(|v| {
+					// If the value is a simple word (minimal, timing, full), wrap it in quotes
+					// to make it a CEL string literal. Otherwise, parse as CEL expression.
+					let cel_expr = if v.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+						format!("\"{}\"", v)
+					} else {
+						v.clone()
+					};
+					cel::Expression::new_strict(&cel_expr)
+				})
+				.transpose()?
+				.map(Arc::new),
 		},
 		logging: telemetry::log::Config {
 			filter: raw

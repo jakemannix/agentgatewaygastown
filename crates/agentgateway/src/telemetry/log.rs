@@ -193,10 +193,55 @@ impl LoggingFields {
 	}
 }
 
+/// Verbosity level for composition execution tracing
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CompositionVerbosity {
+	/// Just span name and operation type
+	#[default]
+	Minimal,
+	/// + duration_ms
+	Timing,
+	/// + input/output (truncated to 4KB)
+	Full,
+}
+
+impl CompositionVerbosity {
+	/// Parse verbosity from string, defaulting to Minimal for unknown values
+	pub fn from_str(s: &str) -> Self {
+		match s.to_lowercase().as_str() {
+			"full" => Self::Full,
+			"timing" => Self::Timing,
+			_ => Self::Minimal,
+		}
+	}
+}
+
+/// Wrapper to pass composition verbosity expression through request extensions.
+/// This allows the MCP layer to evaluate verbosity based on CEL expressions.
+#[derive(Clone, Debug)]
+pub struct CompositionVerbosityExpr(pub Option<Arc<cel::Expression>>);
+
+impl CompositionVerbosityExpr {
+	/// Evaluate the verbosity level using the given CEL context builder
+	pub fn eval(&self, ctx: &crate::cel::ContextBuilder) -> CompositionVerbosity {
+		let Some(ref expr) = self.0 else {
+			return CompositionVerbosity::default();
+		};
+		let Ok(exec) = ctx.build() else {
+			return CompositionVerbosity::default();
+		};
+		match exec.eval(expr.as_ref()) {
+			Ok(cel::Value::String(s)) => CompositionVerbosity::from_str(&s),
+			_ => CompositionVerbosity::default(),
+		}
+	}
+}
+
 #[derive(Debug)]
 pub struct TraceSampler {
 	pub random_sampling: Option<Arc<cel::Expression>>,
 	pub client_sampling: Option<Arc<cel::Expression>>,
+	pub composition_verbosity: Option<Arc<cel::Expression>>,
 }
 
 #[derive(Debug)]
@@ -354,6 +399,11 @@ impl CelLogging {
 			cel_context.register_expression(v.as_ref());
 		}
 
+		// Register composition_verbosity expression if present
+		if let Some(ref expr) = tracing_config.composition_verbosity {
+			cel_context.register_expression(expr.as_ref());
+		}
+
 		Self {
 			cel_context,
 			filter: cfg.filter,
@@ -362,6 +412,7 @@ impl CelLogging {
 			tracing_sampler: TraceSampler {
 				random_sampling: tracing_config.random_sampling,
 				client_sampling: tracing_config.client_sampling,
+				composition_verbosity: tracing_config.composition_verbosity,
 			},
 		}
 	}
@@ -593,6 +644,7 @@ impl RequestLog {
 		let TraceSampler {
 			random_sampling,
 			client_sampling,
+			composition_verbosity: _,
 		} = &self.cel.tracing_sampler;
 		let expr = if tp.is_some() {
 			let Some(cs) = client_sampling else {
@@ -611,6 +663,21 @@ impl RequestLog {
 			return false;
 		};
 		exec.eval_rng(expr.as_ref())
+	}
+
+	/// Evaluate composition verbosity level for tracing.
+	/// Returns the verbosity level based on the configured expression.
+	pub fn eval_composition_verbosity(&self) -> CompositionVerbosity {
+		let Some(ref expr) = self.cel.tracing_sampler.composition_verbosity else {
+			return CompositionVerbosity::default();
+		};
+		let Ok(exec) = self.cel.build() else {
+			return CompositionVerbosity::default();
+		};
+		match exec.executor.eval(expr.as_ref()) {
+			Ok(cel::Value::String(s)) => CompositionVerbosity::from_str(&s),
+			_ => CompositionVerbosity::default(),
+		}
 	}
 }
 

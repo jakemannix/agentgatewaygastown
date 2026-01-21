@@ -6,6 +6,8 @@ This agent handles inventory and supply chain tasks:
 - Sales analytics
 - Order fulfillment tracking
 
+Tools are dynamically discovered from the MCP gateway at startup.
+
 Supports multiple LLM providers:
 - Anthropic (ANTHROPIC_API_KEY): claude-sonnet-4-20250514
 - OpenAI (OPENAI_API_KEY): gpt-4o
@@ -15,21 +17,48 @@ Supports multiple LLM providers:
 import asyncio
 import logging
 import os
-from typing import Annotated, Any, Literal, Optional, TypedDict
+from typing import Annotated, Literal, Optional, TypedDict
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
-from ..shared.gateway_client import GatewayMCPClient
+from ..shared.gateway_client import GatewayMCPClient, discover_and_create_langchain_tools
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 AGENT_NAME = "merchandiser-agent"
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://localhost:3000")
+
+# Tools this agent is allowed to use (merchandiser/admin tools)
+# These names must match what's returned by the gateway in multiplexing mode
+# Backend tools are prefixed with their service name (e.g., "inventory-service_")
+ALLOWED_TOOLS = {
+    # Inventory management (inventory-service)
+    "inventory-service_stock_status",
+    "inventory-service_get_inventory_report",
+    "inventory-service_get_low_stock_alerts",
+    "inventory-service_adjust_inventory",
+    "inventory-service_check_stock",
+    # Supplier management (supplier-service)
+    "supplier-service_list_suppliers",
+    "supplier-service_get_supplier",
+    "supplier-service_create_purchase_order",
+    "supplier-service_list_purchase_orders",
+    "supplier-service_receive_shipment",
+    "supplier-service_get_all_supplier_quotes",
+    # Sales and orders (order-service)
+    "order-service_get_sales_report",
+    "order-service_update_order_status",
+    "order-service_list_orders",
+    "order-service_get_order",
+    # Product management (catalog-service, read-only for merchandisers)
+    "catalog-service_browse_products",
+    "catalog-service_get_product_details",
+    "catalog-service_get_categories",
+}
 
 # LLM Provider Configuration
 DEFAULT_MODELS = {
@@ -93,267 +122,38 @@ def get_llm():
         raise RuntimeError(f"Unknown provider: {provider}")
 
 
-# Initialize gateway client
-gateway_client: Optional[GatewayMCPClient] = None
+# Global state for gateway client and tools
+_gateway_client: Optional[GatewayMCPClient] = None
+_langchain_tools: Optional[list] = None
+_tools_initialized = False
 
 
-def get_gateway_client() -> GatewayMCPClient:
-    """Get or create the gateway client."""
-    global gateway_client
-    if gateway_client is None:
-        gateway_client = GatewayMCPClient(
-            gateway_url=GATEWAY_URL,
-            agent_name=AGENT_NAME,
-        )
-    return gateway_client
+async def _initialize_tools():
+    """Initialize tools from gateway (called once at startup)."""
+    global _gateway_client, _langchain_tools, _tools_initialized
+
+    if _tools_initialized:
+        return
+
+    logger.info(f"Discovering tools from gateway: {GATEWAY_URL}")
+    logger.info(f"Allowed tools for merchandiser agent: {sorted(ALLOWED_TOOLS)}")
+
+    _gateway_client, _langchain_tools = await discover_and_create_langchain_tools(
+        gateway_url=GATEWAY_URL,
+        agent_name=AGENT_NAME,
+        allowed_tools=ALLOWED_TOOLS,
+    )
+
+    _tools_initialized = True
+    logger.info(f"Merchandiser agent initialized with {len(_langchain_tools)} tools")
 
 
-def _call_gateway_tool(name: str, args: dict) -> Any:
-    """Call a gateway tool, handling both sync and async contexts."""
-    import concurrent.futures
+def _get_tools() -> list:
+    """Get the initialized tools (must call _initialize_tools first)."""
+    if not _tools_initialized or _langchain_tools is None:
+        raise RuntimeError("Tools not initialized. Call _initialize_tools() first.")
+    return _langchain_tools
 
-    client = get_gateway_client()
-
-    try:
-        # Check if there's already a running event loop
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # No running loop - safe to use asyncio.run()
-        return asyncio.run(client.call_tool(name, args))
-
-    # There's a running loop - run in a separate thread to avoid conflicts
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(asyncio.run, client.call_tool(name, args))
-        return future.result()
-
-
-# Tool implementations
-@tool
-def get_inventory_report() -> dict:
-    """Get a comprehensive inventory status report.
-
-    Returns summary statistics and per-product stock levels including
-    total products, units, value, and low/out-of-stock counts.
-    """
-    return _call_gateway_tool("get_inventory_report", {})
-
-
-@tool
-def get_low_stock_alerts(threshold: Optional[int] = None) -> dict:
-    """Get products that are below their reorder threshold.
-
-    Args:
-        threshold: Optional custom threshold. If not provided, uses
-                   each product's individual reorder threshold.
-
-    Returns:
-        List of products needing restock with deficit amounts.
-    """
-    args = {}
-    if threshold is not None:
-        args["threshold"] = threshold
-    return _call_gateway_tool("get_low_stock_alerts", args)
-
-
-@tool
-def get_restock_report() -> dict:
-    """Get a comprehensive restock report with supplier options.
-
-    Aggregates low stock items, available suppliers, and pending POs.
-
-    Returns:
-        Aggregated data for restock decision making.
-    """
-    # Aggregate from multiple tools since we don't have a combined endpoint
-    low_stock = _call_gateway_tool("get_low_stock_alerts", {})
-    suppliers = _call_gateway_tool("list_suppliers", {})
-    pos = _call_gateway_tool("list_purchase_orders", {"status": "pending"})
-
-    return {
-        "low_stock_items": low_stock.get("alerts", []) if isinstance(low_stock, dict) else [],
-        "suppliers": suppliers.get("suppliers", []) if isinstance(suppliers, dict) else [],
-        "pending_orders": pos.get("purchase_orders", []) if isinstance(pos, dict) else [],
-    }
-
-
-@tool
-def adjust_inventory(product_id: str, quantity_change: int, reason: str) -> dict:
-    """Manually adjust inventory levels with audit trail.
-
-    Args:
-        product_id: The product to adjust
-        quantity_change: Amount to add (positive) or remove (negative)
-        reason: Reason for adjustment (e.g., 'damaged', 'found', 'correction')
-
-    Returns:
-        Adjustment confirmation with new stock level.
-    """
-    return _call_gateway_tool("adjust_inventory", {
-        "product_id": product_id,
-        "quantity_change": quantity_change,
-        "reason": reason,
-    })
-
-
-@tool
-def list_suppliers() -> dict:
-    """Get all available suppliers.
-
-    Returns:
-        List of suppliers with lead times and reliability scores.
-    """
-    return _call_gateway_tool("list_suppliers", {})
-
-
-@tool
-def create_purchase_order(
-    product_id: str,
-    supplier_id: str,
-    quantity: int,
-    notes: Optional[str] = None,
-) -> dict:
-    """Create a purchase order to restock inventory.
-
-    Args:
-        product_id: The product to order
-        supplier_id: The supplier to order from
-        quantity: Quantity to order
-        notes: Optional notes for the order
-
-    Returns:
-        Purchase order confirmation with expected delivery.
-    """
-    args = {
-        "product_id": product_id,
-        "supplier_id": supplier_id,
-        "quantity": quantity,
-    }
-    if notes:
-        args["notes"] = notes
-    return _call_gateway_tool("create_purchase_order", args)
-
-
-@tool
-def list_purchase_orders(status: Optional[str] = None) -> dict:
-    """List purchase orders with optional status filter.
-
-    Args:
-        status: Filter by status (pending, confirmed, shipped, received, cancelled)
-
-    Returns:
-        List of purchase orders.
-    """
-    args = {}
-    if status:
-        args["status"] = status
-    return _call_gateway_tool("list_purchase_orders", args)
-
-
-@tool
-def receive_shipment(po_id: str, quantity_received: Optional[int] = None) -> dict:
-    """Mark a purchase order as received and add stock to inventory.
-
-    Args:
-        po_id: The purchase order ID
-        quantity_received: Actual quantity received (defaults to ordered quantity)
-
-    Returns:
-        Confirmation with updated stock level.
-    """
-    args = {"po_id": po_id}
-    if quantity_received is not None:
-        args["quantity_received"] = quantity_received
-    return _call_gateway_tool("receive_shipment", args)
-
-
-@tool
-def get_pending_deliveries() -> dict:
-    """Get list of pending purchase orders awaiting delivery.
-
-    Returns:
-        List of purchase orders with shipped/pending status.
-    """
-    pos = _call_gateway_tool("list_purchase_orders", {})
-    if isinstance(pos, dict):
-        all_orders = pos.get("purchase_orders", [])
-        pending = [po for po in all_orders if po.get("status") in ("pending", "confirmed", "shipped")]
-        return {"pending_deliveries": pending}
-    return {"pending_deliveries": []}
-
-
-@tool
-def get_sales_report(start_date: Optional[str] = None, end_date: Optional[str] = None) -> dict:
-    """Get sales analytics report.
-
-    Args:
-        start_date: Start date for report (ISO format)
-        end_date: End date for report (ISO format)
-
-    Returns:
-        Sales data including revenue, units sold, and per-product breakdown.
-    """
-    args = {}
-    if start_date:
-        args["start_date"] = start_date
-    if end_date:
-        args["end_date"] = end_date
-    return _call_gateway_tool("get_sales_report", args)
-
-
-@tool
-def update_order_status(order_id: str, status: str) -> dict:
-    """Update customer order status.
-
-    Args:
-        order_id: The order to update
-        status: New status (confirmed, shipped, delivered, cancelled)
-
-    Returns:
-        Updated order details.
-    """
-    return _call_gateway_tool("update_order_status", {
-        "order_id": order_id,
-        "status": status,
-    })
-
-
-@tool
-def get_dashboard_data() -> dict:
-    """Get all dashboard metrics.
-
-    Aggregates inventory, alerts, POs, and sales data.
-
-    Returns:
-        Aggregated dashboard data.
-    """
-    inventory = _call_gateway_tool("get_inventory_report", {})
-    alerts = _call_gateway_tool("get_low_stock_alerts", {})
-    pos = _call_gateway_tool("list_purchase_orders", {})
-    sales = _call_gateway_tool("get_sales_report", {})
-
-    return {
-        "inventory": inventory if isinstance(inventory, dict) else {},
-        "low_stock_alerts": alerts.get("alerts", []) if isinstance(alerts, dict) else [],
-        "purchase_orders": pos.get("purchase_orders", []) if isinstance(pos, dict) else [],
-        "sales": sales if isinstance(sales, dict) else {},
-    }
-
-
-# All tools available to the agent
-MERCHANDISER_TOOLS = [
-    get_inventory_report,
-    get_low_stock_alerts,
-    get_restock_report,
-    adjust_inventory,
-    list_suppliers,
-    create_purchase_order,
-    list_purchase_orders,
-    receive_shipment,
-    get_pending_deliveries,
-    get_sales_report,
-    update_order_status,
-    get_dashboard_data,
-]
 
 # System prompt
 MERCHANDISER_SYSTEM_PROMPT = """You are an inventory and supply chain management assistant for an ecommerce business.
@@ -374,7 +174,7 @@ Guidelines:
 - Track pending purchase orders and expected deliveries
 
 When creating purchase orders:
-1. First check the restock report to see what needs ordering
+1. First check inventory status to see what needs ordering
 2. Review supplier options (lead time, reliability)
 3. Recommend appropriate quantities
 4. Confirm the order with the user before creating
@@ -390,10 +190,14 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
 
 
-def create_merchandiser_graph():
-    """Create the LangGraph workflow for the merchandiser agent."""
+def create_merchandiser_graph(tools: list):
+    """Create the LangGraph workflow for the merchandiser agent.
+
+    Args:
+        tools: List of LangChain tools to use
+    """
     llm = get_llm()
-    llm_with_tools = llm.bind_tools(MERCHANDISER_TOOLS)
+    llm_with_tools = llm.bind_tools(tools)
 
     def should_continue(state: AgentState) -> Literal["tools", END]:
         """Determine if we should continue to tools or end."""
@@ -420,7 +224,7 @@ def create_merchandiser_graph():
 
     # Add nodes
     workflow.add_node("agent", call_model)
-    workflow.add_node("tools", ToolNode(MERCHANDISER_TOOLS))
+    workflow.add_node("tools", ToolNode(tools))
 
     # Set entry point
     workflow.set_entry_point("agent")
@@ -440,7 +244,8 @@ def get_graph():
     """Get or create the compiled graph."""
     global _graph
     if _graph is None:
-        _graph = create_merchandiser_graph()
+        tools = _get_tools()
+        _graph = create_merchandiser_graph(tools)
     return _graph
 
 
@@ -453,6 +258,9 @@ async def run_merchandiser_query(query: str) -> str:
     Returns:
         Agent's response
     """
+    # Ensure tools are initialized
+    await _initialize_tools()
+
     graph = get_graph()
 
     # Run the graph

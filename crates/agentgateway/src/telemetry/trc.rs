@@ -43,6 +43,9 @@ pub struct Config {
 	pub random_sampling: Option<Arc<cel::Expression>>,
 	pub client_sampling: Option<Arc<cel::Expression>>,
 	pub path: String,
+	/// CEL expression or static value for composition tracing verbosity.
+	/// Evaluates to "minimal", "timing", or "full".
+	pub composition_verbosity: Option<Arc<cel::Expression>>,
 }
 
 mod semconv {

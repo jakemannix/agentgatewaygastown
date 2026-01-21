@@ -1,9 +1,12 @@
 // Pipeline pattern executor
 
+use std::time::Instant;
+
 use serde_json::Value;
 use serde_json_path::JsonPath;
 
 use super::context::ExecutionContext;
+use super::composition_tracing as exec_tracing;
 use super::{CompositionExecutor, ExecutionError};
 use crate::mcp::registry::patterns::{DataBinding, PipelineSpec, StepOperation};
 
@@ -29,24 +32,68 @@ impl PipelineExecutor {
 				current_result.clone()
 			};
 
+			// Determine operation type for tracing
+			let operation_type = match &step.operation {
+				StepOperation::Tool(_) => "tool",
+				StepOperation::Pattern(_) => "pattern",
+				StepOperation::Agent(_) => "agent",
+			};
+
+			// Log step start and create OTEL span if sampled
+			// Debug logging happens regardless of OTEL sampling
+			if let Some(ref tracing_ctx) = ctx.tracing {
+				exec_tracing::log_step_start(tracing_ctx, &step.id, operation_type, Some(&step_input));
+			}
+			let mut span = ctx
+				.tracing
+				.as_ref()
+				.filter(|t| t.sampled)
+				.and_then(|t| exec_tracing::create_step_span(t, &step.id, operation_type, Some(&step_input)));
+
+			let start = Instant::now();
+
 			// Execute the step operation
 			let result = match &step.operation {
-				StepOperation::Tool(tc) => executor.execute_tool(&tc.name, step_input, ctx).await?,
+				StepOperation::Tool(tc) => executor.execute_tool(&tc.name, step_input, ctx).await,
 				StepOperation::Pattern(pattern) => {
 					let child_ctx = ctx.child(step_input.clone());
 					executor
 						.execute_pattern(pattern, step_input, &child_ctx)
-						.await?
+						.await
 				}
 				StepOperation::Agent(ac) => {
 					// Agent-as-tool execution (WP13) - not yet implemented
-					return Err(ExecutionError::NotImplemented(format!(
+					Err(ExecutionError::NotImplemented(format!(
 						"agent-as-tool execution not yet implemented: agent={}, skill={:?}",
-						ac.name,
-						ac.skill
-					)));
+						ac.name, ac.skill
+					)))
 				}
 			};
+
+			// Log completion (always) and record in OTEL span (if sampled)
+			if let Some(ref tracing_ctx) = ctx.tracing {
+				match &result {
+					Ok(output) => exec_tracing::log_step_complete(tracing_ctx, &step.id, start.elapsed(), Ok(output)),
+					Err(e) => exec_tracing::log_step_complete(tracing_ctx, &step.id, start.elapsed(), Err(&e.to_string())),
+				}
+			}
+			if let Some(ref mut s) = span {
+				if let Some(ref tracing_ctx) = ctx.tracing {
+					match &result {
+						Ok(output) => exec_tracing::record_step_completion(s, tracing_ctx, start.elapsed(), Ok(output)),
+						Err(e) => exec_tracing::record_step_completion(s, tracing_ctx, start.elapsed(), Err(&e.to_string())),
+					}
+				}
+			}
+
+			// End span explicitly
+			if let Some(mut s) = span {
+				use opentelemetry::trace::Span;
+				s.end();
+			}
+
+			// Propagate error after recording
+			let result = result?;
 
 			// Store result for potential reference by later steps
 			ctx.store_step_result(&step.id, result.clone()).await;

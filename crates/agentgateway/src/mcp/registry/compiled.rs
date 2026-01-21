@@ -252,6 +252,11 @@ impl CompiledRegistry {
 		// Add compositions as synthetic tools
 		for (name, compiled) in &self.tools_by_name {
 			if compiled.is_composition() {
+				tracing::debug!(
+					target: "virtual_tools",
+					composition = %name,
+					"adding composition tool to tools list"
+				);
 				let output_schema = compiled
 					.def
 					.output_schema
@@ -279,6 +284,12 @@ impl CompiledRegistry {
 				result.push(("_composition".to_string(), composition_tool));
 			}
 		}
+		tracing::debug!(
+			target: "virtual_tools",
+			total_tools = result.len(),
+			compositions = result.iter().filter(|(t, _)| t == "_composition").count(),
+			"transform_tools completed"
+		);
 
 		result
 	}

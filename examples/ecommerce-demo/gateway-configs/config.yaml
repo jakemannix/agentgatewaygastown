@@ -25,8 +25,15 @@
 
 # Virtual tool registry - loads composition patterns
 registry:
-  source: file://./examples/ecommerce-demo/gateway-configs/ecommerce_registry.json
+  source: file://./examples/ecommerce-demo/gateway-configs/ecommerce_registry_v2.json
   refreshInterval: 30s
+
+# Telemetry configuration for composition observability
+config:
+  tracing:
+    # otlpEndpoint: http://localhost:4317     # Optional: OTEL collector endpoint
+    randomSampling: "true"                    # 100% sampling for debug
+    compositionVerbosity: "full"              # "minimal" | "timing" | "full"
 
 binds:
 - port: 3000

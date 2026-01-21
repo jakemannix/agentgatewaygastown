@@ -26,7 +26,7 @@ use crate::mcp::{MCPInfo, McpAuthorizationSet};
 use crate::proxy::ProxyError;
 use crate::proxy::httpproxy::PolicyClient;
 use crate::store::{BackendPolicies, Stores};
-use crate::telemetry::log::AsyncLog;
+use crate::telemetry::log::{AsyncLog, CompositionVerbosityExpr};
 use crate::transport::stream::{TCPConnectionInfo, TLSConnectionInfo};
 use crate::types::agent::{
 	BackendTargetRef, McpAuthentication, McpBackend, McpIDP, McpTargetSpec, ResourceName,
@@ -227,6 +227,11 @@ impl App {
 
 		// Insert the finalized context (now potentially including verified JWT claims)
 		req.extensions_mut().insert(Arc::new(ctx));
+
+		// Insert composition verbosity expression from tracing config
+		req.extensions_mut().insert(CompositionVerbosityExpr(
+			pi.cfg.tracing.composition_verbosity.clone(),
+		));
 
 		// Get the registry from stores if configured
 		let registry = self.state.get_registry();

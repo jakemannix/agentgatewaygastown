@@ -1,13 +1,15 @@
 // Scatter-Gather pattern executor
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::future::join_all;
+use opentelemetry::trace::Span;
 use serde_json::Value;
 use serde_json_path::JsonPath;
 use tokio::time::timeout;
 
 use super::context::ExecutionContext;
+use super::composition_tracing as exec_tracing;
 use super::{CompositionExecutor, ExecutionError};
 use crate::mcp::registry::patterns::{AggregationOp, ScatterGatherSpec, ScatterTarget};
 
@@ -22,11 +24,12 @@ impl ScatterGatherExecutor {
 		ctx: &ExecutionContext,
 		executor: &CompositionExecutor,
 	) -> Result<Value, ExecutionError> {
-		// Create futures for all targets
+		// Create futures for all targets with tracing
 		let futures: Vec<_> = spec
 			.targets
 			.iter()
-			.map(|target| Self::execute_target(target, input.clone(), ctx, executor))
+			.enumerate()
+			.map(|(idx, target)| Self::execute_target_with_tracing(target, idx, input.clone(), ctx, executor))
 			.collect();
 
 		// Execute with optional timeout
@@ -56,6 +59,48 @@ impl ScatterGatherExecutor {
 
 		// Apply aggregation
 		Self::aggregate(values, &spec.aggregation.ops)
+	}
+
+	/// Execute a single scatter target with tracing
+	async fn execute_target_with_tracing(
+		target: &ScatterTarget,
+		index: usize,
+		input: Value,
+		ctx: &ExecutionContext,
+		executor: &CompositionExecutor,
+	) -> Result<Value, ExecutionError> {
+		let target_name = match target {
+			ScatterTarget::Tool(name) => name.clone(),
+			ScatterTarget::Pattern(_) => format!("pattern_{}", index),
+		};
+
+		// Create span if tracing is enabled and sampled
+		let mut span = ctx
+			.tracing
+			.as_ref()
+			.filter(|t| t.sampled)
+			.and_then(|t| exec_tracing::create_target_span(t, &target_name, index));
+
+		let start = Instant::now();
+
+		let result = Self::execute_target(target, input, ctx, executor).await;
+
+		// Record completion in span
+		if let Some(ref mut s) = span {
+			if let Some(ref tracing_ctx) = ctx.tracing {
+				match &result {
+					Ok(output) => exec_tracing::record_step_completion(s, tracing_ctx, start.elapsed(), Ok(output)),
+					Err(e) => exec_tracing::record_step_completion(s, tracing_ctx, start.elapsed(), Err(&e.to_string())),
+				}
+			}
+		}
+
+		// End span explicitly
+		if let Some(mut s) = span {
+			s.end();
+		}
+
+		result
 	}
 
 	/// Execute a single scatter target

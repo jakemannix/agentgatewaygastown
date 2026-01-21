@@ -298,6 +298,79 @@ def get_pending_po_summary() -> dict:
     }
 
 
+# ============== SCATTER-GATHER SUPPORT TOOLS ==============
+
+
+@mcp.tool()
+def get_all_quotes(
+    product_id: str = Field(description="Product ID to get quotes for"),
+    quantity: int = Field(default=100, description="Quantity for quote"),
+) -> dict:
+    """
+    Get price quotes from all suppliers for a product.
+
+    Returns quotes from each supplier with pricing, lead times, and reliability.
+    Used by get_best_supplier_price scatter-gather composition.
+    """
+    import hashlib
+
+    db = get_db()
+    suppliers = db.list_suppliers()
+
+    # Get product info for base cost
+    from ..catalog_service.database import CatalogDatabase
+    data_dir = Path(__file__).parent.parent.parent / "data"
+    catalog_db = CatalogDatabase(data_dir)
+    product = catalog_db.get_product(product_id)
+
+    if not product:
+        return {"error": f"Product not found: {product_id}"}
+
+    base_cost = product["cost"]
+
+    quotes = []
+    for supplier in suppliers:
+        # Calculate supplier-specific pricing
+        # - High reliability suppliers charge more
+        # - Faster lead times cost more
+        # - Volume discounts apply
+        reliability_premium = (supplier["reliability_score"] - 0.8) * 0.15
+        speed_premium = max(0, (14 - supplier["lead_time_days"]) * 0.01)
+        volume_discount = 0.05 if quantity >= 100 else (0.02 if quantity >= 50 else 0)
+
+        # Add some supplier-specific variation based on supplier ID hash
+        h = int(hashlib.md5(f"{supplier['id']}{product_id}".encode()).hexdigest()[:8], 16)
+        supplier_variation = ((h % 100) - 50) / 500  # -10% to +10% variation
+
+        price_multiplier = 1.0 + reliability_premium + speed_premium - volume_discount + supplier_variation
+        unit_price = round(base_cost * price_multiplier, 2)
+        total_price = round(unit_price * quantity, 2)
+
+        quotes.append({
+            "supplier_id": supplier["id"],
+            "supplier_name": supplier["name"],
+            "unit_price": unit_price,
+            "total_price": total_price,
+            "quantity": quantity,
+            "lead_time_days": supplier["lead_time_days"],
+            "reliability_score": supplier["reliability_score"],
+            "estimated_delivery_days": supplier["lead_time_days"] + int((1 - supplier["reliability_score"]) * 3),
+        })
+
+    # Sort by unit_price ascending (best price first)
+    quotes.sort(key=lambda x: x["unit_price"])
+
+    return {
+        "product_id": product_id,
+        "product_name": product["name"],
+        "base_cost": base_cost,
+        "quantity_requested": quantity,
+        "quotes": quotes,
+        "best_price": quotes[0] if quotes else None,
+        "fastest_delivery": min(quotes, key=lambda x: x["estimated_delivery_days"]) if quotes else None,
+    }
+
+
 def main():
     """Run the MCP server with HTTP transport."""
     mcp.run(transport="streamable-http")

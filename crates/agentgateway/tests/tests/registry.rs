@@ -857,3 +857,56 @@ async fn test_demo_registry_runtime_hooks() -> anyhow::Result<()> {
 
 	Ok(())
 }
+
+/// Test that the ecommerce demo registry's composition tools are correctly parsed
+#[tokio::test]
+async fn test_ecommerce_registry_compositions() -> anyhow::Result<()> {
+	use std::path::PathBuf;
+
+	let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+		.join("../../examples/ecommerce-demo/gateway-configs/ecommerce_registry_v2.json");
+	let content = std::fs::read_to_string(&path)?;
+	let registry: Registry = serde_json::from_str(&content)?;
+
+	// Find composition tools
+	let compositions: Vec<_> = registry
+		.tools
+		.iter()
+		.filter(|t| t.is_composition())
+		.collect();
+
+	// Should have personalized_search and product_with_availability
+	assert!(
+		compositions.len() >= 2,
+		"Expected at least 2 compositions, got {}. Tools: {:?}",
+		compositions.len(),
+		registry.tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+	);
+
+	let composition_names: Vec<_> = compositions.iter().map(|c| c.name.as_str()).collect();
+	assert!(
+		composition_names.contains(&"personalized_search"),
+		"personalized_search should be a composition, found: {:?}",
+		composition_names
+	);
+	assert!(
+		composition_names.contains(&"product_with_availability"),
+		"product_with_availability should be a composition, found: {:?}",
+		composition_names
+	);
+
+	// Verify they compile successfully
+	let compiled = CompiledRegistry::compile(registry)?;
+
+	// Check compositions are accessible and recognized
+	assert!(
+		compiled.is_composition("personalized_search"),
+		"personalized_search should be recognized as composition after compilation"
+	);
+	assert!(
+		compiled.is_composition("product_with_availability"),
+		"product_with_availability should be recognized as composition after compilation"
+	);
+
+	Ok(())
+}

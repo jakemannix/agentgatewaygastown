@@ -3,11 +3,45 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use opentelemetry::Context as OtelContext;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
 use super::ToolInvoker;
 use crate::mcp::registry::compiled::CompiledRegistry;
+use crate::telemetry::log::CompositionVerbosity;
+
+/// Tracing context for composition execution observability.
+/// Captures whether the trace is sampled and the verbosity level.
+#[derive(Clone)]
+pub struct TracingContext {
+	/// Whether this trace is sampled (actually being recorded)
+	pub sampled: bool,
+	/// Verbosity level for composition tracing
+	pub verbosity: CompositionVerbosity,
+	/// OpenTelemetry context for span propagation
+	pub parent_context: OtelContext,
+}
+
+impl TracingContext {
+	/// Create a new tracing context
+	pub fn new(sampled: bool, verbosity: CompositionVerbosity, parent_context: OtelContext) -> Self {
+		Self {
+			sampled,
+			verbosity,
+			parent_context,
+		}
+	}
+
+	/// Create a tracing context that indicates "not sampled" (no tracing)
+	pub fn not_sampled() -> Self {
+		Self {
+			sampled: false,
+			verbosity: CompositionVerbosity::default(),
+			parent_context: OtelContext::new(),
+		}
+	}
+}
 
 /// Execution context passed through composition execution
 pub struct ExecutionContext {
@@ -22,10 +56,13 @@ pub struct ExecutionContext {
 
 	/// Tool invoker for backend calls
 	pub tool_invoker: Arc<dyn ToolInvoker>,
+
+	/// Optional tracing context for observability
+	pub tracing: Option<TracingContext>,
 }
 
 impl ExecutionContext {
-	/// Create a new execution context
+	/// Create a new execution context without tracing
 	pub fn new(
 		input: Value,
 		registry: Arc<CompiledRegistry>,
@@ -36,6 +73,23 @@ impl ExecutionContext {
 			step_results: Arc::new(RwLock::new(HashMap::new())),
 			registry,
 			tool_invoker,
+			tracing: None,
+		}
+	}
+
+	/// Create a new execution context with tracing enabled
+	pub fn new_with_tracing(
+		input: Value,
+		registry: Arc<CompiledRegistry>,
+		tool_invoker: Arc<dyn ToolInvoker>,
+		tracing: TracingContext,
+	) -> Self {
+		Self {
+			input,
+			step_results: Arc::new(RwLock::new(HashMap::new())),
+			registry,
+			tool_invoker,
+			tracing: Some(tracing),
 		}
 	}
 
@@ -54,12 +108,14 @@ impl ExecutionContext {
 	}
 
 	/// Create a child context (for nested patterns)
+	/// Preserves the tracing context from the parent
 	pub fn child(&self, input: Value) -> Self {
 		Self {
 			input,
 			step_results: Arc::new(RwLock::new(HashMap::new())),
 			registry: self.registry.clone(),
 			tool_invoker: self.tool_invoker.clone(),
+			tracing: self.tracing.clone(),
 		}
 	}
 }

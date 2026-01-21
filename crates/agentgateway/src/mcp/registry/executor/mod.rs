@@ -16,8 +16,9 @@ mod scatter_gather;
 mod schema_map;
 mod throttle;
 mod timeout;
+pub mod composition_tracing;
 
-pub use context::ExecutionContext;
+pub use context::{ExecutionContext, TracingContext};
 pub use filter::FilterExecutor;
 pub use map_each::MapEachExecutor;
 pub use pipeline::PipelineExecutor;
@@ -115,21 +116,73 @@ impl CompositionExecutor {
 			ExecutionError::InvalidInput(format!("{} is not a composition", composition_name))
 		})?;
 
-		self.execute_composition(tool, composition, input).await
+		// Validate required input fields before execution
+		Self::validate_input_schema(&tool.def.input_schema, &input, composition_name)?;
+
+		self.execute_composition_internal(tool, composition, input, None)
+			.await
 	}
 
-	/// Execute a compiled composition
-	async fn execute_composition(
+	/// Execute a composition by name with tracing context
+	pub async fn execute_with_tracing(
+		&self,
+		composition_name: &str,
+		input: Value,
+		tracing_ctx: TracingContext,
+	) -> Result<Value, ExecutionError> {
+		debug!(target: "virtual_tools", composition = %composition_name, "executing composition with tracing");
+
+		let tool = self
+			.registry
+			.get_tool(composition_name)
+			.ok_or_else(|| ExecutionError::ToolNotFound(composition_name.to_string()))?;
+
+		let composition = tool.composition_info().ok_or_else(|| {
+			ExecutionError::InvalidInput(format!("{} is not a composition", composition_name))
+		})?;
+
+		// Validate required input fields before execution
+		Self::validate_input_schema(&tool.def.input_schema, &input, composition_name)?;
+
+		// Log composition start (always) and create OTEL span if sampled
+		composition_tracing::log_composition_start(&tracing_ctx, composition_name);
+		let mut composition_span = composition_tracing::create_composition_span(&tracing_ctx, composition_name);
+
+		let result = self
+			.execute_composition_internal(tool, composition, input, Some(tracing_ctx))
+			.await;
+
+		// End composition span
+		if let Some(ref mut span) = composition_span {
+			use opentelemetry::trace::Span;
+			match &result {
+				Ok(_) => span.set_status(opentelemetry::trace::Status::Ok),
+				Err(e) => span.set_status(opentelemetry::trace::Status::error(e.to_string())),
+			}
+			span.end();
+		}
+
+		result
+	}
+
+	/// Execute a compiled composition (internal implementation)
+	/// Made pub(crate) to allow test code to access it
+	pub(crate) async fn execute_composition_internal(
 		&self,
 		_tool: &CompiledTool,
 		composition: &CompiledComposition,
 		input: Value,
+		tracing_ctx: Option<TracingContext>,
 	) -> Result<Value, ExecutionError> {
-		let ctx = ExecutionContext::new(
-			input.clone(),
-			self.registry.clone(),
-			self.tool_invoker.clone(),
-		);
+		let ctx = match tracing_ctx {
+			Some(tc) => ExecutionContext::new_with_tracing(
+				input.clone(),
+				self.registry.clone(),
+				self.tool_invoker.clone(),
+				tc,
+			),
+			None => ExecutionContext::new(input.clone(), self.registry.clone(), self.tool_invoker.clone()),
+		};
 
 		let result = self.execute_pattern(&composition.spec, input, &ctx).await?;
 
@@ -278,12 +331,74 @@ impl CompositionExecutor {
 			if let Some(tool) = self.registry.get_tool(name)
 				&& let Some(composition) = tool.composition_info()
 			{
-				return self.execute_composition(tool, composition, args).await;
+				// Pass through the tracing context from the execution context
+				return self
+					.execute_composition_internal(tool, composition, args, ctx.tracing.clone())
+					.await;
 			}
 
 			// Otherwise, invoke via the tool invoker
 			ctx.tool_invoker.invoke(name, args).await
 		})
+	}
+
+	/// Validate input against the tool's input schema
+	///
+	/// Checks that required fields are present in the input.
+	/// Returns an error with a helpful message if validation fails.
+	fn validate_input_schema(
+		schema: &Option<Value>,
+		input: &Value,
+		composition_name: &str,
+	) -> Result<(), ExecutionError> {
+		let Some(schema) = schema else {
+			return Ok(()); // No schema = no validation
+		};
+
+		let Some(schema_obj) = schema.as_object() else {
+			return Ok(()); // Not an object schema
+		};
+
+		// Get required fields from schema
+		let required_fields: Vec<&str> = schema_obj
+			.get("required")
+			.and_then(|r| r.as_array())
+			.map(|arr| {
+				arr.iter()
+					.filter_map(|v| v.as_str())
+					.collect()
+			})
+			.unwrap_or_default();
+
+		if required_fields.is_empty() {
+			return Ok(()); // No required fields
+		}
+
+		// Check if input is an object
+		let input_obj = input.as_object().ok_or_else(|| {
+			ExecutionError::InvalidInput(format!(
+				"Composition '{}' expects an object input with required fields: {:?}",
+				composition_name, required_fields
+			))
+		})?;
+
+		// Check for missing required fields
+		let missing: Vec<&str> = required_fields
+			.iter()
+			.filter(|&&field| !input_obj.contains_key(field))
+			.copied()
+			.collect();
+
+		if !missing.is_empty() {
+			return Err(ExecutionError::InvalidInput(format!(
+				"Composition '{}' is missing required input fields: {:?}. Please provide: {}",
+				composition_name,
+				missing,
+				missing.join(", ")
+			)));
+		}
+
+		Ok(())
 	}
 }
 
@@ -393,9 +508,9 @@ mod tests {
 						Arc::new(self.clone()),
 					);
 
-					// Execute the nested composition
+					// Execute the nested composition (without tracing in test context)
 					return executor
-						.execute_composition(tool, composition, args)
+						.execute_composition_internal(tool, composition, args, None)
 						.await;
 				}
 
@@ -693,5 +808,48 @@ mod tests {
 		);
 		let output = result.unwrap();
 		assert_eq!(output["echoed"], true);
+	}
+
+	/// Test that execute_with_tracing produces debug output.
+	/// This test verifies that the tracing code path is actually being executed.
+	#[tokio::test]
+	async fn test_execute_with_tracing_produces_debug_output() {
+		use crate::telemetry::log::CompositionVerbosity;
+
+		// Create a simple pipeline composition
+		let composition = ToolDefinition::composition(
+			"traced_pipeline",
+			PatternSpec::Pipeline(PipelineSpec {
+				steps: vec![PipelineStep {
+					id: "step1".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("echo")),
+					input: None,
+				}],
+			}),
+		);
+
+		let registry = Registry::with_tool_definitions(vec![composition]);
+		let compiled = Arc::new(CompiledRegistry::compile(registry).unwrap());
+
+		let invoker = MockToolInvoker::new().with_response("echo", serde_json::json!({"result": "ok"}));
+
+		let executor = CompositionExecutor::new(compiled, Arc::new(invoker));
+
+		// Create a tracing context with Full verbosity
+		let tracing_ctx = TracingContext::new(
+			true, // sampled
+			CompositionVerbosity::Full,
+			opentelemetry::Context::new(),
+		);
+
+		// This should produce [COMPOSITION DEBUG] output to stderr
+		eprintln!("\n=== TEST: Calling execute_with_tracing ===");
+		let result = executor
+			.execute_with_tracing("traced_pipeline", serde_json::json!({"test": "input"}), tracing_ctx)
+			.await;
+		eprintln!("=== TEST: execute_with_tracing completed ===\n");
+
+		assert!(result.is_ok(), "Expected success but got: {:?}", result.err());
+		assert_eq!(result.unwrap()["result"], "ok");
 	}
 }

@@ -193,6 +193,147 @@ def get_inventory_stats() -> dict:
     return db.get_inventory_stats()
 
 
+# ============== PIPELINE SUPPORT TOOLS ==============
+# These tools support decomposed search pipelines
+
+
+@mcp.tool()
+def search_index(
+    query: str = Field(description="Search query"),
+    limit: int = Field(default=10, description="Maximum matches to return"),
+) -> dict:
+    """
+    Fast index search returning only IDs and relevance scores.
+
+    This is step 1 of the personalized search pipeline.
+    Returns lightweight matches that can be hydrated separately.
+    """
+    model = get_model()
+    db = get_db()
+
+    # Generate embedding for query
+    query_embedding = model.encode(query).tolist()
+
+    # Search - get raw results
+    results = db.search_products(
+        query_embedding=query_embedding,
+        max_results=limit,
+    )
+
+    # Return only IDs and scores (lightweight)
+    matches = []
+    for r in results:
+        matches.append({
+            "id": r["id"],
+            "score": 1.0 - r.get("distance", 0),  # Convert distance to similarity
+        })
+
+    return {
+        "query": query,
+        "matches": matches,
+        "total": len(matches),
+    }
+
+
+@mcp.tool()
+def hydrate_products(
+    product_ids: list[str] = Field(description="List of product IDs to fetch"),
+    fields: list[str] = Field(
+        default=["id", "name", "price", "description", "category"],
+        description="Fields to include in response"
+    ),
+) -> dict:
+    """
+    Fetch full product details for a list of IDs.
+
+    This is step 2 of the personalized search pipeline.
+    Takes IDs from search_index and returns hydrated product data.
+    """
+    db = get_db()
+
+    products = []
+    for pid in product_ids:
+        product = db.get_product(pid)
+        if product:
+            # Filter to requested fields
+            filtered = {k: v for k, v in product.items() if k in fields}
+            filtered["id"] = pid  # Always include ID
+            products.append(filtered)
+
+    return {
+        "products": products,
+        "count": len(products),
+        "requested": len(product_ids),
+    }
+
+
+@mcp.tool()
+def personalize_ranking(
+    items: list[dict] = Field(description="Products to re-rank"),
+    scores: list[float] = Field(description="Original relevance scores"),
+    user_id: Optional[str] = Field(default=None, description="User ID for personalization"),
+) -> dict:
+    """
+    Re-rank products based on user preferences.
+
+    This is step 3 of the personalized search pipeline.
+    Applies user affinity boosts to re-order results.
+
+    User preferences would typically come from a user profile service.
+    For demo purposes, we simulate preferences based on user_id hash.
+    """
+    import hashlib
+
+    # Simulate user preferences based on user_id
+    # In production, this would fetch from a user profile service
+    preferences = {
+        "preferred_categories": [],
+        "price_sensitivity": 0.5,  # 0 = doesn't care, 1 = very price sensitive
+    }
+
+    if user_id:
+        # Deterministic "random" preferences based on user_id
+        h = int(hashlib.md5(user_id.encode()).hexdigest()[:8], 16)
+        categories = ["Electronics", "Home & Kitchen", "Sports & Outdoors", "Books", "Clothing"]
+        preferences["preferred_categories"] = [categories[h % len(categories)]]
+        preferences["price_sensitivity"] = (h % 100) / 100.0
+
+    # Re-rank items
+    ranked_items = []
+    for i, item in enumerate(items):
+        base_score = scores[i] if i < len(scores) else 0.5
+
+        # Calculate personalization boost
+        boost = 0.0
+
+        # Category affinity boost
+        if item.get("category") in preferences["preferred_categories"]:
+            boost += 0.2
+
+        # Price sensitivity (boost lower prices if sensitive)
+        price = item.get("price", 100)
+        if preferences["price_sensitivity"] > 0.5 and price < 50:
+            boost += 0.1 * preferences["price_sensitivity"]
+
+        final_score = base_score + boost
+
+        ranked_items.append({
+            **item,
+            "relevance_score": base_score,
+            "personalization_boost": boost,
+            "final_score": final_score,
+        })
+
+    # Sort by final score descending
+    ranked_items.sort(key=lambda x: x["final_score"], reverse=True)
+
+    return {
+        "products": ranked_items,
+        "user_id": user_id,
+        "preferences_applied": bool(user_id),
+    }
+
+
 def main():
     """Run the MCP server with HTTP transport."""
     mcp.run(transport="streamable-http")

@@ -211,7 +211,9 @@ pub struct RawSession {
 
 #[apply(schema_de!)]
 pub struct RawTracing {
-	otlp_endpoint: String,
+	/// OTLP endpoint URL. Optional - if not set, OTLP export is disabled
+	/// but compositionVerbosity logging still works.
+	otlp_endpoint: Option<String>,
 	#[serde(default)]
 	headers: HashMap<String, String>,
 	#[serde(default)]
@@ -229,6 +231,13 @@ pub struct RawTracing {
 	client_sampling: Option<StringBoolFloat>,
 	/// OTLP path. Default is /v1/traces
 	path: Option<String>,
+	/// Controls verbosity of composition execution tracing.
+	/// Can be a static string ("minimal", "timing", "full") or a CEL expression.
+	/// - "minimal": Just span name and operation type
+	/// - "timing": + duration_ms
+	/// - "full": + input/output (truncated to 4KB)
+	/// Defaults to "minimal".
+	composition_verbosity: Option<String>,
 }
 
 #[apply(schema_de!)]

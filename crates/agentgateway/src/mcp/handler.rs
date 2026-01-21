@@ -58,7 +58,11 @@ pub enum ResolvedToolCall {
 }
 
 fn resource_name(default_target_name: Option<&String>, target: &str, name: &str) -> String {
-	if default_target_name.is_none() {
+	// Compositions always use their simple name - no target prefix
+	// They are identified by their registry name, not by a target prefix
+	if target == "_composition" {
+		name.to_string()
+	} else if default_target_name.is_none() {
 		format!("{target}{DELIMITER}{name}")
 	} else {
 		name.to_string()
@@ -130,7 +134,7 @@ impl Relay {
 		tool_name: &str,
 		args: serde_json::Value,
 	) -> Result<ResolvedToolCall, UpstreamError> {
-		// First, check if this is a virtual tool or composition
+		// First check if this is a virtual tool or composition in the registry
 		if let Some(ref reg) = self.registry {
 			let guard = reg.get();
 			if let Some(ref compiled_registry) = **guard {
@@ -466,17 +470,34 @@ impl Relay {
 				backend_tools
 			};
 
+			// Log what we received from transform_tools
+			let composition_count = transformed_tools.iter().filter(|(t, _)| t == "_composition").count();
+			tracing::debug!(
+				target: "virtual_tools",
+				total_transformed = transformed_tools.len(),
+				compositions = composition_count,
+				"merge_tools received from transform_tools"
+			);
+
 			// Apply authorization policies and multiplexing renaming
 			let tools = transformed_tools
 				.into_iter()
 				.filter(|(server_name, t)| {
-					policies.validate(
+					let allowed = policies.validate(
 						&rbac::ResourceType::Tool(rbac::ResourceId::new(
 							server_name.to_string(),
 							t.name.to_string(),
 						)),
 						&cel,
-					)
+					);
+					if !allowed && server_name == "_composition" {
+						tracing::debug!(
+							target: "virtual_tools",
+							composition = %t.name,
+							"composition tool blocked by policy"
+						);
+					}
+					allowed
 				})
 				// Rename to handle multiplexing
 				.map(|(server_name, t)| Tool {
@@ -488,6 +509,12 @@ impl Relay {
 					..t
 				})
 				.collect_vec();
+
+			tracing::debug!(
+				target: "virtual_tools",
+				final_tools = tools.len(),
+				"merge_tools final result"
+			);
 
 			Ok(
 				ListToolsResult {
