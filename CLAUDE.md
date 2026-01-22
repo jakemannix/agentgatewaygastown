@@ -144,3 +144,5 @@ Only fields explicitly operated on are defined; unknown fields pass through.
 3. **Clean up gateway_client.py** - The manual `create_adk_tools()` and `create_langchain_tools()` functions are no longer needed if agents use `McpToolset` directly. Consider deprecating or removing.
 
 4. **Test session-stored caller identity** - The fix for storing caller identity from MCP `clientInfo` during initialize (instead of only from headers) has been committed but needs integration testing. Run the test: `cargo test -p agentgateway session_identity_from_client_info_filters_tools`
+
+5. **Test and validate test_integration.py** - New integration test script at `examples/ecommerce-demo/test_integration.py` has been added but is untested. Run with `python test_integration.py` (requires gateway + services running). Verify it works and update as needed.
