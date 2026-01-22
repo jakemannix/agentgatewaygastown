@@ -258,6 +258,10 @@ impl Session {
 				let ctx = IncomingRequestContext::new(parts);
 				match &mut r.request {
 					ClientRequest::InitializeRequest(ir) => {
+						// Extract and store caller identity from MCP clientInfo
+						if let Some(identity) = CallerIdentity::from_mcp_client_info(&ir.params) {
+							self.set_caller_identity(identity);
+						}
 						let pv = ir.params.protocol_version.clone();
 						let res = self
 							.relay
@@ -277,8 +281,10 @@ impl Session {
 						log.non_atomic_mutate(|l| {
 							l.resource = Some(MCPOperation::Tool);
 						});
-						// Extract caller identity from headers for dependency-scoped filtering
-						let caller_identity = CallerIdentity::from_headers(ctx.headers());
+						// Use stored session identity, with header fallback for stateless requests
+						let caller_identity = self
+							.caller_identity()
+							.or_else(|| CallerIdentity::from_headers(ctx.headers()));
 						self
 							.relay
 							.send_fanout(

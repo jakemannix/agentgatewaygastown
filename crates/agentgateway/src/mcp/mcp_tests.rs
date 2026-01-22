@@ -1100,7 +1100,7 @@ async fn session_identity_from_client_info_filters_tools() {
 	// Create a registry store and load the registry
 	let store = RegistryStore::new();
 	store.update(registry).unwrap();
-	let _store_ref = RegistryStoreRef::new(store);
+	let store_ref = RegistryStoreRef::new(store);
 
 	// Create a mock server that provides all 3 tools
 	let mock = mock_streamable_http_server(true).await;
@@ -1109,11 +1109,8 @@ async fn session_identity_from_client_info_filters_tools() {
 	let t = setup_proxy_test("{}")
 		.unwrap()
 		.with_mcp_backend(mock.addr, true, false)
-		.with_bind(simple_bind(basic_route(mock.addr)));
-
-	// TODO: Need to wire the registry into the proxy
-	// For now, this test will fail because we haven't implemented
-	// the registry integration in test helpers
+		.with_bind(simple_bind(basic_route(mock.addr)))
+		.with_registry(store_ref);
 
 	let io = t.serve_real_listener(BIND_KEY).await;
 
@@ -1125,10 +1122,6 @@ async fn session_identity_from_client_info_filters_tools() {
 	let tools = client.list_tools(None).await.unwrap();
 	let tool_names: Vec<String> = tools.tools.iter().map(|t| t.name.to_string()).collect();
 
-	// This assertion will FAIL until we implement:
-	// 1. Storing identity from clientInfo during InitializeRequest
-	// 2. Using stored identity in ListToolsRequest
-	// 3. Wiring registry into the test proxy
 	assert!(
 		tool_names.contains(&"find_products".to_string()),
 		"Expected find_products in {:?}",

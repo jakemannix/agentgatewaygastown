@@ -486,6 +486,11 @@ impl TestBind {
 		self
 	}
 
+	pub fn with_registry(self, registry: mcp::registry::RegistryStoreRef) -> Self {
+		self.pi.stores.set_registry(Some(registry));
+		self
+	}
+
 	pub fn with_policy(self, p: TargetedPolicy) -> TestBind {
 		self.pi.stores.binds.write().insert_policy(p);
 		self

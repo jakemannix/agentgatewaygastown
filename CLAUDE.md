@@ -142,3 +142,5 @@ Only fields explicitly operated on are defined; unknown fields pass through.
 2. **Update merchandiser_agent to use McpToolset** - Same refactor as customer_agent: replace manual FunctionTool/LangChain tool creation with native `McpToolset`.
 
 3. **Clean up gateway_client.py** - The manual `create_adk_tools()` and `create_langchain_tools()` functions are no longer needed if agents use `McpToolset` directly. Consider deprecating or removing.
+
+4. **Test session-stored caller identity** - The fix for storing caller identity from MCP `clientInfo` during initialize (instead of only from headers) has been committed but needs integration testing. Run the test: `cargo test -p agentgateway session_identity_from_client_info_filters_tools`
