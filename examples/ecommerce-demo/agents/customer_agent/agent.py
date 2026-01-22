@@ -5,7 +5,7 @@ This agent handles shopping tasks:
 - Cart management
 - Checkout and order tracking
 
-Tools are dynamically discovered from the MCP gateway at startup.
+Tools are dynamically discovered from the MCP gateway via McpToolset.
 
 Supports multiple LLM providers via LiteLLM:
 - Anthropic (ANTHROPIC_API_KEY): anthropic/claude-sonnet-4-20250514
@@ -13,7 +13,6 @@ Supports multiple LLM providers via LiteLLM:
 - Google (GOOGLE_API_KEY): gemini-2.0-flash
 """
 
-import asyncio
 import logging
 import os
 from typing import Optional
@@ -21,43 +20,16 @@ from typing import Optional
 from google.adk import Agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_toolset import StreamableHTTPConnectionParams
 from google.genai import types
-
-from ..shared.gateway_client import GatewayMCPClient, discover_and_create_tools
 
 logger = logging.getLogger(__name__)
 
 # Configuration
 AGENT_NAME = "customer-agent"
+AGENT_VERSION = "1.0.0"
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://localhost:3000")
-
-# Tools this agent is allowed to use (customer-facing tools)
-# These names must match what's returned by the gateway in multiplexing mode
-# Backend tools are prefixed with their service name (e.g., "catalog-service_")
-# Composition tools use their simple names (e.g., "personalized_search")
-ALLOWED_TOOLS = {
-    # Product discovery (catalog-service)
-    "catalog-service_find_products",
-    "catalog-service_browse_products",
-    "catalog-service_search_products",
-    "catalog-service_get_product_details",
-    "catalog-service_get_categories",
-    # Composition tools for enhanced search (no prefix)
-    "personalized_search",
-    "product_with_availability",
-    # Cart management (cart-service)
-    "cart-service_my_cart",
-    "cart-service_view_cart",
-    "cart-service_add_item",
-    "cart-service_add_to_cart",
-    "cart-service_update_cart_item",
-    "cart-service_remove_from_cart",
-    "cart-service_clear_cart",
-    # Orders (order-service)
-    "order-service_checkout",
-    "order-service_get_order",
-    "order-service_list_orders",
-}
 
 # LLM Provider Configuration (using LiteLLM format for non-Google models)
 DEFAULT_MODELS = {
@@ -119,37 +91,22 @@ def get_configured_model() -> str:
     )
 
 
-# Global state for gateway client and tools
-_gateway_client: Optional[GatewayMCPClient] = None
-_adk_tools: Optional[list] = None
-_tools_initialized = False
+def _create_mcp_toolset() -> McpToolset:
+    """Create McpToolset connected to the gateway.
 
-
-async def _initialize_tools():
-    """Initialize tools from gateway (called once at startup)."""
-    global _gateway_client, _adk_tools, _tools_initialized
-
-    if _tools_initialized:
-        return
-
-    logger.info(f"Discovering tools from gateway: {GATEWAY_URL}")
-    logger.info(f"Allowed tools for customer agent: {sorted(ALLOWED_TOOLS)}")
-
-    _gateway_client, _adk_tools = await discover_and_create_tools(
-        gateway_url=GATEWAY_URL,
-        agent_name=AGENT_NAME,
-        allowed_tools=ALLOWED_TOOLS,
+    The gateway filters tools based on agent identity (via clientInfo.name
+    in the MCP initialize request). Tool filtering is handled server-side
+    based on the registry's agent dependencies configuration.
+    """
+    return McpToolset(
+        connection_params=StreamableHTTPConnectionParams(
+            url=f"{GATEWAY_URL}/mcp",
+            headers={
+                "X-Agent-Name": AGENT_NAME,
+                "X-Agent-Version": AGENT_VERSION,
+            },
+        ),
     )
-
-    _tools_initialized = True
-    logger.info(f"Customer agent initialized with {len(_adk_tools)} tools")
-
-
-def _get_tools() -> list:
-    """Get the initialized tools (must call _initialize_tools first)."""
-    if not _tools_initialized or _adk_tools is None:
-        raise RuntimeError("Tools not initialized. Call _initialize_tools() first.")
-    return _adk_tools
 
 
 # System prompt for the customer agent
@@ -179,6 +136,7 @@ The user_id will be provided in the context. Use it for cart and order operation
 # Global session service (shared across requests)
 _session_service: Optional[InMemorySessionService] = None
 _runner: Optional[Runner] = None
+_mcp_toolset: Optional[McpToolset] = None
 
 
 def _get_session_service() -> InMemorySessionService:
@@ -187,6 +145,16 @@ def _get_session_service() -> InMemorySessionService:
     if _session_service is None:
         _session_service = InMemorySessionService()
     return _session_service
+
+
+def _get_mcp_toolset() -> McpToolset:
+    """Get or create the MCP toolset."""
+    global _mcp_toolset
+    if _mcp_toolset is None:
+        logger.info(f"Creating MCP toolset connected to gateway: {GATEWAY_URL}/mcp")
+        logger.info(f"Agent identity: {AGENT_NAME} v{AGENT_VERSION}")
+        _mcp_toolset = _create_mcp_toolset()
+    return _mcp_toolset
 
 
 def create_customer_agent(user_id: str = "default-user") -> Agent:
@@ -199,9 +167,9 @@ def create_customer_agent(user_id: str = "default-user") -> Agent:
         Configured ADK Agent
     """
     model = get_configured_model()
-    tools = _get_tools()
+    mcp_toolset = _get_mcp_toolset()
 
-    logger.info(f"Creating customer agent with model: {model}, tools: {len(tools)}")
+    logger.info(f"Creating customer agent with model: {model}")
 
     # Inject user_id into system prompt
     system_prompt = CUSTOMER_SYSTEM_PROMPT + f"\n\nCurrent user_id: {user_id}"
@@ -211,7 +179,7 @@ def create_customer_agent(user_id: str = "default-user") -> Agent:
         model=model,
         description="Shopping assistant that helps customers find products, manage cart, and place orders",
         instruction=system_prompt,
-        tools=tools,
+        tools=[mcp_toolset],
     )
 
 
@@ -281,9 +249,6 @@ async def run_customer_query(
             "No LLM API key found. Set one of: "
             f"{', '.join(API_KEY_ENV_VARS.values())}"
         )
-
-    # Ensure tools are initialized
-    await _initialize_tools()
 
     runner = get_runner(user_id)
     session_service = _get_session_service()

@@ -98,3 +98,47 @@ Only fields explicitly operated on are defined; unknown fields pass through.
 - UI changes require: `cd ui && npm run lint && npm test`
 - Proto changes require: `make generate-apis`
 - Config/schema changes require: `make generate-schema`
+
+## Current Work: eCommerce Demo ADK Integration
+
+### Changes Made
+1. **Customer agent refactored to use native MCP** (`examples/ecommerce-demo/agents/customer_agent/agent.py`)
+   - Replaced manual `FunctionTool` creation with ADK's `McpToolset`
+   - Uses `StreamableHTTPConnectionParams` to connect to gateway at `/mcp`
+   - Tool schemas now properly passed to LLM via MCP protocol
+
+2. **Registry v2 updated with proper structure** (`examples/ecommerce-demo/gateway-configs/ecommerce_registry_v2.json`)
+   - Added `schemas` section with 11 reusable JSON Schema definitions
+   - Added `servers` section with backend service metadata
+   - Tools now use `$ref` references instead of inline schemas
+   - Added `outputTransform` with `mappings` for `personalized_search` composition
+
+### Testing Steps
+1. Start the ecommerce demo services:
+   ```bash
+   cd examples/ecommerce-demo && ./start_services.sh
+   ```
+
+2. In a separate terminal, restart the gateway to pick up registry changes:
+   ```bash
+   RUST_LOG=debug ./target/release/agentgateway -f examples/ecommerce-demo/gateway-configs/config.yaml
+   ```
+
+3. Test the customer agent via the chat endpoint:
+   ```bash
+   curl -X POST http://localhost:9001/chat \
+     -H "Content-Type: application/json" \
+     -d '{"message":"search for coffee makers","session_id":"test"}'
+   ```
+
+4. **What to look for:**
+   - Agent should successfully call `personalized_search` with proper `query` argument
+   - Gateway logs should show composition execution completing (not 500 error)
+   - Response should include product results
+
+### Remaining TODOs
+1. **Fix gateway structuredContent response** - The gateway needs to populate `structuredContent` in the MCP response when a tool has an `outputSchema`. Currently returns text content only, which causes ADK to error with "Tool has an output schema but did not return structured content". Fix needed in `crates/agentgateway/src/mcp/session.rs` around line 468.
+
+2. **Update merchandiser_agent to use McpToolset** - Same refactor as customer_agent: replace manual FunctionTool/LangChain tool creation with native `McpToolset`.
+
+3. **Clean up gateway_client.py** - The manual `create_adk_tools()` and `create_langchain_tools()` functions are no longer needed if agents use `McpToolset` directly. Consider deprecating or removing.

@@ -149,7 +149,7 @@ class GatewayMCPClient:
 
     async def call_tool(self, name: str, arguments: Optional[dict] = None) -> Any:
         """Call a tool through the gateway."""
-        logger.debug(f"Calling tool: {name} with args: {arguments}")
+        logger.info(f"Calling tool: {name} with args: {arguments}")
         params = {"name": name}
         if arguments:
             params["arguments"] = arguments
