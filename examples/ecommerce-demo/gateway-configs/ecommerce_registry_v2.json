@@ -157,6 +157,50 @@
         },
         "required": ["product_id"]
       }
+    },
+    {
+      "name": "RestockRecommendation",
+      "version": "1.0.0",
+      "description": "A single product restock recommendation with supplier quote",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "product_id": {"type": "string"},
+          "product_name": {"type": "string"},
+          "current_stock": {"type": "integer"},
+          "reorder_threshold": {"type": "integer"},
+          "deficit": {"type": "integer", "description": "Units needed to reach threshold"},
+          "recommended_supplier": {
+            "type": "object",
+            "properties": {
+              "supplier_id": {"type": "string"},
+              "supplier_name": {"type": "string"},
+              "unit_price": {"type": "number"},
+              "total_price": {"type": "number"},
+              "lead_time_days": {"type": "integer"},
+              "reliability_score": {"type": "number"}
+            }
+          },
+          "urgency": {"type": "string", "enum": ["critical", "high", "medium", "low"]}
+        }
+      }
+    },
+    {
+      "name": "RestockPlanOutput",
+      "version": "1.0.0",
+      "description": "Complete restock plan with prioritized recommendations",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "recommendations": {
+            "type": "array",
+            "items": {"$ref": "#RestockRecommendation"}
+          },
+          "total_items": {"type": "integer"},
+          "total_estimated_cost": {"type": "number"},
+          "summary": {"type": "string"}
+        }
+      }
     }
   ],
 
@@ -543,6 +587,137 @@
       "name": "get_all_supplier_quotes",
       "description": "Get price quotes from all suppliers for a product",
       "source": {"target": "supplier-service", "tool": "get_all_quotes"}
+    },
+
+
+    {
+      "$comment": "=== ADVANCED COMPOSITION: Top Restock Quote ===",
+      "$comment2": "This 2-step pipeline shows JSONPath field extraction and construct binding:",
+      "$comment3": "Step 1: Get low stock alerts, sorted by deficit (most critical first)",
+      "$comment4": "Step 2: Get supplier quotes for the FIRST product using its deficit as quantity",
+      "$comment5": "Showcases: pipeline, construct binding, cross-step JSONPath references",
+      "name": "top_restock_quote",
+      "description": "Get supplier quotes for the most critical low-stock product",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "alerts",
+              "operation": {"tool": {"name": "get_low_stock_alerts", "server": "inventory-service"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "quotes",
+              "operation": {"tool": {"name": "get_all_quotes", "server": "supplier-service"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "product_id": {"step": {"stepId": "alerts", "path": "$.alerts[0].product_id"}},
+                    "quantity": {"step": {"stepId": "alerts", "path": "$.alerts[0].deficit"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "threshold": {"type": "integer", "description": "Optional custom stock threshold"}
+        }
+      },
+      "outputTransform": {
+        "mappings": {
+          "product_id": {"path": "$.product_id"},
+          "product_name": {"path": "$.product_name"},
+          "quantity_needed": {"path": "$.quantity_requested"},
+          "quotes": {"path": "$.quotes"},
+          "best_price": {"path": "$.best_price"},
+          "fastest_delivery": {"path": "$.fastest_delivery"}
+        }
+      }
+    },
+
+
+    {
+      "$comment": "=== ADVANCED COMPOSITION: Full Product Intelligence ===",
+      "$comment2": "This 3-step pipeline calls 3 different services for a single product:",
+      "$comment3": "Step 1: Get product details from catalog",
+      "$comment4": "Step 2: Check real-time inventory status",
+      "$comment5": "Step 3: Get supplier quotes for restocking",
+      "$comment6": "Showcases: multi-service orchestration, constant injection, output transform",
+      "name": "product_intelligence",
+      "description": "Get complete product intelligence: details, inventory status, and supplier options",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "product",
+              "operation": {"tool": {"name": "get_product", "server": "catalog-service"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "stock",
+              "operation": {"tool": {"name": "check_stock", "server": "inventory-service"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "quotes",
+              "operation": {"tool": {"name": "get_all_quotes", "server": "supplier-service"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "product_id": {"input": {"path": "$.product_id"}},
+                    "quantity": {"constant": 50}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {"$ref": "#ProductIdInput"}
+    },
+
+
+    {
+      "$comment": "=== ADVANCED COMPOSITION: Order with Full Context ===",
+      "$comment2": "This 3-step pipeline enriches an order with product and customer data:",
+      "$comment3": "Step 1: Get order details",
+      "$comment4": "Step 2: Get sales context (how is this product selling?)",
+      "$comment5": "Step 3: Get inventory to show remaining stock after this order",
+      "$comment6": "Showcases: order enrichment, business intelligence aggregation",
+      "name": "order_with_context",
+      "description": "Get order details with sales context and inventory impact",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "order",
+              "operation": {"tool": {"name": "get_order", "server": "order-service"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "sales",
+              "operation": {"tool": {"name": "get_sales_report", "server": "order-service"}},
+              "input": {"constant": {}}
+            },
+            {
+              "id": "inventory",
+              "operation": {"tool": {"name": "get_inventory_report", "server": "inventory-service"}},
+              "input": {"constant": {}}
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "order_id": {"type": "string", "description": "Order ID to look up"}
+        },
+        "required": ["order_id"]
+      }
     }
   ],
 
@@ -613,7 +788,10 @@
                 { "type": "tool", "name": "virtual_get_order", "version": "1.0.0" },
                 { "type": "tool", "name": "virtual_browse_products", "version": "1.0.0" },
                 { "type": "tool", "name": "virtual_get_product_details", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_categories", "version": "1.0.0" }
+                { "type": "tool", "name": "virtual_get_categories", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_top_restock_quote", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_product_intelligence", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_order_with_context", "version": "1.0.0" }
               ]
             }
           }

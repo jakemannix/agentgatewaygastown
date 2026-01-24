@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vMCP Tool Composition Builder</title>
+  <style>
+    :root {
+      --bg-primary: #1a1a2e;
+      --bg-secondary: #16213e;
+      --bg-tertiary: #0f3460;
+      --accent: #e94560;
+      --accent-hover: #ff6b6b;
+      --text-primary: #eee;
+      --text-secondary: #aaa;
+      --border: #333;
+      --success: #4ade80;
+      --warning: #fbbf24;
+      --info: #60a5fa;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 280px 1fr 400px;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+      gap: 1px;
+      background: var(--border);
+    }
+
+    header {
+      grid-column: 1 / -1;
+      background: var(--bg-secondary);
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    header h1 span {
+      color: var(--accent);
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .panel {
+      background: var(--bg-secondary);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-header {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+
+    .panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+    }
+
+    /* Tool Palette */
+    .tool-palette {
+      background: var(--bg-tertiary);
+    }
+
+    .tool-search {
+      width: 100%;
+      padding: 0.75rem;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+
+    .tool-search:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .tool-category {
+      margin-bottom: 1rem;
+    }
+
+    .tool-category-header {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+      padding-left: 0.25rem;
+    }
+
+    .tool-item {
+      padding: 0.625rem 0.75rem;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 0.5rem;
+      cursor: grab;
+      transition: all 0.15s ease;
+      font-size: 0.875rem;
+    }
+
+    .tool-item:hover {
+      border-color: var(--accent);
+      transform: translateX(4px);
+    }
+
+    .tool-item.dragging {
+      opacity: 0.5;
+      cursor: grabbing;
+    }
+
+    .tool-item-name {
+      font-weight: 500;
+      margin-bottom: 0.25rem;
+    }
+
+    .tool-item-server {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    /* Canvas */
+    .canvas {
+      background: var(--bg-primary);
+      position: relative;
+    }
+
+    .canvas-content {
+      padding: 2rem;
+      min-height: 100%;
+    }
+
+    .composition-header {
+      margin-bottom: 2rem;
+    }
+
+    .composition-name-input {
+      font-size: 1.5rem;
+      font-weight: 600;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-primary);
+      padding: 0.25rem 0;
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .composition-name-input:focus {
+      outline: none;
+      border-bottom-color: var(--accent);
+    }
+
+    .composition-desc-input {
+      font-size: 0.875rem;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid transparent;
+      color: var(--text-secondary);
+      padding: 0.25rem 0;
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+
+    .composition-desc-input:focus {
+      outline: none;
+      border-bottom-color: var(--border);
+      color: var(--text-primary);
+    }
+
+    /* Pipeline Steps */
+    .pipeline-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .step-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .step-card.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      background: var(--bg-tertiary);
+      gap: 0.75rem;
+      cursor: pointer;
+    }
+
+    .step-number {
+      width: 24px;
+      height: 24px;
+      background: var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .step-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .step-id {
+      font-weight: 500;
+      font-size: 0.875rem;
+    }
+
+    .step-tool {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .step-actions {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .step-body {
+      padding: 1rem;
+      display: none;
+    }
+
+    .step-card.expanded .step-body {
+      display: block;
+    }
+
+    .step-connector {
+      display: flex;
+      justify-content: center;
+      padding: 0.5rem 0;
+    }
+
+    .step-connector svg {
+      color: var(--border);
+    }
+
+    /* Form Elements */
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      margin-bottom: 0.375rem;
+    }
+
+    .form-input, .form-select {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-size: 0.875rem;
+    }
+
+    .form-input:focus, .form-select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* Binding Editor */
+    .binding-editor {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem;
+    }
+
+    .binding-type-tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .binding-tab {
+      padding: 0.375rem 0.75rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .binding-tab:hover {
+      border-color: var(--text-secondary);
+    }
+
+    .binding-tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .binding-fields {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .binding-field-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .binding-field-row input {
+      flex: 1;
+    }
+
+    /* Construct Fields Editor */
+    .construct-fields {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .construct-field {
+      display: grid;
+      grid-template-columns: 120px 1fr auto;
+      gap: 0.5rem;
+      padding: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      align-items: start;
+    }
+
+    .construct-field:last-child {
+      border-bottom: none;
+    }
+
+    .construct-field-name {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      padding-top: 0.375rem;
+    }
+
+    .add-field-btn {
+      width: 100%;
+      padding: 0.5rem;
+      background: transparent;
+      border: 1px dashed var(--border);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+      cursor: pointer;
+      margin-top: 0.5rem;
+    }
+
+    .add-field-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--text-secondary);
+    }
+
+    .btn-icon {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+
+    .btn-icon:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .btn-icon.danger:hover {
+      border-color: #ef4444;
+      color: #ef4444;
+    }
+
+    /* Output Panel */
+    .output-panel {
+      background: var(--bg-tertiary);
+    }
+
+    .output-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .output-tab {
+      padding: 0.75rem 1rem;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .output-tab:hover {
+      color: var(--text-primary);
+    }
+
+    .output-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .json-output {
+      background: var(--bg-primary);
+      border-radius: 6px;
+      padding: 1rem;
+      font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .json-key { color: #7dd3fc; }
+    .json-string { color: #86efac; }
+    .json-number { color: #fca5a5; }
+    .json-boolean { color: #c4b5fd; }
+    .json-null { color: #9ca3af; }
+
+    /* Drop Zone */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 2rem;
+      text-align: center;
+      color: var(--text-secondary);
+      transition: all 0.15s ease;
+    }
+
+    .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(233, 69, 96, 0.1);
+    }
+
+    .drop-zone-icon {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--text-secondary);
+    }
+
+    .empty-state-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      opacity: 0.5;
+    }
+
+    .empty-state h3 {
+      margin-bottom: 0.5rem;
+      color: var(--text-primary);
+    }
+
+    /* Validation Messages */
+    .validation-message {
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      font-size: 0.8125rem;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .validation-message.error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+
+    .validation-message.warning {
+      background: rgba(251, 191, 36, 0.1);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      color: #fde68a;
+    }
+
+    .validation-message.success {
+      background: rgba(74, 222, 128, 0.1);
+      border: 1px solid rgba(74, 222, 128, 0.3);
+      color: #86efac;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg-primary);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-secondary);
+    }
+
+    /* Copy button */
+    .copy-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+    }
+
+    .output-wrapper {
+      position: relative;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+        </svg>
+        <span>vMCP</span> Tool Composition Builder
+      </h1>
+      <div class="header-actions">
+        <button class="btn btn-secondary" onclick="loadExample()">Load Example</button>
+        <button class="btn btn-secondary" onclick="clearAll()">Clear</button>
+        <button class="btn btn-primary" onclick="copyToClipboard()">Copy JSON</button>
+      </div>
+    </header>
+
+    <!-- Tool Palette -->
+    <div class="panel tool-palette">
+      <div class="panel-header">Available Tools</div>
+      <div class="panel-content">
+        <input type="text" class="tool-search" placeholder="Search tools..." oninput="filterTools(this.value)">
+        <div id="tool-list"></div>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="panel canvas">
+      <div class="panel-content canvas-content">
+        <div class="composition-header">
+          <input type="text" class="composition-name-input" id="composition-name"
+                 placeholder="my_composition" value="my_composition" oninput="updateOutput()">
+          <input type="text" class="composition-desc-input" id="composition-desc"
+                 placeholder="Description of what this composition does..." oninput="updateOutput()">
+        </div>
+
+        <div id="pipeline-container">
+          <div class="empty-state" id="empty-state">
+            <div class="empty-state-icon">🔧</div>
+            <h3>Build Your Pipeline</h3>
+            <p>Drag tools from the left panel or click them to add steps to your pipeline.</p>
+          </div>
+          <div class="pipeline-steps" id="pipeline-steps"></div>
+          <div class="drop-zone" id="drop-zone" style="display: none;">
+            <div class="drop-zone-icon">+</div>
+            <div>Drop tool here to add step</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Output Panel -->
+    <div class="panel output-panel">
+      <div class="output-tabs">
+        <button class="output-tab active" data-tab="json">JSON Output</button>
+        <button class="output-tab" data-tab="typescript">TypeScript</button>
+      </div>
+      <div class="panel-content">
+        <div id="validation-messages"></div>
+        <div class="output-wrapper">
+          <button class="btn btn-icon copy-btn" onclick="copyToClipboard()" title="Copy to clipboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+            </svg>
+          </button>
+          <pre class="json-output" id="output-json"></pre>
+        </div>
+        <div id="output-typescript" style="display: none;">
+          <pre class="json-output"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==========================================================================
+    // State
+    // ==========================================================================
+
+    const state = {
+      compositionName: 'my_composition',
+      compositionDesc: '',
+      steps: [],
+      selectedStep: null,
+      expandedSteps: new Set()
+    };
+
+    // Sample tools from ecommerce demo
+    const availableTools = [
+      // Catalog Service
+      { name: 'search_products', server: 'catalog-service', description: 'Search products using natural language' },
+      { name: 'list_products', server: 'catalog-service', description: 'Browse product catalog' },
+      { name: 'get_product', server: 'catalog-service', description: 'Get product details by ID' },
+      { name: 'get_categories', server: 'catalog-service', description: 'Get all product categories' },
+      { name: 'search_index', server: 'catalog-service', description: 'Fast index search returning IDs and scores' },
+      { name: 'hydrate_products', server: 'catalog-service', description: 'Fetch product details for a list of IDs' },
+      { name: 'personalize_ranking', server: 'catalog-service', description: 'Re-rank products based on user preferences' },
+      // Cart Service
+      { name: 'view_cart', server: 'cart-service', description: 'View shopping cart contents' },
+      { name: 'add_to_cart', server: 'cart-service', description: 'Add product to cart' },
+      { name: 'remove_from_cart', server: 'cart-service', description: 'Remove item from cart' },
+      // Order Service
+      { name: 'checkout', server: 'order-service', description: 'Complete checkout and create order' },
+      { name: 'get_order', server: 'order-service', description: 'Get order details' },
+      { name: 'list_orders', server: 'order-service', description: 'List user orders' },
+      { name: 'get_sales_report', server: 'order-service', description: 'Get sales analytics' },
+      // Inventory Service
+      { name: 'check_stock', server: 'inventory-service', description: 'Check stock level for a product' },
+      { name: 'get_inventory_report', server: 'inventory-service', description: 'Get comprehensive inventory status' },
+      { name: 'get_low_stock_alerts', server: 'inventory-service', description: 'Get products below reorder threshold' },
+      { name: 'adjust_inventory', server: 'inventory-service', description: 'Manually adjust inventory levels' },
+      // Supplier Service
+      { name: 'list_suppliers', server: 'supplier-service', description: 'Get all available suppliers' },
+      { name: 'get_supplier', server: 'supplier-service', description: 'Get supplier details' },
+      { name: 'create_purchase_order', server: 'supplier-service', description: 'Create purchase order to restock' },
+      { name: 'get_all_quotes', server: 'supplier-service', description: 'Get price quotes from all suppliers' },
+    ];
+
+    // ==========================================================================
+    // Rendering
+    // ==========================================================================
+
+    function renderToolPalette(filter = '') {
+      const container = document.getElementById('tool-list');
+      const filterLower = filter.toLowerCase();
+
+      // Group by server
+      const grouped = {};
+      availableTools.forEach(tool => {
+        if (filter && !tool.name.toLowerCase().includes(filterLower) &&
+            !tool.server.toLowerCase().includes(filterLower)) {
+          return;
+        }
+        if (!grouped[tool.server]) {
+          grouped[tool.server] = [];
+        }
+        grouped[tool.server].push(tool);
+      });
+
+      container.innerHTML = Object.entries(grouped).map(([server, tools]) => `
+        <div class="tool-category">
+          <div class="tool-category-header">${server}</div>
+          ${tools.map(tool => `
+            <div class="tool-item"
+                 draggable="true"
+                 data-tool='${JSON.stringify(tool)}'
+                 onclick="addTool(${JSON.stringify(tool).replace(/'/g, "\\'")})"
+                 ondragstart="handleDragStart(event)"
+                 ondragend="handleDragEnd(event)">
+              <div class="tool-item-name">${tool.name}</div>
+              <div class="tool-item-server">${tool.description}</div>
+            </div>
+          `).join('')}
+        </div>
+      `).join('');
+    }
+
+    function renderPipeline() {
+      const stepsContainer = document.getElementById('pipeline-steps');
+      const emptyState = document.getElementById('empty-state');
+      const dropZone = document.getElementById('drop-zone');
+
+      if (state.steps.length === 0) {
+        emptyState.style.display = 'block';
+        stepsContainer.innerHTML = '';
+        dropZone.style.display = 'none';
+        return;
+      }
+
+      emptyState.style.display = 'none';
+      dropZone.style.display = 'block';
+
+      stepsContainer.innerHTML = state.steps.map((step, index) => {
+        const isExpanded = state.expandedSteps.has(step.id);
+        const isSelected = state.selectedStep === step.id;
+
+        return `
+          ${index > 0 ? `
+            <div class="step-connector">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 5v14M5 12l7 7 7-7"/>
+              </svg>
+            </div>
+          ` : ''}
+          <div class="step-card ${isExpanded ? 'expanded' : ''} ${isSelected ? 'selected' : ''}" data-step-id="${step.id}">
+            <div class="step-header" onclick="toggleStep('${step.id}')">
+              <div class="step-number">${index + 1}</div>
+              <div class="step-info">
+                <div class="step-id">${step.id}</div>
+                <div class="step-tool">${step.tool.server}_${step.tool.name}</div>
+              </div>
+              <div class="step-actions">
+                ${index > 0 ? `
+                  <button class="btn-icon" onclick="event.stopPropagation(); moveStep(${index}, -1)" title="Move up">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M18 15l-6-6-6 6"/>
+                    </svg>
+                  </button>
+                ` : ''}
+                ${index < state.steps.length - 1 ? `
+                  <button class="btn-icon" onclick="event.stopPropagation(); moveStep(${index}, 1)" title="Move down">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M6 9l6 6 6-6"/>
+                    </svg>
+                  </button>
+                ` : ''}
+                <button class="btn-icon danger" onclick="event.stopPropagation(); removeStep(${index})" title="Remove">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="step-body">
+              ${renderStepEditor(step, index)}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderStepEditor(step, index) {
+      const priorSteps = state.steps.slice(0, index);
+
+      return `
+        <div class="form-group">
+          <label class="form-label">Step ID</label>
+          <input type="text" class="form-input" value="${step.id}"
+                 onchange="updateStepId(${index}, this.value)">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Input Binding</label>
+          ${renderBindingEditor(step.input, index, priorSteps)}
+        </div>
+      `;
+    }
+
+    function renderBindingEditor(binding, stepIndex, priorSteps) {
+      const type = binding.type || 'input';
+
+      return `
+        <div class="binding-editor" data-step-index="${stepIndex}">
+          <div class="binding-type-tabs">
+            <button class="binding-tab ${type === 'input' ? 'active' : ''}"
+                    onclick="setBindingType(${stepIndex}, 'input')">From Input</button>
+            ${priorSteps.length > 0 ? `
+              <button class="binding-tab ${type === 'step' ? 'active' : ''}"
+                      onclick="setBindingType(${stepIndex}, 'step')">From Step</button>
+            ` : ''}
+            <button class="binding-tab ${type === 'constant' ? 'active' : ''}"
+                    onclick="setBindingType(${stepIndex}, 'constant')">Constant</button>
+            <button class="binding-tab ${type === 'construct' ? 'active' : ''}"
+                    onclick="setBindingType(${stepIndex}, 'construct')">Construct</button>
+          </div>
+
+          <div class="binding-fields">
+            ${renderBindingFields(binding, stepIndex, priorSteps)}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderBindingFields(binding, stepIndex, priorSteps) {
+      switch (binding.type) {
+        case 'input':
+          return `
+            <div class="form-group" style="margin-bottom: 0">
+              <label class="form-label">JSONPath (from composition input)</label>
+              <input type="text" class="form-input" value="${binding.path || '$'}"
+                     placeholder="$.query"
+                     onchange="updateBinding(${stepIndex}, 'path', this.value)">
+            </div>
+          `;
+
+        case 'step':
+          return `
+            <div class="form-group">
+              <label class="form-label">Source Step</label>
+              <select class="form-select" onchange="updateBinding(${stepIndex}, 'stepId', this.value)">
+                ${priorSteps.map(s => `
+                  <option value="${s.id}" ${binding.stepId === s.id ? 'selected' : ''}>${s.id}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0">
+              <label class="form-label">JSONPath (from step output)</label>
+              <input type="text" class="form-input" value="${binding.path || '$'}"
+                     placeholder="$.results[0].id"
+                     onchange="updateBinding(${stepIndex}, 'path', this.value)">
+            </div>
+          `;
+
+        case 'constant':
+          return `
+            <div class="form-group" style="margin-bottom: 0">
+              <label class="form-label">JSON Value</label>
+              <input type="text" class="form-input" value="${JSON.stringify(binding.value ?? {})}"
+                     placeholder='{"key": "value"}'
+                     onchange="updateBinding(${stepIndex}, 'value', this.value)">
+            </div>
+          `;
+
+        case 'construct':
+          return renderConstructEditor(binding, stepIndex, priorSteps);
+
+        default:
+          return '';
+      }
+    }
+
+    function renderConstructEditor(binding, stepIndex, priorSteps) {
+      const fields = binding.fields || {};
+      const fieldEntries = Object.entries(fields);
+
+      return `
+        <div class="construct-fields">
+          ${fieldEntries.length === 0 ? `
+            <div style="padding: 1rem; text-align: center; color: var(--text-secondary); font-size: 0.8125rem;">
+              No fields yet. Add fields to construct the input object.
+            </div>
+          ` : fieldEntries.map(([name, fieldBinding], fieldIndex) => `
+            <div class="construct-field">
+              <div class="construct-field-name">
+                <input type="text" class="form-input" value="${name}"
+                       placeholder="field_name"
+                       style="font-size: 0.8125rem"
+                       onchange="updateConstructFieldName(${stepIndex}, '${name}', this.value)">
+              </div>
+              <div>
+                ${renderMiniBindingEditor(fieldBinding, stepIndex, name, priorSteps)}
+              </div>
+              <button class="btn-icon danger" onclick="removeConstructField(${stepIndex}, '${name}')" title="Remove field">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+          `).join('')}
+        </div>
+        <button class="add-field-btn" onclick="addConstructField(${stepIndex})">+ Add Field</button>
+      `;
+    }
+
+    function renderMiniBindingEditor(binding, stepIndex, fieldName, priorSteps) {
+      const type = binding?.type || 'input';
+
+      return `
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <select class="form-select" style="width: auto; min-width: 100px;"
+                  onchange="updateConstructFieldType(${stepIndex}, '${fieldName}', this.value)">
+            <option value="input" ${type === 'input' ? 'selected' : ''}>input</option>
+            ${priorSteps.length > 0 ? `<option value="step" ${type === 'step' ? 'selected' : ''}>step</option>` : ''}
+            <option value="constant" ${type === 'constant' ? 'selected' : ''}>const</option>
+          </select>
+          ${type === 'step' && priorSteps.length > 0 ? `
+            <select class="form-select" style="width: auto;"
+                    onchange="updateConstructFieldStepId(${stepIndex}, '${fieldName}', this.value)">
+              ${priorSteps.map(s => `
+                <option value="${s.id}" ${binding.stepId === s.id ? 'selected' : ''}>${s.id}</option>
+              `).join('')}
+            </select>
+          ` : ''}
+          ${type !== 'constant' ? `
+            <input type="text" class="form-input" value="${binding?.path || '$'}"
+                   placeholder="$.path"
+                   onchange="updateConstructFieldPath(${stepIndex}, '${fieldName}', this.value)">
+          ` : `
+            <input type="text" class="form-input" value="${JSON.stringify(binding?.value ?? '')}"
+                   placeholder='"value" or 50'
+                   onchange="updateConstructFieldValue(${stepIndex}, '${fieldName}', this.value)">
+          `}
+        </div>
+      `;
+    }
+
+    function renderOutput() {
+      const json = generateJSON();
+      const outputEl = document.getElementById('output-json');
+      outputEl.innerHTML = syntaxHighlight(JSON.stringify(json, null, 2));
+
+      // Validation
+      const messages = validateComposition();
+      const msgContainer = document.getElementById('validation-messages');
+      msgContainer.innerHTML = messages.map(m => `
+        <div class="validation-message ${m.type}">
+          ${m.type === 'error' ? '⚠️' : m.type === 'warning' ? '⚡' : '✓'} ${m.message}
+        </div>
+      `).join('');
+    }
+
+    function syntaxHighlight(json) {
+      return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+        let cls = 'json-number';
+        if (/^"/.test(match)) {
+          if (/:$/.test(match)) {
+            cls = 'json-key';
+          } else {
+            cls = 'json-string';
+          }
+        } else if (/true|false/.test(match)) {
+          cls = 'json-boolean';
+        } else if (/null/.test(match)) {
+          cls = 'json-null';
+        }
+        return `<span class="${cls}">${match}</span>`;
+      });
+    }
+
+    // ==========================================================================
+    // Actions
+    // ==========================================================================
+
+    function filterTools(filter) {
+      renderToolPalette(filter);
+    }
+
+    function addTool(tool) {
+      const stepId = generateStepId(tool.name);
+      const newStep = {
+        id: stepId,
+        tool: tool,
+        input: { type: 'input', path: '$' }
+      };
+
+      state.steps.push(newStep);
+      state.expandedSteps.add(stepId);
+      renderPipeline();
+      updateOutput();
+    }
+
+    function generateStepId(toolName) {
+      const baseName = toolName.replace(/_/g, '');
+      const existing = state.steps.filter(s => s.id.startsWith(baseName));
+      if (existing.length === 0) return baseName;
+      return `${baseName}${existing.length + 1}`;
+    }
+
+    function removeStep(index) {
+      const step = state.steps[index];
+      state.steps.splice(index, 1);
+      state.expandedSteps.delete(step.id);
+      if (state.selectedStep === step.id) {
+        state.selectedStep = null;
+      }
+      renderPipeline();
+      updateOutput();
+    }
+
+    function moveStep(index, direction) {
+      const newIndex = index + direction;
+      if (newIndex < 0 || newIndex >= state.steps.length) return;
+
+      const step = state.steps.splice(index, 1)[0];
+      state.steps.splice(newIndex, 0, step);
+      renderPipeline();
+      updateOutput();
+    }
+
+    function toggleStep(stepId) {
+      if (state.expandedSteps.has(stepId)) {
+        state.expandedSteps.delete(stepId);
+      } else {
+        state.expandedSteps.add(stepId);
+      }
+      renderPipeline();
+    }
+
+    function updateStepId(index, newId) {
+      const oldId = state.steps[index].id;
+      state.steps[index].id = newId;
+
+      // Update references in subsequent steps
+      for (let i = index + 1; i < state.steps.length; i++) {
+        const step = state.steps[i];
+        if (step.input.type === 'step' && step.input.stepId === oldId) {
+          step.input.stepId = newId;
+        }
+        if (step.input.type === 'construct') {
+          Object.values(step.input.fields || {}).forEach(field => {
+            if (field.type === 'step' && field.stepId === oldId) {
+              field.stepId = newId;
+            }
+          });
+        }
+      }
+
+      if (state.expandedSteps.has(oldId)) {
+        state.expandedSteps.delete(oldId);
+        state.expandedSteps.add(newId);
+      }
+
+      renderPipeline();
+      updateOutput();
+    }
+
+    function setBindingType(stepIndex, type) {
+      const step = state.steps[stepIndex];
+      const priorSteps = state.steps.slice(0, stepIndex);
+
+      step.input = { type };
+
+      switch (type) {
+        case 'input':
+          step.input.path = '$';
+          break;
+        case 'step':
+          step.input.stepId = priorSteps.length > 0 ? priorSteps[priorSteps.length - 1].id : '';
+          step.input.path = '$';
+          break;
+        case 'constant':
+          step.input.value = {};
+          break;
+        case 'construct':
+          step.input.fields = {};
+          break;
+      }
+
+      renderPipeline();
+      updateOutput();
+    }
+
+    function updateBinding(stepIndex, key, value) {
+      const step = state.steps[stepIndex];
+      if (key === 'value') {
+        try {
+          step.input[key] = JSON.parse(value);
+        } catch {
+          step.input[key] = value;
+        }
+      } else {
+        step.input[key] = value;
+      }
+      updateOutput();
+    }
+
+    function addConstructField(stepIndex) {
+      const step = state.steps[stepIndex];
+      if (!step.input.fields) step.input.fields = {};
+
+      let fieldName = 'field';
+      let counter = 1;
+      while (step.input.fields[fieldName]) {
+        fieldName = `field${counter++}`;
+      }
+
+      step.input.fields[fieldName] = { type: 'input', path: '$' };
+      renderPipeline();
+      updateOutput();
+    }
+
+    function removeConstructField(stepIndex, fieldName) {
+      const step = state.steps[stepIndex];
+      delete step.input.fields[fieldName];
+      renderPipeline();
+      updateOutput();
+    }
+
+    function updateConstructFieldName(stepIndex, oldName, newName) {
+      if (oldName === newName) return;
+      const step = state.steps[stepIndex];
+      const value = step.input.fields[oldName];
+      delete step.input.fields[oldName];
+      step.input.fields[newName] = value;
+      renderPipeline();
+      updateOutput();
+    }
+
+    function updateConstructFieldType(stepIndex, fieldName, type) {
+      const step = state.steps[stepIndex];
+      const priorSteps = state.steps.slice(0, stepIndex);
+
+      step.input.fields[fieldName] = { type };
+
+      switch (type) {
+        case 'input':
+          step.input.fields[fieldName].path = '$';
+          break;
+        case 'step':
+          step.input.fields[fieldName].stepId = priorSteps.length > 0 ? priorSteps[priorSteps.length - 1].id : '';
+          step.input.fields[fieldName].path = '$';
+          break;
+        case 'constant':
+          step.input.fields[fieldName].value = '';
+          break;
+      }
+
+      renderPipeline();
+      updateOutput();
+    }
+
+    function updateConstructFieldStepId(stepIndex, fieldName, stepId) {
+      state.steps[stepIndex].input.fields[fieldName].stepId = stepId;
+      updateOutput();
+    }
+
+    function updateConstructFieldPath(stepIndex, fieldName, path) {
+      state.steps[stepIndex].input.fields[fieldName].path = path;
+      updateOutput();
+    }
+
+    function updateConstructFieldValue(stepIndex, fieldName, value) {
+      try {
+        state.steps[stepIndex].input.fields[fieldName].value = JSON.parse(value);
+      } catch {
+        state.steps[stepIndex].input.fields[fieldName].value = value;
+      }
+      updateOutput();
+    }
+
+    function updateOutput() {
+      state.compositionName = document.getElementById('composition-name').value || 'my_composition';
+      state.compositionDesc = document.getElementById('composition-desc').value || '';
+      renderOutput();
+    }
+
+    // ==========================================================================
+    // Drag and Drop
+    // ==========================================================================
+
+    function handleDragStart(event) {
+      event.target.classList.add('dragging');
+      event.dataTransfer.setData('text/plain', event.target.dataset.tool);
+      document.getElementById('drop-zone').style.display = 'block';
+    }
+
+    function handleDragEnd(event) {
+      event.target.classList.remove('dragging');
+    }
+
+    // Setup drop zone
+    document.addEventListener('DOMContentLoaded', () => {
+      const dropZone = document.getElementById('drop-zone');
+      const pipelineSteps = document.getElementById('pipeline-steps');
+
+      [dropZone, pipelineSteps].forEach(el => {
+        el.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          dropZone.classList.add('drag-over');
+        });
+
+        el.addEventListener('dragleave', (e) => {
+          dropZone.classList.remove('drag-over');
+        });
+
+        el.addEventListener('drop', (e) => {
+          e.preventDefault();
+          dropZone.classList.remove('drag-over');
+          try {
+            const tool = JSON.parse(e.dataTransfer.getData('text/plain'));
+            addTool(tool);
+          } catch (err) {
+            console.error('Drop error:', err);
+          }
+        });
+      });
+    });
+
+    // ==========================================================================
+    // JSON Generation
+    // ==========================================================================
+
+    function generateJSON() {
+      if (state.steps.length === 0) {
+        return {
+          name: state.compositionName,
+          description: state.compositionDesc || undefined,
+          spec: { pipeline: { steps: [] } }
+        };
+      }
+
+      const steps = state.steps.map(step => {
+        const stepObj = {
+          id: step.id,
+          operation: {
+            tool: {
+              name: step.tool.name,
+              server: step.tool.server
+            }
+          }
+        };
+
+        // Add input binding
+        stepObj.input = convertBinding(step.input);
+
+        return stepObj;
+      });
+
+      return {
+        name: state.compositionName,
+        version: '1.0.0',
+        description: state.compositionDesc || undefined,
+        spec: {
+          pipeline: {
+            steps
+          }
+        }
+      };
+    }
+
+    function convertBinding(binding) {
+      switch (binding.type) {
+        case 'input':
+          return { input: { path: binding.path || '$' } };
+        case 'step':
+          return { step: { stepId: binding.stepId, path: binding.path || '$' } };
+        case 'constant':
+          return { constant: binding.value };
+        case 'construct':
+          const fields = {};
+          Object.entries(binding.fields || {}).forEach(([name, fieldBinding]) => {
+            fields[name] = convertBinding(fieldBinding);
+          });
+          return { construct: { fields } };
+        default:
+          return { input: { path: '$' } };
+      }
+    }
+
+    // ==========================================================================
+    // Validation
+    // ==========================================================================
+
+    function validateComposition() {
+      const messages = [];
+
+      if (state.steps.length === 0) {
+        messages.push({ type: 'warning', message: 'Pipeline has no steps. Add tools from the left panel.' });
+        return messages;
+      }
+
+      // Check for duplicate step IDs
+      const ids = state.steps.map(s => s.id);
+      const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
+      if (duplicates.length > 0) {
+        messages.push({ type: 'error', message: `Duplicate step IDs: ${[...new Set(duplicates)].join(', ')}` });
+      }
+
+      // Check for invalid step references
+      state.steps.forEach((step, index) => {
+        const priorIds = state.steps.slice(0, index).map(s => s.id);
+
+        if (step.input.type === 'step' && !priorIds.includes(step.input.stepId)) {
+          messages.push({ type: 'error', message: `Step "${step.id}" references non-existent prior step "${step.input.stepId}"` });
+        }
+
+        if (step.input.type === 'construct') {
+          Object.entries(step.input.fields || {}).forEach(([fieldName, fieldBinding]) => {
+            if (fieldBinding.type === 'step' && !priorIds.includes(fieldBinding.stepId)) {
+              messages.push({ type: 'error', message: `Step "${step.id}" field "${fieldName}" references non-existent step "${fieldBinding.stepId}"` });
+            }
+          });
+        }
+      });
+
+      if (messages.length === 0) {
+        messages.push({ type: 'success', message: 'Composition is valid!' });
+      }
+
+      return messages;
+    }
+
+    // ==========================================================================
+    // Utilities
+    // ==========================================================================
+
+    function copyToClipboard() {
+      const json = JSON.stringify(generateJSON(), null, 2);
+      navigator.clipboard.writeText(json).then(() => {
+        // Show brief feedback
+        const btn = document.querySelector('.copy-btn');
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '✓';
+        setTimeout(() => { btn.innerHTML = originalHTML; }, 1000);
+      });
+    }
+
+    function clearAll() {
+      state.steps = [];
+      state.selectedStep = null;
+      state.expandedSteps.clear();
+      document.getElementById('composition-name').value = 'my_composition';
+      document.getElementById('composition-desc').value = '';
+      state.compositionName = 'my_composition';
+      state.compositionDesc = '';
+      renderPipeline();
+      renderOutput();
+    }
+
+    function loadExample() {
+      // Load the "top_restock_quote" example
+      state.compositionName = 'top_restock_quote';
+      state.compositionDesc = 'Get supplier quotes for the most critical low-stock product';
+      document.getElementById('composition-name').value = state.compositionName;
+      document.getElementById('composition-desc').value = state.compositionDesc;
+
+      state.steps = [
+        {
+          id: 'alerts',
+          tool: { name: 'get_low_stock_alerts', server: 'inventory-service', description: 'Get products below reorder threshold' },
+          input: { type: 'input', path: '$' }
+        },
+        {
+          id: 'quotes',
+          tool: { name: 'get_all_quotes', server: 'supplier-service', description: 'Get price quotes from all suppliers' },
+          input: {
+            type: 'construct',
+            fields: {
+              product_id: { type: 'step', stepId: 'alerts', path: '$.alerts[0].product_id' },
+              quantity: { type: 'step', stepId: 'alerts', path: '$.alerts[0].deficit' }
+            }
+          }
+        }
+      ];
+
+      state.expandedSteps.add('alerts');
+      state.expandedSteps.add('quotes');
+
+      renderPipeline();
+      renderOutput();
+    }
+
+    // ==========================================================================
+    // Initialize
+    // ==========================================================================
+
+    renderToolPalette();
+    renderPipeline();
+    renderOutput();
+
+    // Tab switching
+    document.querySelectorAll('.output-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.output-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        // TODO: implement TypeScript output tab
+      });
+    });
+  </script>
+</body>
+</html>

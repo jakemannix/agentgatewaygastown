@@ -1,7 +1,7 @@
 /**
  * Pipeline pattern builder
  */
-import type { PatternSpec, PipelineSpec, PipelineStep } from '../types.js';
+import type { PatternSpec, PipelineSpec, PipelineStep, DataBinding } from '../types.js';
 /**
  * Builder for pipeline steps
  */
@@ -28,6 +28,11 @@ export declare class StepBuilder {
      * Set input to a constant value
      */
     constant(value: unknown): this;
+    /**
+     * Construct input from multiple field bindings
+     * Allows building a new object from fields extracted from prior steps or input
+     */
+    construct(fields: Record<string, DataBinding>): this;
     /**
      * Build the step
      */
@@ -81,4 +86,26 @@ export declare function pipeline(): PipelineBuilder;
  * Create a step builder
  */
 export declare function step(id: string): StepBuilder;
+/**
+ * Create an input binding (reference to composition input)
+ */
+export declare function fromInput(pathExpr?: string): DataBinding;
+/**
+ * Create a step binding (reference to prior step output)
+ */
+export declare function fromStep(stepId: string, pathExpr?: string): DataBinding;
+/**
+ * Create a constant binding
+ */
+export declare function constant(value: unknown): DataBinding;
+/**
+ * Create a construct binding (build object from multiple field bindings)
+ *
+ * @example
+ * construct({
+ *   product_id: fromStep('alerts', '$.alerts[0].product_id'),
+ *   quantity: fromStep('alerts', '$.alerts[0].deficit'),
+ * })
+ */
+export declare function construct(fields: Record<string, DataBinding>): DataBinding;
 //# sourceMappingURL=pipeline.d.ts.map
