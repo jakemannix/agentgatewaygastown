@@ -9,6 +9,21 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use super::patterns::{FieldSource, PatternSpec, SchemaMapSpec};
 
+/// Policy for handling requests without caller identity
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UnknownCallerPolicy {
+	/// Allow all tools to be returned (default, backwards-compatible)
+	#[default]
+	AllowAll,
+	/// Deny all tools to unknown callers (return empty list)
+	DenyAll,
+	/// Require identity - registered agents get their dependencies, unknown agents get all tools
+	/// This is useful when you want to enforce SBOM for known agents but allow unknown agents
+	/// to see all tools for development/debugging purposes
+	AllowUnregistered,
+}
+
 /// Parsed registry from JSON
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +47,10 @@ pub struct Registry {
 	/// A2A agent definitions with capabilities and dependencies (v2)
 	#[serde(default)]
 	pub agents: Vec<AgentDefinition>,
+
+	/// Policy for handling requests without agent identity
+	#[serde(default)]
+	pub unknown_caller_policy: UnknownCallerPolicy,
 
 	/// Registry-level metadata (owner, classification, etc.)
 	#[serde(default)]
@@ -577,6 +596,7 @@ impl Registry {
 			schemas: Vec::new(),
 			servers: Vec::new(),
 			agents: Vec::new(),
+			unknown_caller_policy: UnknownCallerPolicy::default(),
 			metadata: HashMap::new(),
 		}
 	}
@@ -589,6 +609,7 @@ impl Registry {
 			schemas: Vec::new(),
 			servers: Vec::new(),
 			agents: Vec::new(),
+			unknown_caller_policy: UnknownCallerPolicy::default(),
 			metadata: HashMap::new(),
 		}
 	}

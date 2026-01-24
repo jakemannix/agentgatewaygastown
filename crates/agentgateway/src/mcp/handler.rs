@@ -21,8 +21,10 @@ use crate::cel::ContextBuilder;
 use crate::http::Response;
 use crate::http::jwt::Claims;
 use crate::http::sessionpersistence::MCPSession;
+use crate::mcp::identity::CallerIdentity;
 use crate::mcp::mergestream::MergeFn;
 use crate::mcp::rbac::{Identity, McpAuthorizationSet};
+use crate::mcp::registry::types::UnknownCallerPolicy;
 use crate::mcp::registry::RegistryStoreRef;
 use crate::mcp::router::McpBackendGroup;
 use crate::mcp::streamablehttp::ServerSseMessage;
@@ -33,6 +35,12 @@ use crate::telemetry::log::AsyncLog;
 use crate::telemetry::trc::TraceParent;
 
 const DELIMITER: &str = "_";
+
+/// Server name used for all virtual tools (both source-based and compositions).
+/// This provides a uniform {server}_{tool} naming convention where virtual tools
+/// are exposed as "virtual_{name}" (e.g., "virtual_get_weather").
+/// Re-exported from registry module for consistency.
+pub use super::registry::VIRTUAL_SERVER_NAME;
 
 /// Result of resolving a tool call, which may be a virtual tool or composition
 #[derive(Debug, Clone)]
@@ -58,11 +66,10 @@ pub enum ResolvedToolCall {
 }
 
 fn resource_name(default_target_name: Option<&String>, target: &str, name: &str) -> String {
-	// Compositions always use their simple name - no target prefix
-	// They are identified by their registry name, not by a target prefix
-	if target == "_composition" {
-		name.to_string()
-	} else if default_target_name.is_none() {
+	// All tools use the uniform {server}_{name} convention now.
+	// Virtual tools (both source-based and compositions) use VIRTUAL_SERVER_NAME ("virtual")
+	// as their server, so they become "virtual_name".
+	if default_target_name.is_none() {
 		format!("{target}{DELIMITER}{name}")
 	} else {
 		name.to_string()
@@ -129,59 +136,83 @@ impl Relay {
 	/// For compositions, this returns the composition name for local execution.
 	///
 	/// For regular tools, this delegates to parse_resource_name.
+	///
+	/// With the uniform {server}_{tool} naming convention:
+	/// - Virtual tools are named "virtual_{name}" (e.g., "virtual_get_weather")
+	/// - Backend tools are named "{server}_{tool}" (e.g., "catalog-service_search")
 	pub fn resolve_tool_call(
 		&self,
 		tool_name: &str,
 		args: serde_json::Value,
 	) -> Result<ResolvedToolCall, UpstreamError> {
-		// First check if this is a virtual tool or composition in the registry
-		if let Some(ref reg) = self.registry {
-			let guard = reg.get();
-			if let Some(ref compiled_registry) = **guard {
-				if let Some(tool) = compiled_registry.get_tool(tool_name) {
-					// Check if this is a composition
-					if tool.is_composition() {
-						tracing::debug!(
-							target: "virtual_tools",
-							composition = tool_name,
-							"resolved tool as composition"
-						);
-						return Ok(ResolvedToolCall::Composition {
-							name: tool_name.to_string(),
-							args,
-						});
+		// Check if this is a virtual tool (starts with "virtual_")
+		let virtual_prefix = format!("{}{}", VIRTUAL_SERVER_NAME, DELIMITER);
+		let is_virtual_tool = tool_name.starts_with(&virtual_prefix);
+
+		// If it's a virtual tool, look it up in the registry
+		if is_virtual_tool {
+			if let Some(ref reg) = self.registry {
+				let guard = reg.get();
+				if let Some(ref compiled_registry) = **guard {
+					// Extract the registry name (strip "virtual_" prefix)
+					let registry_name = &tool_name[virtual_prefix.len()..];
+
+					if let Some(tool) = compiled_registry.get_tool(registry_name) {
+						// Check if this is a composition
+						if tool.is_composition() {
+							tracing::debug!(
+								target: "virtual_tools",
+								composition = registry_name,
+								"resolved tool as composition"
+							);
+							return Ok(ResolvedToolCall::Composition {
+								name: registry_name.to_string(),
+								args,
+							});
+						}
+
+						// This is a source-based virtual tool - resolve to backend
+						if let Some(source_info) = tool.source_info() {
+							let target = source_info.source.target.clone();
+							let backend_tool = source_info.source.tool.clone();
+
+							tracing::debug!(
+								target: "virtual_tools",
+								virtual_tool = registry_name,
+								backend_target = %target,
+								backend_tool = %backend_tool,
+								"resolved virtual tool to backend"
+							);
+
+							// Inject defaults
+							let transformed_args = tool
+								.inject_defaults(args)
+								.map_err(|e| UpstreamError::InvalidRequest(e.to_string()))?;
+
+							return Ok(ResolvedToolCall::Backend {
+								target,
+								tool_name: backend_tool,
+								args: transformed_args,
+								virtual_name: Some(registry_name.to_string()),
+							});
+						}
 					}
 
-					// This is a source-based virtual tool - resolve to backend
-					if let Some(source_info) = tool.source_info() {
-						let target = source_info.source.target.clone();
-						let backend_tool = source_info.source.tool.clone();
-
-						tracing::debug!(
-							target: "virtual_tools",
-							virtual_tool = tool_name,
-							backend_target = %target,
-							backend_tool = %backend_tool,
-							"resolved virtual tool to backend"
-						);
-
-						// Inject defaults
-						let transformed_args = tool
-							.inject_defaults(args)
-							.map_err(|e| UpstreamError::InvalidRequest(e.to_string()))?;
-
-						return Ok(ResolvedToolCall::Backend {
-							target,
-							tool_name: backend_tool,
-							args: transformed_args,
-							virtual_name: Some(tool_name.to_string()),
-						});
-					}
+					// Virtual tool not found in registry
+					return Err(UpstreamError::InvalidRequest(format!(
+						"virtual tool '{}' not found in registry",
+						registry_name
+					)));
 				}
 			}
+
+			// No registry configured but got a virtual tool request
+			return Err(UpstreamError::InvalidRequest(
+				"no registry configured for virtual tool resolution".to_string(),
+			));
 		}
 
-		// Not a virtual tool or composition - parse normally
+		// Not a virtual tool - parse as backend tool ({server}_{tool})
 		let (service_name, actual_tool) = self.parse_resource_name(tool_name)?;
 		Ok(ResolvedToolCall::Backend {
 			target: service_name.to_string(),
@@ -437,6 +468,19 @@ impl Relay {
 	}
 
 	pub fn merge_tools(&self, cel: Arc<ContextBuilder>) -> Box<MergeFn> {
+		self.merge_tools_with_identity(cel, None)
+	}
+
+	/// Like merge_tools but with optional caller identity for dependency-scoped filtering
+	///
+	/// When a caller_identity is provided and the agent is registered in the registry
+	/// with tool dependencies (via SBOM extension), only tools the agent depends on
+	/// will be returned.
+	pub fn merge_tools_with_identity(
+		&self,
+		cel: Arc<ContextBuilder>,
+		caller_identity: Option<CallerIdentity>,
+	) -> Box<MergeFn> {
 		let policies = self.policies.clone();
 		let default_target_name = self.default_target_name.clone();
 		// Clone registry reference for use in closure
@@ -471,7 +515,7 @@ impl Relay {
 			};
 
 			// Log what we received from transform_tools
-			let composition_count = transformed_tools.iter().filter(|(t, _)| t == "_composition").count();
+			let composition_count = transformed_tools.iter().filter(|(t, _)| t == VIRTUAL_SERVER_NAME).count();
 			tracing::debug!(
 				target: "virtual_tools",
 				total_transformed = transformed_tools.len(),
@@ -479,10 +523,86 @@ impl Relay {
 				"merge_tools received from transform_tools"
 			);
 
-			// Apply authorization policies and multiplexing renaming
+			// Get unknown caller policy from registry
+			let unknown_caller_policy = registry.as_ref().and_then(|reg| {
+				let guard = reg.get();
+				(**guard).as_ref().map(|cr| cr.unknown_caller_policy())
+			}).unwrap_or_default();
+
+			// Get agent's allowed tools if caller identity is provided
+			// Also track whether this is a registered agent (has deps defined)
+			let (agent_tool_deps, is_registered_agent): (Option<Vec<String>>, bool) =
+				caller_identity.as_ref().map(|id| {
+					if let Some(ref reg) = registry {
+						let guard = reg.get();
+						if let Some(ref compiled_registry) = **guard {
+							let deps = compiled_registry.agent_tool_dependencies(&id.name);
+							let is_registered = deps.is_some();
+							if is_registered {
+								tracing::debug!(
+									target: "virtual_tools",
+									agent = %id.name,
+									agent_version = ?id.version,
+									tool_deps = ?deps,
+									"filtering tools by agent dependencies"
+								);
+							} else {
+								tracing::debug!(
+									target: "virtual_tools",
+									agent = %id.name,
+									"agent not registered in registry - applying unknown caller policy"
+								);
+							}
+							return (deps, is_registered);
+						}
+					}
+					(None, false)
+				}).unwrap_or((None, false));
+
+			// Handle unknown caller policy
+			// - AllowAll: return all tools (default, backwards-compatible)
+			// - DenyAll: return empty list for unknown callers
+			// - AllowUnregistered: registered agents get their deps, unregistered agents get all tools
+			let deny_all = match (caller_identity.as_ref(), unknown_caller_policy) {
+				// No identity provided
+				(None, UnknownCallerPolicy::DenyAll) => {
+					tracing::debug!(
+						target: "virtual_tools",
+						"no caller identity - denying all tools per policy"
+					);
+					true
+				},
+				// Identity provided but agent not registered
+				(Some(id), UnknownCallerPolicy::DenyAll) if !is_registered_agent => {
+					tracing::debug!(
+						target: "virtual_tools",
+						agent = %id.name,
+						"unregistered agent - denying all tools per policy"
+					);
+					true
+				},
+				// AllowUnregistered with no identity - allow all
+				(None, UnknownCallerPolicy::AllowUnregistered) => {
+					tracing::debug!(
+						target: "virtual_tools",
+						"no caller identity - allowing all tools (AllowUnregistered policy)"
+					);
+					false
+				},
+				// Everything else: allow (may still filter by deps)
+				_ => false,
+			};
+
+			// Apply authorization policies, agent dependency filtering, and multiplexing renaming
 			let tools = transformed_tools
 				.into_iter()
 				.filter(|(server_name, t)| {
+					// Check deny_all policy first
+					if deny_all {
+						return false;
+					}
+
+					// First check RBAC policies
 					let allowed = policies.validate(
 						&rbac::ResourceType::Tool(rbac::ResourceId::new(
 							server_name.to_string(),
@@ -490,14 +610,32 @@ impl Relay {
 						)),
 						&cel,
 					);
-					if !allowed && server_name == "_composition" {
+					if !allowed && server_name == VIRTUAL_SERVER_NAME {
 						tracing::debug!(
 							target: "virtual_tools",
-							composition = %t.name,
-							"composition tool blocked by policy"
+							virtual_tool = %t.name,
+							"virtual tool blocked by policy"
 						);
 					}
-					allowed
+					if !allowed {
+						return false;
+					}
+
+					// Then check agent dependencies if specified
+					if let Some(ref deps) = agent_tool_deps {
+						// Allow if tool is in agent's dependency list
+						let tool_name = t.name.to_string();
+						if !deps.contains(&tool_name) {
+							tracing::trace!(
+								target: "virtual_tools",
+								tool = %tool_name,
+								"tool filtered out - not in agent dependencies"
+							);
+							return false;
+						}
+					}
+
+					true
 				})
 				// Rename to handle multiplexing
 				.map(|(server_name, t)| Tool {

@@ -329,6 +329,7 @@ mod tests {
 			schemas: Vec::new(),
 			servers: Vec::new(),
 			agents: Vec::new(),
+			unknown_caller_policy: Default::default(),
 			metadata: Default::default(),
 		}
 	}

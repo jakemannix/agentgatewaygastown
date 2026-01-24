@@ -13,11 +13,17 @@ use serde_json_path::JsonPath;
 use super::error::RegistryError;
 use super::patterns::{FieldSource, PatternSpec};
 use super::types::{
-	OutputTransform, Registry, SourceTool, ToolDefinition, ToolImplementation, VirtualToolDef,
+	AgentDefinition, OutputTransform, Registry, Schema, Server, SourceTool, ToolDefinition,
+	ToolImplementation, UnknownCallerPolicy, VirtualToolDef,
 };
 
 /// Maximum depth for reference resolution (safety limit)
 const MAX_REFERENCE_DEPTH: usize = 100;
+
+/// Server name used for all virtual tools (both source-based and compositions).
+/// This provides a uniform {server}_{tool} naming convention where virtual tools
+/// are exposed as "virtual_{name}" (e.g., "virtual_get_weather", "virtual_personalized_search").
+pub const VIRTUAL_SERVER_NAME: &str = "virtual";
 
 /// Compiled registry ready for runtime use
 #[derive(Debug)]
@@ -26,6 +32,14 @@ pub struct CompiledRegistry {
 	tools_by_name: HashMap<String, Arc<CompiledTool>>,
 	/// (target, source_tool) -> virtual tool names (for reverse lookup, source tools only)
 	tools_by_source: HashMap<(String, String), Vec<String>>,
+	/// Schema name -> resolved schema (for $ref resolution)
+	schemas_by_name: HashMap<String, Arc<Schema>>,
+	/// Server name -> server metadata (for SBOM/validation, not routing)
+	servers_by_name: HashMap<String, Arc<Server>>,
+	/// Agent name -> agent definition (for caller identity and dependency filtering)
+	agents_by_name: HashMap<String, Arc<AgentDefinition>>,
+	/// Policy for unknown callers (no agent identity)
+	unknown_caller_policy: UnknownCallerPolicy,
 }
 
 /// A compiled tool - either a source-based tool or a composition
@@ -127,12 +141,41 @@ pub struct CompiledOutputField {
 // =============================================================================
 
 impl CompiledRegistry {
-	/// Compile a registry from its raw definition using two-pass compilation
+	/// Compile a registry from its raw definition using multi-pass compilation
 	///
-	/// Pass 1: Index all tools by name (order-independent)
-	/// Pass 2: Compile each tool, resolving references
+	/// Pass 1: Index all schemas by name (for $ref resolution)
+	/// Pass 1b: Index all servers by name (for metadata/SBOM)
+	/// Pass 2: Index all tools by name (order-independent)
+	/// Pass 3: Compile each tool, resolving references and schema refs
 	pub fn compile(registry: Registry) -> Result<Self, RegistryError> {
-		// Pass 1: Index all definitions by name
+		// Pass 1: Index all schemas by name
+		let mut schemas_by_name: HashMap<String, Arc<Schema>> = HashMap::new();
+		for schema in registry.schemas {
+			if schemas_by_name.contains_key(&schema.name) {
+				return Err(RegistryError::DuplicateSchemaName(schema.name.clone()));
+			}
+			schemas_by_name.insert(schema.name.clone(), Arc::new(schema));
+		}
+
+		// Pass 1b: Index all servers by name
+		let mut servers_by_name: HashMap<String, Arc<Server>> = HashMap::new();
+		for server in registry.servers {
+			if servers_by_name.contains_key(&server.name) {
+				return Err(RegistryError::DuplicateServerName(server.name.clone()));
+			}
+			servers_by_name.insert(server.name.clone(), Arc::new(server));
+		}
+
+		// Pass 1c: Index all agents by name
+		let mut agents_by_name: HashMap<String, Arc<AgentDefinition>> = HashMap::new();
+		for agent in registry.agents {
+			if agents_by_name.contains_key(&agent.name) {
+				return Err(RegistryError::DuplicateAgentName(agent.name.clone()));
+			}
+			agents_by_name.insert(agent.name.clone(), Arc::new(agent));
+		}
+
+		// Pass 2: Index all tool definitions by name
 		let mut defs_by_name: HashMap<String, ToolDefinition> = HashMap::new();
 		for tool_def in registry.tools {
 			if defs_by_name.contains_key(&tool_def.name) {
@@ -141,12 +184,12 @@ impl CompiledRegistry {
 			defs_by_name.insert(tool_def.name.clone(), tool_def);
 		}
 
-		// Pass 2: Compile each tool
+		// Pass 3: Compile each tool with schema resolution
 		let mut tools_by_name: HashMap<String, Arc<CompiledTool>> = HashMap::new();
 		let mut tools_by_source: HashMap<(String, String), Vec<String>> = HashMap::new();
 
 		for (name, def) in &defs_by_name {
-			let compiled = CompiledTool::compile(def, &defs_by_name, 0)?;
+			let compiled = CompiledTool::compile(def, &defs_by_name, &schemas_by_name, 0)?;
 
 			// Index source-based tools by their source for reverse lookup
 			if let ToolImplementation::Source(ref source) = def.implementation {
@@ -163,6 +206,10 @@ impl CompiledRegistry {
 		Ok(Self {
 			tools_by_name,
 			tools_by_source,
+			schemas_by_name,
+			servers_by_name,
+			agents_by_name,
+			unknown_caller_policy: registry.unknown_caller_policy,
 		})
 	}
 
@@ -171,7 +218,119 @@ impl CompiledRegistry {
 		Self {
 			tools_by_name: HashMap::new(),
 			tools_by_source: HashMap::new(),
+			schemas_by_name: HashMap::new(),
+			servers_by_name: HashMap::new(),
+			agents_by_name: HashMap::new(),
+			unknown_caller_policy: UnknownCallerPolicy::default(),
 		}
+	}
+
+	/// Get the policy for unknown callers
+	pub fn unknown_caller_policy(&self) -> UnknownCallerPolicy {
+		self.unknown_caller_policy
+	}
+
+	/// Get a schema by name (for $ref resolution)
+	pub fn get_schema(&self, name: &str) -> Option<&Arc<Schema>> {
+		self.schemas_by_name.get(name)
+	}
+
+	/// Get all schema names
+	pub fn schema_names(&self) -> impl Iterator<Item = &String> {
+		self.schemas_by_name.keys()
+	}
+
+	/// Get number of schemas
+	pub fn schema_count(&self) -> usize {
+		self.schemas_by_name.len()
+	}
+
+	/// Get a server by name (for metadata/SBOM, not routing)
+	pub fn get_server(&self, name: &str) -> Option<&Arc<Server>> {
+		self.servers_by_name.get(name)
+	}
+
+	/// Get all server names
+	pub fn server_names(&self) -> impl Iterator<Item = &String> {
+		self.servers_by_name.keys()
+	}
+
+	/// Get number of servers
+	pub fn server_count(&self) -> usize {
+		self.servers_by_name.len()
+	}
+
+	/// Check if a server is deprecated
+	pub fn is_server_deprecated(&self, name: &str) -> Option<bool> {
+		self.servers_by_name.get(name).map(|s| s.deprecated)
+	}
+
+	/// Get server deprecation message if deprecated
+	pub fn server_deprecation_message(&self, name: &str) -> Option<&str> {
+		self.servers_by_name
+			.get(name)
+			.filter(|s| s.deprecated)
+			.and_then(|s| s.deprecation_message.as_deref())
+	}
+
+	/// Get an agent by name (for caller identity lookup)
+	pub fn get_agent(&self, name: &str) -> Option<&Arc<AgentDefinition>> {
+		self.agents_by_name.get(name)
+	}
+
+	/// Get all agent names
+	pub fn agent_names(&self) -> impl Iterator<Item = &String> {
+		self.agents_by_name.keys()
+	}
+
+	/// Get number of agents
+	pub fn agent_count(&self) -> usize {
+		self.agents_by_name.len()
+	}
+
+	/// Get agent's tool dependencies (from SBOM extension or direct depends field)
+	///
+	/// Returns the list of tool names this agent depends on
+	pub fn agent_tool_dependencies(&self, agent_name: &str) -> Option<Vec<String>> {
+		let agent = self.agents_by_name.get(agent_name)?;
+
+		// First try the SBOM extension
+		if let Some(ref capabilities) = agent.capabilities {
+			for ext in &capabilities.extensions {
+				if ext.uri == "urn:agentgateway:sbom" {
+					if let Some(ref params) = ext.params {
+						if let Some(depends) = params.get("depends") {
+							if let Some(deps) = depends.as_array() {
+								let tool_names: Vec<String> = deps
+									.iter()
+									.filter_map(|d| {
+										let dep_type = d.get("type")?.as_str()?;
+										if dep_type == "tool" {
+											d.get("name")?.as_str().map(|s| s.to_string())
+										} else {
+											None
+										}
+									})
+									.collect();
+								if !tool_names.is_empty() {
+									return Some(tool_names);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// No SBOM extension or no tool deps found
+		None
+	}
+
+	/// Check if an agent depends on a specific tool
+	pub fn agent_depends_on_tool(&self, agent_name: &str, tool_name: &str) -> bool {
+		self.agent_tool_dependencies(agent_name)
+			.map(|deps| deps.iter().any(|t| t == tool_name))
+			.unwrap_or(false)
 	}
 
 	/// Look up tool by name
@@ -231,10 +390,11 @@ impl CompiledRegistry {
 				virtualized_sources.insert((target.clone(), source_tool.clone()));
 
 				// Create virtual tools from this source
+				// Use VIRTUAL_SERVER_NAME for uniform {server}_{tool} naming
 				for vname in virtual_names {
 					if let Some(compiled) = self.tools_by_name.get(vname) {
 						if let Some(virtual_tool) = compiled.create_virtual_tool(source_tool_def) {
-							result.push((target.clone(), virtual_tool));
+							result.push((VIRTUAL_SERVER_NAME.to_string(), virtual_tool));
 						}
 					}
 				}
@@ -281,13 +441,13 @@ impl CompiledRegistry {
 					icons: None,
 					meta: None,
 				};
-				result.push(("_composition".to_string(), composition_tool));
+				result.push((VIRTUAL_SERVER_NAME.to_string(), composition_tool));
 			}
 		}
 		tracing::debug!(
 			target: "virtual_tools",
 			total_tools = result.len(),
-			compositions = result.iter().filter(|(t, _)| t == "_composition").count(),
+			compositions = result.iter().filter(|(t, _)| t == VIRTUAL_SERVER_NAME).count(),
 			"transform_tools completed"
 		);
 
@@ -354,14 +514,37 @@ impl CompiledRegistry {
 // =============================================================================
 
 impl CompiledTool {
-	/// Compile a tool definition
+	/// Compile a tool definition with schema resolution
 	pub fn compile(
 		def: &ToolDefinition,
 		all_defs: &HashMap<String, ToolDefinition>,
+		schemas: &HashMap<String, Arc<Schema>>,
 		depth: usize,
 	) -> Result<Self, RegistryError> {
 		if depth > MAX_REFERENCE_DEPTH {
 			return Err(RegistryError::ReferenceDepthExceeded(def.name.clone()));
+		}
+
+		// Resolve $ref in input/output schemas
+		let resolved_input_schema = def
+			.input_schema
+			.as_ref()
+			.map(|s| resolve_schema_refs(s, schemas))
+			.transpose()?;
+
+		let resolved_output_schema = def
+			.output_schema
+			.as_ref()
+			.map(|s| resolve_schema_refs(s, schemas))
+			.transpose()?;
+
+		// Create a modified definition with resolved schemas
+		let mut resolved_def = def.clone();
+		if resolved_input_schema.is_some() {
+			resolved_def.input_schema = resolved_input_schema;
+		}
+		if resolved_output_schema.is_some() {
+			resolved_def.output_schema = resolved_output_schema;
 		}
 
 		let compiled = match &def.implementation {
@@ -408,7 +591,7 @@ impl CompiledTool {
 		};
 
 		Ok(Self {
-			def: def.clone(),
+			def: resolved_def,
 			compiled,
 		})
 	}
@@ -417,7 +600,8 @@ impl CompiledTool {
 	pub fn compile_legacy(legacy_def: VirtualToolDef) -> Result<Self, RegistryError> {
 		let def = ToolDefinition::from_legacy(legacy_def);
 		let defs = HashMap::new();
-		Self::compile(&def, &defs, 0)
+		let schemas = HashMap::new();
+		Self::compile(&def, &defs, &schemas, 0)
 	}
 
 	/// Check if this is a source-based tool
@@ -784,6 +968,79 @@ impl CompiledFieldSource {
 // Helper Functions
 // =============================================================================
 
+/// Resolve $ref references in a JSON Schema value
+///
+/// Supports the following reference formats:
+/// - `{ "$ref": "#SchemaName" }` - Reference to schema by name
+/// - `{ "$ref": "#SchemaName:1.0.0" }` - Reference with version (version currently ignored)
+/// - `{ "$ref": "#/schemas/SchemaName" }` - JSON Pointer style reference
+///
+/// The function recursively resolves references throughout the schema.
+fn resolve_schema_refs(
+	value: &serde_json::Value,
+	schemas: &HashMap<String, Arc<Schema>>,
+) -> Result<serde_json::Value, RegistryError> {
+	match value {
+		serde_json::Value::Object(obj) => {
+			// Check if this object is a $ref
+			if let Some(serde_json::Value::String(ref_str)) = obj.get("$ref") {
+				// Parse the reference and look up the schema
+				let schema_name = parse_schema_ref(ref_str)?;
+				let schema = schemas.get(&schema_name).ok_or_else(|| {
+					RegistryError::SchemaNotFound {
+						name: schema_name.clone(),
+					}
+				})?;
+				// Return the resolved schema (recursively resolve any nested refs)
+				return resolve_schema_refs(&schema.schema, schemas);
+			}
+
+			// Not a $ref, recursively process all fields
+			let mut new_obj = serde_json::Map::new();
+			for (k, v) in obj {
+				new_obj.insert(k.clone(), resolve_schema_refs(v, schemas)?);
+			}
+			Ok(serde_json::Value::Object(new_obj))
+		},
+		serde_json::Value::Array(arr) => {
+			let new_arr: Result<Vec<_>, _> =
+				arr.iter().map(|v| resolve_schema_refs(v, schemas)).collect();
+			Ok(serde_json::Value::Array(new_arr?))
+		},
+		other => Ok(other.clone()),
+	}
+}
+
+/// Parse a schema reference string into a schema name
+///
+/// Supported formats:
+/// - "#SchemaName" -> "SchemaName"
+/// - "#SchemaName:1.0.0" -> "SchemaName" (version ignored for now)
+/// - "#/schemas/SchemaName" -> "SchemaName"
+fn parse_schema_ref(ref_str: &str) -> Result<String, RegistryError> {
+	// Handle JSON Pointer style: "#/schemas/SchemaName"
+	if ref_str.starts_with("#/schemas/") {
+		return Ok(ref_str[10..].to_string());
+	}
+
+	// Handle shorthand: "#SchemaName" or "#SchemaName:version"
+	if ref_str.starts_with('#') {
+		let rest = &ref_str[1..];
+		// Strip version if present
+		let name = rest.split(':').next().unwrap_or(rest);
+		if name.is_empty() {
+			return Err(RegistryError::InvalidSchemaReference {
+				reference: ref_str.to_string(),
+			});
+		}
+		return Ok(name.to_string());
+	}
+
+	Err(RegistryError::InvalidSchemaReference {
+		reference: ref_str.to_string(),
+	})
+}
+
 /// Resolve ${ENV_VAR} patterns in a JSON value
 fn resolve_env_vars(value: &serde_json::Value) -> Result<serde_json::Value, RegistryError> {
 	match value {
@@ -1070,8 +1327,8 @@ mod tests {
 
 		let result = compiled.transform_tools(backend_tools);
 
-		// Should have the virtual tool
-		let virtual_tools: Vec<_> = result.iter().filter(|(t, _)| t == "weather").collect();
+		// Should have the virtual tool with "virtual" as server name
+		let virtual_tools: Vec<_> = result.iter().filter(|(t, _)| t == VIRTUAL_SERVER_NAME).collect();
 		assert_eq!(virtual_tools.len(), 1);
 		assert_eq!(virtual_tools[0].1.name.as_ref(), "get_weather");
 		assert_eq!(
@@ -1100,6 +1357,58 @@ mod tests {
 		assert!(names.contains(&"other_tool"));
 	}
 
+	/// Virtual tools (source-based) should use "virtual" as their server name
+	/// so they follow the uniform {server}_{tool} naming convention.
+	#[test]
+	fn test_transform_tools_virtual_server_for_source_tools() {
+		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
+			.with_description("Get weather info");
+		let registry = Registry::with_tools(vec![tool]);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let source_tool = create_source_tool("fetch_weather", "Original description");
+		let backend_tools = vec![("weather".to_string(), source_tool)];
+
+		let result = compiled.transform_tools(backend_tools);
+
+		// Virtual tool should have "virtual" as its server name
+		let virtual_tools: Vec<_> = result.iter().filter(|(server, _)| server == "virtual").collect();
+		assert_eq!(virtual_tools.len(), 1, "Expected 1 virtual tool with server='virtual'");
+		assert_eq!(virtual_tools[0].1.name.as_ref(), "get_weather");
+	}
+
+	/// Compositions should use "virtual" as their server name
+	/// so they follow the uniform {server}_{tool} naming convention.
+	#[test]
+	fn test_transform_tools_virtual_server_for_compositions() {
+		let composition = ToolDefinition::composition(
+			"my_pipeline",
+			PatternSpec::Pipeline(PipelineSpec {
+				steps: vec![PipelineStep {
+					id: "step1".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("some_tool")),
+					input: None,
+				}],
+			}),
+		)
+		.with_description("A test composition");
+
+		let registry = Registry::with_tool_definitions(vec![composition]);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// No backend tools, just checking composition
+		let result = compiled.transform_tools(vec![]);
+
+		// Composition should have "virtual" as its server name
+		let compositions: Vec<_> = result.iter().filter(|(server, _)| server == "virtual").collect();
+		assert_eq!(compositions.len(), 1, "Expected 1 composition with server='virtual'");
+		assert_eq!(compositions[0].1.name.as_ref(), "my_pipeline");
+
+		// Verify there are no tools with "_composition" as server (old behavior)
+		let old_style: Vec<_> = result.iter().filter(|(server, _)| server == "_composition").collect();
+		assert_eq!(old_style.len(), 0, "Should not use '_composition' as server name");
+	}
+
 	#[test]
 	fn test_hide_fields_in_schema() {
 		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
@@ -1107,7 +1416,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let source = create_source_tool("fetch_weather", "Weather");
 		let virtual_tool = compiled.create_virtual_tool(&source).unwrap();
@@ -1126,7 +1435,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let args = json!({"city": "Seattle"});
 		let result = compiled.inject_defaults(args).unwrap();
@@ -1143,7 +1452,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let args = json!({"city": "Seattle", "units": "imperial"});
 		let result = compiled.inject_defaults(args).unwrap();
@@ -1164,7 +1473,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let args = json!({});
 		let result = compiled.inject_defaults(args).unwrap();
@@ -1193,7 +1502,7 @@ mod tests {
 
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let response = json!({
 			"temperature": 72.5,
@@ -1214,7 +1523,7 @@ mod tests {
 		let tool = VirtualToolDef::new("test", "backend", "tool");
 		let def = ToolDefinition::from_legacy(tool);
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let response = json!({"original": "data"});
 		let result = compiled.transform_output(response.clone()).unwrap();
@@ -1241,7 +1550,7 @@ mod tests {
 
 		let def: ToolDefinition = serde_json::from_str(json).unwrap();
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let response = json!({
 			"total_count": 2,
@@ -1296,7 +1605,7 @@ mod tests {
 
 		let def: ToolDefinition = serde_json::from_str(json).unwrap();
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		// First path has value
 		let response = json!({"pdf_url": "http://pdf.example.com"});
@@ -1324,7 +1633,7 @@ mod tests {
 
 		let def: ToolDefinition = serde_json::from_str(json).unwrap();
 		let defs = HashMap::new();
-		let compiled = CompiledTool::compile(&def, &defs, 0).unwrap();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
 
 		let response = json!({});
 		let result = compiled.transform_output(response).unwrap();
@@ -1445,5 +1754,556 @@ mod tests {
 
 		assert!(json.is_array());
 		assert_eq!(json.as_array().unwrap().len(), 3);
+	}
+
+	// =============================================================================
+	// Schema Resolution Tests
+	// =============================================================================
+
+	#[test]
+	fn test_compile_registry_with_schemas() {
+		let json = r#"{
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "WeatherInput",
+					"version": "1.0.0",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"city": { "type": "string" }
+						},
+						"required": ["city"]
+					}
+				}
+			],
+			"tools": []
+		}"#;
+
+		let registry: Registry = serde_json::from_str(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		assert_eq!(compiled.schema_count(), 1);
+		assert!(compiled.get_schema("WeatherInput").is_some());
+	}
+
+	#[test]
+	fn test_schema_ref_resolution_shorthand() {
+		// Build registry programmatically to avoid $ escaping issues
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "SearchQuery",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"query": { "type": "string" },
+							"limit": { "type": "integer" }
+						},
+						"required": ["query"]
+					}
+				}
+			],
+			"tools": [
+				{
+					"name": "search",
+					"source": { "target": "search-service", "tool": "search" },
+					"inputSchema": { "$ref": "#SearchQuery" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let tool = compiled.get_tool("search").unwrap();
+		let input_schema = tool.def.input_schema.as_ref().unwrap();
+
+		// The $ref should be resolved to the actual schema
+		assert_eq!(input_schema["type"], "object");
+		assert!(input_schema["properties"]["query"].is_object());
+		assert!(input_schema["properties"]["limit"].is_object());
+	}
+
+	#[test]
+	fn test_schema_ref_resolution_json_pointer() {
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "ProductOutput",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"id": { "type": "string" },
+							"name": { "type": "string" },
+							"price": { "type": "number" }
+						}
+					}
+				}
+			],
+			"tools": [
+				{
+					"name": "get_product",
+					"source": { "target": "catalog", "tool": "get_product" },
+					"outputSchema": { "$ref": "#/schemas/ProductOutput" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let tool = compiled.get_tool("get_product").unwrap();
+		let output_schema = tool.def.output_schema.as_ref().unwrap();
+
+		// The $ref should be resolved to the actual schema
+		assert_eq!(output_schema["type"], "object");
+		assert!(output_schema["properties"]["id"].is_object());
+	}
+
+	#[test]
+	fn test_schema_ref_resolution_with_version() {
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "QueryParams",
+					"version": "2.0.0",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"q": { "type": "string" }
+						}
+					}
+				}
+			],
+			"tools": [
+				{
+					"name": "query",
+					"source": { "target": "backend", "tool": "query" },
+					"inputSchema": { "$ref": "#QueryParams:2.0.0" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let tool = compiled.get_tool("query").unwrap();
+		let input_schema = tool.def.input_schema.as_ref().unwrap();
+
+		// Version is currently ignored in lookup, just uses name
+		assert_eq!(input_schema["type"], "object");
+		assert!(input_schema["properties"]["q"].is_object());
+	}
+
+	#[test]
+	fn test_schema_ref_not_found_error() {
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [],
+			"tools": [
+				{
+					"name": "search",
+					"source": { "target": "search", "tool": "search" },
+					"inputSchema": { "$ref": "#NonExistentSchema" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let result = CompiledRegistry::compile(registry);
+
+		assert!(result.is_err());
+		let err = result.unwrap_err();
+		assert!(matches!(err, RegistryError::SchemaNotFound { .. }));
+	}
+
+	#[test]
+	fn test_duplicate_schema_name_error() {
+		let json = r#"{
+			"schemaVersion": "2.0",
+			"schemas": [
+				{ "name": "DuplicateName", "schema": { "type": "string" } },
+				{ "name": "DuplicateName", "schema": { "type": "number" } }
+			],
+			"tools": []
+		}"#;
+
+		let registry: Registry = serde_json::from_str(json).unwrap();
+		let result = CompiledRegistry::compile(registry);
+
+		assert!(result.is_err());
+		let err = result.unwrap_err();
+		assert!(matches!(err, RegistryError::DuplicateSchemaName(_)));
+	}
+
+	#[test]
+	fn test_nested_schema_ref_resolution() {
+		// Test that $ref inside properties also gets resolved
+		let registry_json = json!({
+			"schemaVersion": "2.0",
+			"schemas": [
+				{
+					"name": "Address",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"street": { "type": "string" },
+							"city": { "type": "string" }
+						}
+					}
+				},
+				{
+					"name": "Person",
+					"schema": {
+						"type": "object",
+						"properties": {
+							"name": { "type": "string" },
+							"address": { "$ref": "#Address" }
+						}
+					}
+				}
+			],
+			"tools": [
+				{
+					"name": "get_person",
+					"source": { "target": "people", "tool": "get" },
+					"inputSchema": { "$ref": "#Person" }
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(registry_json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let tool = compiled.get_tool("get_person").unwrap();
+		let input_schema = tool.def.input_schema.as_ref().unwrap();
+
+		// The nested $ref should also be resolved
+		assert_eq!(input_schema["type"], "object");
+		assert_eq!(input_schema["properties"]["name"]["type"], "string");
+		// The nested address $ref should be resolved to the Address schema
+		assert_eq!(input_schema["properties"]["address"]["type"], "object");
+		assert_eq!(
+			input_schema["properties"]["address"]["properties"]["street"]["type"],
+			"string"
+		);
+	}
+
+	#[test]
+	fn test_parse_schema_ref_formats() {
+		// Test various ref format parsing
+		assert_eq!(parse_schema_ref("#MySchema").unwrap(), "MySchema");
+		assert_eq!(parse_schema_ref("#MySchema:1.0.0").unwrap(), "MySchema");
+		assert_eq!(parse_schema_ref("#/schemas/MySchema").unwrap(), "MySchema");
+
+		// Invalid formats
+		assert!(parse_schema_ref("#").is_err());
+		assert!(parse_schema_ref("NoHash").is_err());
+	}
+
+	// =============================================================================
+	// Server Indexing Tests
+	// =============================================================================
+
+	#[test]
+	fn test_compile_registry_with_servers() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"servers": [
+				{
+					"name": "catalog-service",
+					"version": "1.2.0",
+					"description": "Product catalog service",
+					"provides": [
+						{ "tool": "search_products", "version": "1.0.0" },
+						{ "tool": "get_product", "version": "1.1.0" }
+					]
+				},
+				{
+					"name": "cart-service",
+					"version": "2.0.0",
+					"deprecated": true,
+					"deprecationMessage": "Use cart-service-v2 instead"
+				}
+			],
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Check server count
+		assert_eq!(compiled.server_count(), 2);
+
+		// Check catalog-service
+		let catalog = compiled.get_server("catalog-service").unwrap();
+		assert_eq!(catalog.version, Some("1.2.0".to_string()));
+		assert_eq!(catalog.provides.len(), 2);
+		assert!(!catalog.deprecated);
+
+		// Check cart-service deprecation
+		let cart = compiled.get_server("cart-service").unwrap();
+		assert!(cart.deprecated);
+		assert_eq!(
+			cart.deprecation_message,
+			Some("Use cart-service-v2 instead".to_string())
+		);
+
+		// Check deprecation helpers
+		assert_eq!(compiled.is_server_deprecated("cart-service"), Some(true));
+		assert_eq!(compiled.is_server_deprecated("catalog-service"), Some(false));
+		assert_eq!(
+			compiled.server_deprecation_message("cart-service"),
+			Some("Use cart-service-v2 instead")
+		);
+		assert_eq!(compiled.server_deprecation_message("catalog-service"), None);
+	}
+
+	#[test]
+	fn test_duplicate_server_name_error() {
+		let json = json!({
+			"servers": [
+				{ "name": "duplicate-server", "version": "1.0.0" },
+				{ "name": "duplicate-server", "version": "2.0.0" }
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let result = CompiledRegistry::compile(registry);
+		assert!(result.is_err());
+		assert!(result.unwrap_err().to_string().contains("duplicate server name"));
+	}
+
+	#[test]
+	fn test_empty_servers_section() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"servers": [],
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+		assert_eq!(compiled.server_count(), 0);
+	}
+
+	#[test]
+	fn test_server_names_iterator() {
+		let json = json!({
+			"servers": [
+				{ "name": "service-a" },
+				{ "name": "service-b" },
+				{ "name": "service-c" }
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let names: Vec<_> = compiled.server_names().collect();
+		assert_eq!(names.len(), 3);
+		assert!(names.contains(&&"service-a".to_string()));
+		assert!(names.contains(&&"service-b".to_string()));
+		assert!(names.contains(&&"service-c".to_string()));
+	}
+
+	// =============================================================================
+	// Agent Indexing Tests
+	// =============================================================================
+
+	#[test]
+	fn test_compile_registry_with_agents() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"agents": [
+				{
+					"name": "customer-agent",
+					"version": "1.0.0",
+					"description": "Handles customer shopping interactions",
+					"url": "http://localhost:9001",
+					"capabilities": {
+						"streaming": true,
+						"extensions": [
+							{
+								"uri": "urn:agentgateway:sbom",
+								"params": {
+									"depends": [
+										{ "type": "tool", "name": "find_products", "version": "1.0.0" },
+										{ "type": "tool", "name": "add_to_cart", "version": "1.0.0" },
+										{ "type": "tool", "name": "checkout", "version": "1.0.0" }
+									]
+								}
+							}
+						]
+					}
+				},
+				{
+					"name": "merchandiser-agent",
+					"version": "2.1.0",
+					"description": "Handles inventory and supplier operations"
+				}
+			],
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Check agent count
+		assert_eq!(compiled.agent_count(), 2);
+
+		// Check customer-agent
+		let customer = compiled.get_agent("customer-agent").unwrap();
+		assert_eq!(customer.version, Some("1.0.0".to_string()));
+		assert_eq!(customer.url, Some("http://localhost:9001".to_string()));
+
+		// Check merchandiser-agent
+		let merch = compiled.get_agent("merchandiser-agent").unwrap();
+		assert_eq!(merch.version, Some("2.1.0".to_string()));
+
+		// Check tool dependencies from SBOM extension
+		let deps = compiled.agent_tool_dependencies("customer-agent").unwrap();
+		assert_eq!(deps.len(), 3);
+		assert!(deps.contains(&"find_products".to_string()));
+		assert!(deps.contains(&"add_to_cart".to_string()));
+		assert!(deps.contains(&"checkout".to_string()));
+
+		// Agent without SBOM should return None
+		assert!(compiled.agent_tool_dependencies("merchandiser-agent").is_none());
+	}
+
+	#[test]
+	fn test_agent_depends_on_tool() {
+		let json = json!({
+			"agents": [
+				{
+					"name": "test-agent",
+					"capabilities": {
+						"extensions": [
+							{
+								"uri": "urn:agentgateway:sbom",
+								"params": {
+									"depends": [
+										{ "type": "tool", "name": "search" },
+										{ "type": "tool", "name": "fetch" },
+										{ "type": "agent", "name": "other-agent", "skill": "summarize" }
+									]
+								}
+							}
+						]
+					}
+				}
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Should find tool dependencies
+		assert!(compiled.agent_depends_on_tool("test-agent", "search"));
+		assert!(compiled.agent_depends_on_tool("test-agent", "fetch"));
+
+		// Agent dependencies should not be included (they're type: agent, not tool)
+		assert!(!compiled.agent_depends_on_tool("test-agent", "other-agent"));
+
+		// Unknown tool should return false
+		assert!(!compiled.agent_depends_on_tool("test-agent", "unknown"));
+
+		// Unknown agent should return false
+		assert!(!compiled.agent_depends_on_tool("unknown-agent", "search"));
+	}
+
+	#[test]
+	fn test_duplicate_agent_name_error() {
+		let json = json!({
+			"agents": [
+				{ "name": "duplicate-agent", "version": "1.0.0" },
+				{ "name": "duplicate-agent", "version": "2.0.0" }
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let result = CompiledRegistry::compile(registry);
+		assert!(result.is_err());
+		assert!(result.unwrap_err().to_string().contains("duplicate agent name"));
+	}
+
+	#[test]
+	fn test_agent_names_iterator() {
+		let json = json!({
+			"agents": [
+				{ "name": "agent-a" },
+				{ "name": "agent-b" }
+			]
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let names: Vec<_> = compiled.agent_names().collect();
+		assert_eq!(names.len(), 2);
+		assert!(names.contains(&&"agent-a".to_string()));
+		assert!(names.contains(&&"agent-b".to_string()));
+	}
+
+	// =============================================================================
+	// Unknown Caller Policy Tests
+	// =============================================================================
+
+	#[test]
+	fn test_unknown_caller_policy_default() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// Default should be AllowAll
+		assert_eq!(compiled.unknown_caller_policy(), UnknownCallerPolicy::AllowAll);
+	}
+
+	#[test]
+	fn test_unknown_caller_policy_allow_all() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"unknownCallerPolicy": "allowAll",
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+		assert_eq!(compiled.unknown_caller_policy(), UnknownCallerPolicy::AllowAll);
+	}
+
+	#[test]
+	fn test_unknown_caller_policy_deny_all() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"unknownCallerPolicy": "denyAll",
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+		assert_eq!(compiled.unknown_caller_policy(), UnknownCallerPolicy::DenyAll);
+	}
+
+	#[test]
+	fn test_unknown_caller_policy_allow_unregistered() {
+		let json = json!({
+			"schemaVersion": "2.0",
+			"unknownCallerPolicy": "allowUnregistered",
+			"tools": []
+		});
+
+		let registry: Registry = serde_json::from_value(json).unwrap();
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+		assert_eq!(compiled.unknown_caller_policy(), UnknownCallerPolicy::AllowUnregistered);
 	}
 }

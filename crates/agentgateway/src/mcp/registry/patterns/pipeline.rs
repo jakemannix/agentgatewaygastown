@@ -98,6 +98,18 @@ impl ToolCall {
 			server_version: None,
 		}
 	}
+
+	/// Get the qualified tool name for invocation.
+	///
+	/// If `server` is specified, returns `{server}_{name}` to match the
+	/// agentgateway namespacing convention. Otherwise returns just the name,
+	/// which should be a virtual tool or composition name in the registry.
+	pub fn qualified_name(&self) -> String {
+		match &self.server {
+			Some(server) => format!("{}_{}", server, self.name),
+			None => self.name.clone(),
+		}
+	}
 }
 
 /// AgentCall invokes a registered agent as a step operation (v2)

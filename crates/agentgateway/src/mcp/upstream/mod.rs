@@ -42,6 +42,11 @@ impl IncomingRequestContext {
 			claims,
 		}
 	}
+
+	/// Get the request headers
+	pub fn headers(&self) -> &http::HeaderMap {
+		&self.headers
+	}
 	pub fn apply(&self, req: &mut http::Request) {
 		for (k, v) in &self.headers {
 			// Remove headers we do not want to propagate to the backend

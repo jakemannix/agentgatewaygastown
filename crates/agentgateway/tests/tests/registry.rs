@@ -690,7 +690,7 @@ async fn test_load_demo_registry_v2() -> anyhow::Result<()> {
 	assert_eq!(registry.schemas.len(), 12, "Expected 12 schemas");
 	assert_eq!(registry.servers.len(), 10, "Expected 10 servers");
 	assert_eq!(registry.tools.len(), 27, "Expected 27 tools");
-	assert_eq!(registry.agents.len(), 3, "Expected 3 agents");
+	assert_eq!(registry.agents.len(), 5, "Expected 5 agents");
 
 	Ok(())
 }

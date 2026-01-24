@@ -33,31 +33,30 @@ AGENT_NAME = "merchandiser-agent"
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://localhost:3000")
 
 # Tools this agent is allowed to use (merchandiser/admin tools)
-# These names must match what's returned by the gateway in multiplexing mode
-# Backend tools are prefixed with their service name (e.g., "inventory-service_")
+# All registry virtual tools use "virtual_" prefix
 ALLOWED_TOOLS = {
-    # Inventory management (inventory-service)
-    "inventory-service_stock_status",
-    "inventory-service_get_inventory_report",
-    "inventory-service_get_low_stock_alerts",
-    "inventory-service_adjust_inventory",
-    "inventory-service_check_stock",
-    # Supplier management (supplier-service)
-    "supplier-service_list_suppliers",
-    "supplier-service_get_supplier",
-    "supplier-service_create_purchase_order",
-    "supplier-service_list_purchase_orders",
-    "supplier-service_receive_shipment",
-    "supplier-service_get_all_supplier_quotes",
-    # Sales and orders (order-service)
-    "order-service_get_sales_report",
-    "order-service_update_order_status",
-    "order-service_list_orders",
-    "order-service_get_order",
-    # Product management (catalog-service, read-only for merchandisers)
-    "catalog-service_browse_products",
-    "catalog-service_get_product_details",
-    "catalog-service_get_categories",
+    # Inventory management
+    "virtual_stock_status",
+    "virtual_get_inventory_report",
+    "virtual_get_low_stock_alerts",
+    "virtual_adjust_inventory",
+    "virtual_check_stock",
+    # Supplier management
+    "virtual_list_suppliers",
+    "virtual_get_supplier",
+    "virtual_create_purchase_order",
+    "virtual_list_purchase_orders",
+    "virtual_receive_shipment",
+    "virtual_get_all_supplier_quotes",
+    # Sales and orders
+    "virtual_get_sales_report",
+    "virtual_update_order_status",
+    "virtual_list_orders",
+    "virtual_get_order",
+    # Product management (read-only for merchandisers)
+    "virtual_browse_products",
+    "virtual_get_product_details",
+    "virtual_get_categories",
 }
 
 # LLM Provider Configuration

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use ::http::StatusCode;
 use ::http::header::CONTENT_TYPE;
@@ -18,7 +18,8 @@ use sse_stream::{KeepAlive, Sse, SseBody, SseStream};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::http::Response;
-use crate::mcp::handler::{Relay, RelayToolInvoker, ResolvedToolCall};
+use crate::mcp::handler::{Relay, RelayToolInvoker, ResolvedToolCall, VIRTUAL_SERVER_NAME};
+use crate::mcp::identity::CallerIdentity;
 use crate::mcp::mergestream::Messages;
 use crate::mcp::registry::executor::{CompositionExecutor, TracingContext};
 use crate::mcp::streamablehttp::{ServerSseMessage, StreamableHttpPostResponse};
@@ -33,9 +34,27 @@ pub struct Session {
 	relay: Arc<Relay>,
 	pub id: Arc<str>,
 	tx: Option<Sender<ServerJsonRpcMessage>>,
+	/// Caller identity extracted from MCP initialize clientInfo.
+	/// Set during InitializeRequest, used for subsequent requests like tools/list.
+	caller_identity: Arc<RwLock<Option<CallerIdentity>>>,
 }
 
 impl Session {
+	/// Get the caller identity for this session (if set during initialize).
+	/// Returns None if no identity was extracted from clientInfo.
+	pub fn caller_identity(&self) -> Option<CallerIdentity> {
+		self.caller_identity.read().ok()?.clone()
+	}
+
+	/// Set the caller identity (called during InitializeRequest).
+	/// This stores the identity extracted from MCP clientInfo for use
+	/// in subsequent requests like tools/list.
+	fn set_caller_identity(&self, identity: CallerIdentity) {
+		if let Ok(mut guard) = self.caller_identity.write() {
+			*guard = Some(identity);
+		}
+	}
+
 	/// send a message to upstream server(s)
 	pub async fn send(&mut self, parts: Parts, message: ClientJsonRpcMessage) -> Response {
 		let req_id = match &message {
@@ -239,6 +258,10 @@ impl Session {
 				let ctx = IncomingRequestContext::new(parts);
 				match &mut r.request {
 					ClientRequest::InitializeRequest(ir) => {
+						// Extract and store caller identity from MCP clientInfo
+						if let Some(identity) = CallerIdentity::from_mcp_client_info(&ir.params) {
+							self.set_caller_identity(identity);
+						}
 						let pv = ir.params.protocol_version.clone();
 						let res = self
 							.relay
@@ -258,9 +281,17 @@ impl Session {
 						log.non_atomic_mutate(|l| {
 							l.resource = Some(MCPOperation::Tool);
 						});
+						// Use stored session identity, with header fallback for stateless requests
+						let caller_identity = self
+							.caller_identity()
+							.or_else(|| CallerIdentity::from_headers(ctx.headers()));
 						self
 							.relay
-							.send_fanout(r, ctx, self.relay.merge_tools(cel.clone()))
+							.send_fanout(
+								r,
+								ctx,
+								self.relay.merge_tools_with_identity(cel.clone(), caller_identity),
+							)
 							.await
 					},
 					ClientRequest::PingRequest(_) | ClientRequest::SetLevelRequest(_) => {
@@ -369,14 +400,14 @@ impl Session {
 							} => {
 								log.non_atomic_mutate(|l| {
 									l.resource_name = Some(comp_name.clone());
-									l.target_name = Some("_composition".to_string());
+									l.target_name = Some(VIRTUAL_SERVER_NAME.to_string());
 									l.resource = Some(MCPOperation::Tool);
 								});
 
 								// Validate policies for the composition
 								if !self.relay.policies.validate(
 									&rbac::ResourceType::Tool(rbac::ResourceId::new(
-										"_composition".to_string(),
+										VIRTUAL_SERVER_NAME.to_string(),
 										comp_name.clone(),
 									)),
 									cel.as_ref(),
@@ -595,6 +626,7 @@ impl SessionManager {
 			relay: Arc::new(relay),
 			tx: None,
 			encoder: self.encoder.clone(),
+			caller_identity: Default::default(),
 		};
 		let mut sm = self.sessions.write().expect("write lock");
 		sm.insert(id.to_string(), sess.clone());
@@ -611,6 +643,7 @@ impl SessionManager {
 			relay: Arc::new(relay),
 			tx: None,
 			encoder: self.encoder.clone(),
+			caller_identity: Default::default(),
 		}
 	}
 
@@ -630,6 +663,7 @@ impl SessionManager {
 			relay: Arc::new(relay),
 			tx: None,
 			encoder: self.encoder.clone(),
+			caller_identity: Default::default(),
 		}
 	}
 
@@ -643,6 +677,7 @@ impl SessionManager {
 			relay: Arc::new(relay),
 			tx: Some(tx),
 			encoder: self.encoder.clone(),
+			caller_identity: Default::default(),
 		};
 		let mut sm = self.sessions.write().expect("write lock");
 		sm.insert(id.to_string(), sess.clone());

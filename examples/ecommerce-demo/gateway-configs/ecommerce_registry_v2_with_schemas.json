@@ -1,5 +1,5 @@
 {
-  "$comment": "eCommerce Demo Registry v2 - Virtual tools with compositions and reusable schemas",
+  "$comment": "eCommerce Demo Registry v2 - With extracted reusable schemas",
   "schemaVersion": "2.0",
 
   "schemas": [
@@ -30,35 +30,6 @@
             "items": {"$ref": "#ProductSummary"}
           },
           "total_found": {"type": "integer"}
-        }
-      }
-    },
-    {
-      "name": "PersonalizedProduct",
-      "version": "1.0.0",
-      "description": "Product with personalization scores",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "id": {"type": "string"},
-          "name": {"type": "string"},
-          "price": {"type": "number"},
-          "relevance_score": {"type": "number"},
-          "personalization_boost": {"type": "number"}
-        }
-      }
-    },
-    {
-      "name": "PersonalizedSearchOutput",
-      "version": "1.0.0",
-      "description": "Personalized search results",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "products": {
-            "type": "array",
-            "items": {"$ref": "#PersonalizedProduct"}
-          }
         }
       }
     },
@@ -120,20 +91,6 @@
       }
     },
     {
-      "name": "PersonalizedSearchInput",
-      "version": "1.0.0",
-      "description": "Input for personalized search",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "query": {"type": "string", "description": "Search query"},
-          "user_id": {"type": "string", "description": "User ID for personalization"},
-          "limit": {"type": "integer", "description": "Max results", "default": 10}
-        },
-        "required": ["query"]
-      }
-    },
-    {
       "name": "ProductIdInput",
       "version": "1.0.0",
       "description": "Input requiring a product ID",
@@ -169,10 +126,7 @@
         { "tool": "search_products", "version": "1.0.0" },
         { "tool": "list_products", "version": "1.0.0" },
         { "tool": "get_product", "version": "1.0.0" },
-        { "tool": "get_categories", "version": "1.0.0" },
-        { "tool": "search_index", "version": "1.0.0" },
-        { "tool": "hydrate_products", "version": "1.0.0" },
-        { "tool": "personalize_ranking", "version": "1.0.0" }
+        { "tool": "get_categories", "version": "1.0.0" }
       ],
       "metadata": {
         "owner": "catalog-team",
@@ -186,7 +140,6 @@
       "provides": [
         { "tool": "view_cart", "version": "1.0.0" },
         { "tool": "add_to_cart", "version": "1.0.0" },
-        { "tool": "update_cart_item", "version": "1.0.0" },
         { "tool": "remove_from_cart", "version": "1.0.0" },
         { "tool": "clear_cart", "version": "1.0.0" }
       ]
@@ -198,9 +151,7 @@
       "provides": [
         { "tool": "checkout", "version": "1.0.0" },
         { "tool": "get_order", "version": "1.0.0" },
-        { "tool": "list_orders", "version": "1.0.0" },
-        { "tool": "get_sales_report", "version": "1.0.0" },
-        { "tool": "update_order_status", "version": "1.0.0" }
+        { "tool": "list_orders", "version": "1.0.0" }
       ]
     },
     {
@@ -210,8 +161,8 @@
       "provides": [
         { "tool": "check_stock", "version": "1.0.0" },
         { "tool": "get_inventory_report", "version": "1.0.0" },
-        { "tool": "get_low_stock_alerts", "version": "1.0.0" },
-        { "tool": "adjust_inventory", "version": "1.0.0" }
+        { "tool": "reserve_inventory", "version": "1.0.0" },
+        { "tool": "release_inventory", "version": "1.0.0" }
       ]
     },
     {
@@ -220,10 +171,7 @@
       "description": "Supplier and purchase order management",
       "provides": [
         { "tool": "list_suppliers", "version": "1.0.0" },
-        { "tool": "get_supplier", "version": "1.0.0" },
         { "tool": "create_purchase_order", "version": "1.0.0" },
-        { "tool": "list_purchase_orders", "version": "1.0.0" },
-        { "tool": "receive_shipment", "version": "1.0.0" },
         { "tool": "get_all_quotes", "version": "1.0.0" }
       ]
     }
@@ -232,8 +180,6 @@
   "tools": [
     {
       "$comment": "--- Shopper-Friendly Product Search ---",
-      "$comment2": "Backend search_products has: query, category, min_price, max_price, in_stock_only, sort_by, sort_order, page, limit, include_embeddings, debug_scores",
-      "$comment3": "Shopper just needs: query and optional category. Hide complexity.",
       "name": "find_products",
       "description": "Search for products using natural language (e.g., 'comfortable running shoes under $100')",
       "source": {
@@ -257,8 +203,6 @@
 
     {
       "$comment": "--- Simple Cart View for Shoppers ---",
-      "$comment2": "Backend view_cart returns: items with product details, totals, tax calculations, shipping estimates",
-      "$comment3": "Shopper wants: what's in my cart and the total",
       "name": "my_cart",
       "description": "See what's in your shopping cart",
       "source": {
@@ -285,8 +229,6 @@
 
     {
       "$comment": "--- Quick Add to Cart ---",
-      "$comment2": "Backend add_to_cart needs: user_id, product_id, quantity, check_inventory, reserve_stock",
-      "$comment3": "Shopper just says: add this product",
       "name": "add_item",
       "description": "Add a product to your cart",
       "source": {
@@ -302,8 +244,6 @@
 
     {
       "$comment": "--- Merchandiser Inventory Summary ---",
-      "$comment2": "Backend get_inventory_report returns: products, stock_levels, reorder_points, supplier_info, cost_basis, turnover_rates",
-      "$comment3": "Merchandiser quick check: just stock status and alerts",
       "name": "stock_status",
       "description": "Quick inventory status check for merchandisers",
       "source": {
@@ -324,9 +264,6 @@
 
     {
       "$comment": "--- Personalized Search Pipeline ---",
-      "$comment2": "Step 1: search_index - fast token matching, returns (id, score) pairs",
-      "$comment3": "Step 2: hydrate_products - fetch full product details for IDs",
-      "$comment4": "Step 3: personalize_ranking - re-rank based on user preferences",
       "name": "personalized_search",
       "description": "Search products and personalize results based on your preferences",
       "spec": {
@@ -365,18 +302,37 @@
           ]
         }
       },
-      "inputSchema": {"$ref": "#PersonalizedSearchInput"},
-      "outputSchema": {"$ref": "#PersonalizedSearchOutput"},
-      "outputTransform": {
-        "mappings": {
-          "products": {"path": "$.products"}
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"},
+          "user_id": {"type": "string", "description": "User ID for personalization"},
+          "limit": {"type": "integer", "description": "Max results", "default": 10}
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string"},
+                "price": {"type": "number"},
+                "relevance_score": {"type": "number"},
+                "personalization_boost": {"type": "number"}
+              }
+            }
+          }
         }
       }
     },
 
     {
       "$comment": "--- Product Details with Availability ---",
-      "$comment2": "Get product info and real-time stock in one call",
       "name": "product_with_availability",
       "description": "Get product details including real-time stock availability",
       "spec": {
@@ -403,7 +359,6 @@
       },
       "inputSchema": {"$ref": "#ProductIdInput"}
     },
-
 
 
 
@@ -560,19 +515,14 @@
             "description": "Tool dependencies for scoped discovery",
             "params": {
               "depends": [
-                { "type": "tool", "name": "virtual_find_products", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_browse_products", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_product_details", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_my_cart", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_add_to_cart", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_add_item", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_remove_from_cart", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_view_cart", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_checkout", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_list_orders", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_order", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_personalized_search", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_product_with_availability", "version": "1.0.0" }
+                { "type": "tool", "name": "find_products", "version": "1.0.0" },
+                { "type": "tool", "name": "browse_products", "version": "1.0.0" },
+                { "type": "tool", "name": "product_details", "version": "1.0.0" },
+                { "type": "tool", "name": "my_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "add_to_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "remove_from_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "checkout", "version": "1.0.0" },
+                { "type": "tool", "name": "personalized_search", "version": "1.0.0" }
               ]
             }
           }
@@ -596,24 +546,14 @@
             "description": "Tool dependencies for scoped discovery",
             "params": {
               "depends": [
-                { "type": "tool", "name": "virtual_stock_status", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_inventory_report", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_low_stock_alerts", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_adjust_inventory", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_check_stock", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_list_suppliers", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_supplier", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_create_purchase_order", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_list_purchase_orders", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_receive_shipment", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_all_supplier_quotes", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_sales_report", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_update_order_status", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_list_orders", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_order", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_browse_products", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_product_details", "version": "1.0.0" },
-                { "type": "tool", "name": "virtual_get_categories", "version": "1.0.0" }
+                { "type": "tool", "name": "stock_status", "version": "1.0.0" },
+                { "type": "tool", "name": "list_suppliers", "version": "1.0.0" },
+                { "type": "tool", "name": "create_purchase_order", "version": "1.0.0" },
+                { "type": "tool", "name": "list_purchase_orders", "version": "1.0.0" },
+                { "type": "tool", "name": "receive_shipment", "version": "1.0.0" },
+                { "type": "tool", "name": "get_sales_report", "version": "1.0.0" },
+                { "type": "tool", "name": "update_order_status", "version": "1.0.0" },
+                { "type": "tool", "name": "smart_replenish", "version": "1.0.0" }
               ]
             }
           }

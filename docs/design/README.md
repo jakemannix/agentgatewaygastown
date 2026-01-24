@@ -86,6 +86,7 @@ See [registry-v2.md § Architecture Intent](./registry-v2.md#architecture-intent
 
 | Document | Description |
 |----------|-------------|
+| [fastmcp-transforms-comparison.md](./fastmcp-transforms-comparison.md) | Comparison of FastMCP 3.0 transforms vs AgentGateway vMCP |
 | [composition-test-plan.md](./composition-test-plan.md) | Test plan for tool composition patterns |
 | [registry-integration.md](./registry-integration.md) | Original registry integration design |
 | [saga-pattern.md](./saga-pattern.md) | Saga pattern for distributed transactions |
