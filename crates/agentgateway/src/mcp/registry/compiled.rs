@@ -20,6 +20,11 @@ use super::types::{
 /// Maximum depth for reference resolution (safety limit)
 const MAX_REFERENCE_DEPTH: usize = 100;
 
+/// Server name used for all virtual tools (both source-based and compositions).
+/// This provides a uniform {server}_{tool} naming convention where virtual tools
+/// are exposed as "virtual_{name}" (e.g., "virtual_get_weather", "virtual_personalized_search").
+pub const VIRTUAL_SERVER_NAME: &str = "virtual";
+
 /// Compiled registry ready for runtime use
 #[derive(Debug)]
 pub struct CompiledRegistry {
@@ -385,10 +390,11 @@ impl CompiledRegistry {
 				virtualized_sources.insert((target.clone(), source_tool.clone()));
 
 				// Create virtual tools from this source
+				// Use VIRTUAL_SERVER_NAME for uniform {server}_{tool} naming
 				for vname in virtual_names {
 					if let Some(compiled) = self.tools_by_name.get(vname) {
 						if let Some(virtual_tool) = compiled.create_virtual_tool(source_tool_def) {
-							result.push((target.clone(), virtual_tool));
+							result.push((VIRTUAL_SERVER_NAME.to_string(), virtual_tool));
 						}
 					}
 				}
@@ -435,13 +441,13 @@ impl CompiledRegistry {
 					icons: None,
 					meta: None,
 				};
-				result.push(("_composition".to_string(), composition_tool));
+				result.push((VIRTUAL_SERVER_NAME.to_string(), composition_tool));
 			}
 		}
 		tracing::debug!(
 			target: "virtual_tools",
 			total_tools = result.len(),
-			compositions = result.iter().filter(|(t, _)| t == "_composition").count(),
+			compositions = result.iter().filter(|(t, _)| t == VIRTUAL_SERVER_NAME).count(),
 			"transform_tools completed"
 		);
 
@@ -1321,8 +1327,8 @@ mod tests {
 
 		let result = compiled.transform_tools(backend_tools);
 
-		// Should have the virtual tool
-		let virtual_tools: Vec<_> = result.iter().filter(|(t, _)| t == "weather").collect();
+		// Should have the virtual tool with "virtual" as server name
+		let virtual_tools: Vec<_> = result.iter().filter(|(t, _)| t == VIRTUAL_SERVER_NAME).collect();
 		assert_eq!(virtual_tools.len(), 1);
 		assert_eq!(virtual_tools[0].1.name.as_ref(), "get_weather");
 		assert_eq!(
@@ -1349,6 +1355,58 @@ mod tests {
 		let names: Vec<_> = result.iter().map(|(_, t)| t.name.as_ref()).collect();
 		assert!(names.contains(&"get_weather"));
 		assert!(names.contains(&"other_tool"));
+	}
+
+	/// Virtual tools (source-based) should use "virtual" as their server name
+	/// so they follow the uniform {server}_{tool} naming convention.
+	#[test]
+	fn test_transform_tools_virtual_server_for_source_tools() {
+		let tool = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
+			.with_description("Get weather info");
+		let registry = Registry::with_tools(vec![tool]);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		let source_tool = create_source_tool("fetch_weather", "Original description");
+		let backend_tools = vec![("weather".to_string(), source_tool)];
+
+		let result = compiled.transform_tools(backend_tools);
+
+		// Virtual tool should have "virtual" as its server name
+		let virtual_tools: Vec<_> = result.iter().filter(|(server, _)| server == "virtual").collect();
+		assert_eq!(virtual_tools.len(), 1, "Expected 1 virtual tool with server='virtual'");
+		assert_eq!(virtual_tools[0].1.name.as_ref(), "get_weather");
+	}
+
+	/// Compositions should use "virtual" as their server name
+	/// so they follow the uniform {server}_{tool} naming convention.
+	#[test]
+	fn test_transform_tools_virtual_server_for_compositions() {
+		let composition = ToolDefinition::composition(
+			"my_pipeline",
+			PatternSpec::Pipeline(PipelineSpec {
+				steps: vec![PipelineStep {
+					id: "step1".to_string(),
+					operation: StepOperation::Tool(ToolCall::new("some_tool")),
+					input: None,
+				}],
+			}),
+		)
+		.with_description("A test composition");
+
+		let registry = Registry::with_tool_definitions(vec![composition]);
+		let compiled = CompiledRegistry::compile(registry).unwrap();
+
+		// No backend tools, just checking composition
+		let result = compiled.transform_tools(vec![]);
+
+		// Composition should have "virtual" as its server name
+		let compositions: Vec<_> = result.iter().filter(|(server, _)| server == "virtual").collect();
+		assert_eq!(compositions.len(), 1, "Expected 1 composition with server='virtual'");
+		assert_eq!(compositions[0].1.name.as_ref(), "my_pipeline");
+
+		// Verify there are no tools with "_composition" as server (old behavior)
+		let old_style: Vec<_> = result.iter().filter(|(server, _)| server == "_composition").collect();
+		assert_eq!(old_style.len(), 0, "Should not use '_composition' as server name");
 	}
 
 	#[test]

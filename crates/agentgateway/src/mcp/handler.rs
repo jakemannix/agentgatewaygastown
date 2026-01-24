@@ -36,6 +36,12 @@ use crate::telemetry::trc::TraceParent;
 
 const DELIMITER: &str = "_";
 
+/// Server name used for all virtual tools (both source-based and compositions).
+/// This provides a uniform {server}_{tool} naming convention where virtual tools
+/// are exposed as "virtual_{name}" (e.g., "virtual_get_weather").
+/// Re-exported from registry module for consistency.
+pub use super::registry::VIRTUAL_SERVER_NAME;
+
 /// Result of resolving a tool call, which may be a virtual tool or composition
 #[derive(Debug, Clone)]
 pub enum ResolvedToolCall {
@@ -60,11 +66,10 @@ pub enum ResolvedToolCall {
 }
 
 fn resource_name(default_target_name: Option<&String>, target: &str, name: &str) -> String {
-	// Compositions always use their simple name - no target prefix
-	// They are identified by their registry name, not by a target prefix
-	if target == "_composition" {
-		name.to_string()
-	} else if default_target_name.is_none() {
+	// All tools use the uniform {server}_{name} convention now.
+	// Virtual tools (both source-based and compositions) use VIRTUAL_SERVER_NAME ("virtual")
+	// as their server, so they become "virtual_name".
+	if default_target_name.is_none() {
 		format!("{target}{DELIMITER}{name}")
 	} else {
 		name.to_string()
@@ -131,73 +136,83 @@ impl Relay {
 	/// For compositions, this returns the composition name for local execution.
 	///
 	/// For regular tools, this delegates to parse_resource_name.
+	///
+	/// With the uniform {server}_{tool} naming convention:
+	/// - Virtual tools are named "virtual_{name}" (e.g., "virtual_get_weather")
+	/// - Backend tools are named "{server}_{tool}" (e.g., "catalog-service_search")
 	pub fn resolve_tool_call(
 		&self,
 		tool_name: &str,
 		args: serde_json::Value,
 	) -> Result<ResolvedToolCall, UpstreamError> {
-		// First check if this is a virtual tool or composition in the registry
-		if let Some(ref reg) = self.registry {
-			let guard = reg.get();
-			if let Some(ref compiled_registry) = **guard {
-				// Try direct lookup first, then try stripping server prefix
-				// (tools are listed with prefix like "catalog-service_find_products" but
-				// stored by virtual name like "find_products")
-				let base_name = tool_name
-					.split_once(DELIMITER)
-					.map(|(_, name)| name)
-					.unwrap_or(tool_name);
+		// Check if this is a virtual tool (starts with "virtual_")
+		let virtual_prefix = format!("{}{}", VIRTUAL_SERVER_NAME, DELIMITER);
+		let is_virtual_tool = tool_name.starts_with(&virtual_prefix);
 
-				// Track which name we found the tool by (for virtual_name later)
-				let found = compiled_registry
-					.get_tool(tool_name)
-					.map(|t| (t, tool_name))
-					.or_else(|| compiled_registry.get_tool(base_name).map(|t| (t, base_name)));
+		// If it's a virtual tool, look it up in the registry
+		if is_virtual_tool {
+			if let Some(ref reg) = self.registry {
+				let guard = reg.get();
+				if let Some(ref compiled_registry) = **guard {
+					// Extract the registry name (strip "virtual_" prefix)
+					let registry_name = &tool_name[virtual_prefix.len()..];
 
-				if let Some((tool, registry_name)) = found {
-					// Check if this is a composition
-					if tool.is_composition() {
-						tracing::debug!(
-							target: "virtual_tools",
-							composition = registry_name,
-							"resolved tool as composition"
-						);
-						return Ok(ResolvedToolCall::Composition {
-							name: registry_name.to_string(),
-							args,
-						});
+					if let Some(tool) = compiled_registry.get_tool(registry_name) {
+						// Check if this is a composition
+						if tool.is_composition() {
+							tracing::debug!(
+								target: "virtual_tools",
+								composition = registry_name,
+								"resolved tool as composition"
+							);
+							return Ok(ResolvedToolCall::Composition {
+								name: registry_name.to_string(),
+								args,
+							});
+						}
+
+						// This is a source-based virtual tool - resolve to backend
+						if let Some(source_info) = tool.source_info() {
+							let target = source_info.source.target.clone();
+							let backend_tool = source_info.source.tool.clone();
+
+							tracing::debug!(
+								target: "virtual_tools",
+								virtual_tool = registry_name,
+								backend_target = %target,
+								backend_tool = %backend_tool,
+								"resolved virtual tool to backend"
+							);
+
+							// Inject defaults
+							let transformed_args = tool
+								.inject_defaults(args)
+								.map_err(|e| UpstreamError::InvalidRequest(e.to_string()))?;
+
+							return Ok(ResolvedToolCall::Backend {
+								target,
+								tool_name: backend_tool,
+								args: transformed_args,
+								virtual_name: Some(registry_name.to_string()),
+							});
+						}
 					}
 
-					// This is a source-based virtual tool - resolve to backend
-					if let Some(source_info) = tool.source_info() {
-						let target = source_info.source.target.clone();
-						let backend_tool = source_info.source.tool.clone();
-
-						tracing::debug!(
-							target: "virtual_tools",
-							virtual_tool = registry_name,
-							backend_target = %target,
-							backend_tool = %backend_tool,
-							"resolved virtual tool to backend"
-						);
-
-						// Inject defaults
-						let transformed_args = tool
-							.inject_defaults(args)
-							.map_err(|e| UpstreamError::InvalidRequest(e.to_string()))?;
-
-						return Ok(ResolvedToolCall::Backend {
-							target,
-							tool_name: backend_tool,
-							args: transformed_args,
-							virtual_name: Some(registry_name.to_string()),
-						});
-					}
+					// Virtual tool not found in registry
+					return Err(UpstreamError::InvalidRequest(format!(
+						"virtual tool '{}' not found in registry",
+						registry_name
+					)));
 				}
 			}
+
+			// No registry configured but got a virtual tool request
+			return Err(UpstreamError::InvalidRequest(
+				"no registry configured for virtual tool resolution".to_string(),
+			));
 		}
 
-		// Not a virtual tool or composition - parse normally
+		// Not a virtual tool - parse as backend tool ({server}_{tool})
 		let (service_name, actual_tool) = self.parse_resource_name(tool_name)?;
 		Ok(ResolvedToolCall::Backend {
 			target: service_name.to_string(),
@@ -500,7 +515,7 @@ impl Relay {
 			};
 
 			// Log what we received from transform_tools
-			let composition_count = transformed_tools.iter().filter(|(t, _)| t == "_composition").count();
+			let composition_count = transformed_tools.iter().filter(|(t, _)| t == VIRTUAL_SERVER_NAME).count();
 			tracing::debug!(
 				target: "virtual_tools",
 				total_transformed = transformed_tools.len(),
@@ -595,11 +610,11 @@ impl Relay {
 						)),
 						&cel,
 					);
-					if !allowed && server_name == "_composition" {
+					if !allowed && server_name == VIRTUAL_SERVER_NAME {
 						tracing::debug!(
 							target: "virtual_tools",
-							composition = %t.name,
-							"composition tool blocked by policy"
+							virtual_tool = %t.name,
+							"virtual tool blocked by policy"
 						);
 					}
 					if !allowed {

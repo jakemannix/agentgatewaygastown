@@ -18,7 +18,7 @@ use sse_stream::{KeepAlive, Sse, SseBody, SseStream};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::http::Response;
-use crate::mcp::handler::{Relay, RelayToolInvoker, ResolvedToolCall};
+use crate::mcp::handler::{Relay, RelayToolInvoker, ResolvedToolCall, VIRTUAL_SERVER_NAME};
 use crate::mcp::identity::CallerIdentity;
 use crate::mcp::mergestream::Messages;
 use crate::mcp::registry::executor::{CompositionExecutor, TracingContext};
@@ -400,14 +400,14 @@ impl Session {
 							} => {
 								log.non_atomic_mutate(|l| {
 									l.resource_name = Some(comp_name.clone());
-									l.target_name = Some("_composition".to_string());
+									l.target_name = Some(VIRTUAL_SERVER_NAME.to_string());
 									l.resource = Some(MCPOperation::Tool);
 								});
 
 								// Validate policies for the composition
 								if !self.relay.policies.validate(
 									&rbac::ResourceType::Tool(rbac::ResourceId::new(
-										"_composition".to_string(),
+										VIRTUAL_SERVER_NAME.to_string(),
 										comp_name.clone(),
 									)),
 									cel.as_ref(),

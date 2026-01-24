@@ -22,6 +22,7 @@ pub use client::{AuthConfig, RegistryClient, RegistrySource, parse_duration};
 pub use compiled::{
 	CompiledComposition, CompiledFieldSource, CompiledImplementation, CompiledOutputField,
 	CompiledOutputTransform, CompiledRegistry, CompiledSourceTool, CompiledTool, CompiledVirtualTool,
+	VIRTUAL_SERVER_NAME,
 };
 pub use error::RegistryError;
 pub use patterns::{
