@@ -125,7 +125,10 @@ class IntegrationTester:
                         "clientInfo": {"name": "test", "version": "1.0"},
                     },
                 },
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
             )
             assert response.status_code == 200, f"Gateway returned {response.status_code}"
 
@@ -134,24 +137,24 @@ class IntegrationTester:
         tools = await self.client.list_tools()
         assert len(tools) > 0, "No tools found"
 
-        # Check for expected tools
+        # Check for expected tools (all virtual tools have "virtual_" prefix)
         tool_names = {t["name"] for t in tools}
 
         # Basic passthrough tools
-        expected_basic = {"find_products", "my_cart", "add_item", "stock_status"}
+        expected_basic = {"virtual_find_products", "virtual_my_cart", "virtual_add_item", "virtual_stock_status"}
         missing_basic = expected_basic - tool_names
         assert not missing_basic, f"Missing basic tools: {missing_basic}"
 
         # Composition tools
-        expected_compositions = {"personalized_search", "product_with_availability"}
+        expected_compositions = {"virtual_personalized_search", "virtual_product_with_availability"}
         missing_compositions = expected_compositions - tool_names
         assert not missing_compositions, f"Missing composition tools: {missing_compositions}"
 
         self.log(f"Found {len(tools)} tools including {len(expected_compositions)} compositions")
 
     async def test_basic_passthrough_tool(self):
-        """Test a basic passthrough tool (find_products)."""
-        result = await self.client.call_tool("find_products", {"query": "headphones"})
+        """Test a basic passthrough tool (virtual_find_products)."""
+        result = await self.client.call_tool("virtual_find_products", {"query": "headphones"})
 
         # Result should have products array
         assert "products" in result or "error" not in result, f"Unexpected result: {result}"
@@ -165,8 +168,8 @@ class IntegrationTester:
                 assert "name" in product, "Product missing 'name' field"
 
     async def test_stock_status_tool(self):
-        """Test the stock_status passthrough tool."""
-        result = await self.client.call_tool("stock_status", {})
+        """Test the virtual_stock_status passthrough tool."""
+        result = await self.client.call_tool("virtual_stock_status", {})
 
         # Should have summary fields from output transform
         assert (
@@ -175,9 +178,9 @@ class IntegrationTester:
         self.log(f"Stock status: {json.dumps(result)[:100]}...")
 
     async def test_search_products_raw(self):
-        """Test raw search_products tool (without projection)."""
+        """Test raw virtual_search_products tool (without projection)."""
         result = await self.client.call_tool(
-            "search_products", {"query": "shoes", "limit": 3}
+            "virtual_search_products", {"query": "shoes", "limit": 3}
         )
 
         # Raw tool should return full result
@@ -185,9 +188,9 @@ class IntegrationTester:
         self.log(f"Raw search returned: {json.dumps(result)[:100]}...")
 
     async def test_composition_pipeline(self):
-        """Test a pipeline composition (personalized_search)."""
+        """Test a pipeline composition (virtual_personalized_search)."""
         result = await self.client.call_tool(
-            "personalized_search", {"query": "laptop", "user_id": "test-user"}
+            "virtual_personalized_search", {"query": "laptop", "user_id": "test-user"}
         )
 
         # Pipeline should return results (may be empty if no products match)
@@ -199,9 +202,9 @@ class IntegrationTester:
         assert isinstance(result, dict), f"Expected dict, got {type(result)}"
 
     async def test_composition_parallel_pipeline(self):
-        """Test product_with_availability (parallel steps from different services)."""
+        """Test virtual_product_with_availability (parallel steps from different services)."""
         # First get a product ID
-        products = await self.client.call_tool("browse_products", {"limit": 1})
+        products = await self.client.call_tool("virtual_browse_products", {"limit": 1})
         if "products" in products and products["products"]:
             product_id = products["products"][0]["id"]
         else:
@@ -209,7 +212,7 @@ class IntegrationTester:
             product_id = "PROD-001"
 
         result = await self.client.call_tool(
-            "product_with_availability", {"product_id": product_id}
+            "virtual_product_with_availability", {"product_id": product_id}
         )
 
         self.log(f"Product+availability result: {json.dumps(result)[:200]}...")
@@ -218,22 +221,22 @@ class IntegrationTester:
     async def test_cart_operations(self):
         """Test cart operation sequence: view -> add -> view."""
         # View empty cart
-        cart = await self.client.call_tool("my_cart", {})
+        cart = await self.client.call_tool("virtual_my_cart", {})
         self.log(f"Initial cart: {json.dumps(cart)[:100]}...")
 
         # Get a product to add
-        products = await self.client.call_tool("find_products", {"query": "test"})
+        products = await self.client.call_tool("virtual_find_products", {"query": "test"})
         if "products" in products and products["products"]:
             product_id = products["products"][0]["id"]
 
             # Add to cart
             add_result = await self.client.call_tool(
-                "add_item", {"product_id": product_id, "quantity": 1}
+                "virtual_add_item", {"product_id": product_id, "quantity": 1}
             )
             self.log(f"Add to cart result: {json.dumps(add_result)[:100]}...")
 
             # View cart again
-            cart_after = await self.client.call_tool("my_cart", {})
+            cart_after = await self.client.call_tool("virtual_my_cart", {})
             self.log(f"Cart after add: {json.dumps(cart_after)[:100]}...")
 
     # ==================== Agent Tests ====================

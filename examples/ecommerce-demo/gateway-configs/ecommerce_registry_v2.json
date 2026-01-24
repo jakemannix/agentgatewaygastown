@@ -560,19 +560,19 @@
             "description": "Tool dependencies for scoped discovery",
             "params": {
               "depends": [
-                { "type": "tool", "name": "find_products", "version": "1.0.0" },
-                { "type": "tool", "name": "browse_products", "version": "1.0.0" },
-                { "type": "tool", "name": "get_product_details", "version": "1.0.0" },
-                { "type": "tool", "name": "my_cart", "version": "1.0.0" },
-                { "type": "tool", "name": "add_to_cart", "version": "1.0.0" },
-                { "type": "tool", "name": "add_item", "version": "1.0.0" },
-                { "type": "tool", "name": "remove_from_cart", "version": "1.0.0" },
-                { "type": "tool", "name": "view_cart", "version": "1.0.0" },
-                { "type": "tool", "name": "checkout", "version": "1.0.0" },
-                { "type": "tool", "name": "list_orders", "version": "1.0.0" },
-                { "type": "tool", "name": "get_order", "version": "1.0.0" },
-                { "type": "tool", "name": "personalized_search", "version": "1.0.0" },
-                { "type": "tool", "name": "product_with_availability", "version": "1.0.0" }
+                { "type": "tool", "name": "virtual_find_products", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_browse_products", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_product_details", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_my_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_add_to_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_add_item", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_remove_from_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_view_cart", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_checkout", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_list_orders", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_order", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_personalized_search", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_product_with_availability", "version": "1.0.0" }
               ]
             }
           }
@@ -596,24 +596,24 @@
             "description": "Tool dependencies for scoped discovery",
             "params": {
               "depends": [
-                { "type": "tool", "name": "stock_status", "version": "1.0.0" },
-                { "type": "tool", "name": "get_inventory_report", "version": "1.0.0" },
-                { "type": "tool", "name": "get_low_stock_alerts", "version": "1.0.0" },
-                { "type": "tool", "name": "adjust_inventory", "version": "1.0.0" },
-                { "type": "tool", "name": "check_stock", "version": "1.0.0" },
-                { "type": "tool", "name": "list_suppliers", "version": "1.0.0" },
-                { "type": "tool", "name": "get_supplier", "version": "1.0.0" },
-                { "type": "tool", "name": "create_purchase_order", "version": "1.0.0" },
-                { "type": "tool", "name": "list_purchase_orders", "version": "1.0.0" },
-                { "type": "tool", "name": "receive_shipment", "version": "1.0.0" },
-                { "type": "tool", "name": "get_all_supplier_quotes", "version": "1.0.0" },
-                { "type": "tool", "name": "get_sales_report", "version": "1.0.0" },
-                { "type": "tool", "name": "update_order_status", "version": "1.0.0" },
-                { "type": "tool", "name": "list_orders", "version": "1.0.0" },
-                { "type": "tool", "name": "get_order", "version": "1.0.0" },
-                { "type": "tool", "name": "browse_products", "version": "1.0.0" },
-                { "type": "tool", "name": "get_product_details", "version": "1.0.0" },
-                { "type": "tool", "name": "get_categories", "version": "1.0.0" }
+                { "type": "tool", "name": "virtual_stock_status", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_inventory_report", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_low_stock_alerts", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_adjust_inventory", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_check_stock", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_list_suppliers", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_supplier", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_create_purchase_order", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_list_purchase_orders", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_receive_shipment", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_all_supplier_quotes", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_sales_report", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_update_order_status", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_list_orders", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_order", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_browse_products", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_product_details", "version": "1.0.0" },
+                { "type": "tool", "name": "virtual_get_categories", "version": "1.0.0" }
               ]
             }
           }
