@@ -54,7 +54,7 @@ impl PipelineExecutor {
 
 			// Execute the step operation
 			let result = match &step.operation {
-				StepOperation::Tool(tc) => executor.execute_tool(&tc.name, step_input, ctx).await,
+				StepOperation::Tool(tc) => executor.execute_tool(&tc.qualified_name(), step_input, ctx).await,
 				StepOperation::Pattern(pattern) => {
 					let child_ctx = ctx.child(step_input.clone());
 					executor

@@ -12,7 +12,8 @@ Agentgateway is an open source data plane for agentic AI connectivity, written i
 # Build (requires Rust 1.86+, npm 10+)
 cd ui && npm install && npm run build && cd ..
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
-make build                      # Release build with UI
+cargo build -p agentgateway-app # Debug build (fast, use for local testing)
+make build                      # Release build with UI (slow, use for final testing only)
 
 # Lint
 make lint                       # Check formatting and clippy

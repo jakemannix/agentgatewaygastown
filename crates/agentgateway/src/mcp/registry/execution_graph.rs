@@ -166,7 +166,7 @@ impl ExecutionGraph {
 						id: s.id.clone(),
 						operation: match &s.operation {
 							super::patterns::StepOperation::Tool(tc) => StepOperationNode::Tool {
-								name: tc.name.clone(),
+								name: tc.qualified_name(),
 							},
 							super::patterns::StepOperation::Pattern(p) => {
 								StepOperationNode::Pattern(p.clone())

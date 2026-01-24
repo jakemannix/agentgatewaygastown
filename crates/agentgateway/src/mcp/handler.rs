@@ -148,20 +148,22 @@ impl Relay {
 					.map(|(_, name)| name)
 					.unwrap_or(tool_name);
 
-				let tool = compiled_registry
+				// Track which name we found the tool by (for virtual_name later)
+				let found = compiled_registry
 					.get_tool(tool_name)
-					.or_else(|| compiled_registry.get_tool(base_name));
+					.map(|t| (t, tool_name))
+					.or_else(|| compiled_registry.get_tool(base_name).map(|t| (t, base_name)));
 
-				if let Some(tool) = tool {
+				if let Some((tool, registry_name)) = found {
 					// Check if this is a composition
 					if tool.is_composition() {
 						tracing::debug!(
 							target: "virtual_tools",
-							composition = tool_name,
+							composition = registry_name,
 							"resolved tool as composition"
 						);
 						return Ok(ResolvedToolCall::Composition {
-							name: tool_name.to_string(),
+							name: registry_name.to_string(),
 							args,
 						});
 					}
@@ -173,7 +175,7 @@ impl Relay {
 
 						tracing::debug!(
 							target: "virtual_tools",
-							virtual_tool = tool_name,
+							virtual_tool = registry_name,
 							backend_target = %target,
 							backend_tool = %backend_tool,
 							"resolved virtual tool to backend"
@@ -188,7 +190,7 @@ impl Relay {
 							target,
 							tool_name: backend_tool,
 							args: transformed_args,
-							virtual_name: Some(tool_name.to_string()),
+							virtual_name: Some(registry_name.to_string()),
 						});
 					}
 				}

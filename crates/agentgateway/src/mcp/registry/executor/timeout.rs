@@ -58,7 +58,7 @@ impl TimeoutExecutor {
 		executor: &CompositionExecutor,
 	) -> Result<Value, ExecutionError> {
 		match operation {
-			StepOperation::Tool(tc) => executor.execute_tool(&tc.name, input, ctx).await,
+			StepOperation::Tool(tc) => executor.execute_tool(&tc.qualified_name(), input, ctx).await,
 			StepOperation::Pattern(pattern) => {
 				let child_ctx = ctx.child(input.clone());
 				executor.execute_pattern(pattern, input, &child_ctx).await
