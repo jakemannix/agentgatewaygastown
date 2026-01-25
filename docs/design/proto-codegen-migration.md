@@ -653,10 +653,11 @@ cd examples/pattern-demos
 ### Phase 6: TypeScript Migration ✅ COMPLETE
 - [x] Run buf generate for TypeScript (buf.gen.ts.yaml with remote ts-proto plugin)
 - [x] Generated types include fromJSON/toJSON methods (161KB registry.ts)
-- [x] All 83 existing TypeScript tests pass
-- [ ] Update builder.ts to use generated types (deferred)
-- [ ] Update compiler.ts to use generated serialization (deferred)
-- [ ] Add deprecation notice to types.ts (deferred)
+- [x] All 88 TypeScript tests pass (5 new proto tests added)
+- [x] Add deprecation notice to types.ts with proto namespace re-export
+- [x] Add parseProtoRegistry/serializeProtoRegistry/canonicalizeRegistry to compiler.ts
+- [x] Export proto namespace from index.ts for canonical type usage
+- [x] Builder API unchanged (backwards compatible with hand-written types)
 
 ### Phase 7: Visual Builder (PENDING)
 - [ ] Create browser bundle of generated types
