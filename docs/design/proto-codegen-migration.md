@@ -647,7 +647,10 @@ cd examples/pattern-demos
   - Implements `From<proto::*>` for all hand-written types
   - Enables parsing with proto types, then converting to hand-written for runtime
   - Exports `parse_registry_from_proto()` function
-- [ ] Switch store.rs to parse generated types
+- [x] Switch store.rs to parse generated types (278 tests passing)
+  - client.rs now uses `parse_registry_from_proto()` for parsing
+  - Falls back to hand-written types for backward compat with `target` field
+  - Validates all existing registry files work unchanged
 - [ ] Migrate each executor module
 - [ ] Delete hand-written types.rs
 - [ ] Delete hand-written patterns/*.rs types

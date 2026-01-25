@@ -811,8 +811,9 @@ impl From<proto::ClaimCheckSpec> for ClaimCheckSpec {
 /// Parse a JSON string using proto types and convert to hand-written types.
 ///
 /// This is the recommended way to parse registry JSON files during the migration:
-/// - Uses proto types for canonical JSON parsing (proto3 format)
-/// - Converts to hand-written types for runtime (with all methods)
+/// - First attempts to parse using proto types (canonical proto3 format with "server" field)
+/// - Falls back to hand-written types if proto parsing fails (for backward compat with "target" field)
+/// - When proto succeeds, converts to hand-written types for runtime (with all methods)
 ///
 /// # Example
 /// ```ignore
@@ -820,8 +821,14 @@ impl From<proto::ClaimCheckSpec> for ClaimCheckSpec {
 /// let registry = parse_registry_from_proto(&json)?;
 /// ```
 pub fn parse_registry_from_proto(json: &str) -> Result<Registry, serde_json::Error> {
-	let proto_registry: proto::Registry = serde_json::from_str(json)?;
-	Ok(proto_registry.into())
+	// Try proto types first (canonical format with "server" field)
+	match serde_json::from_str::<proto::Registry>(json) {
+		Ok(proto_registry) => Ok(proto_registry.into()),
+		Err(_proto_err) => {
+			// Fall back to hand-written types (supports "target" alias for backward compat)
+			serde_json::from_str::<Registry>(json)
+		},
+	}
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ use tracing::info;
 
 use super::error::RegistryError;
 use super::types::Registry;
+use super::types_compat::parse_registry_from_proto;
 
 /// Source for registry data
 #[derive(Debug, Clone)]
@@ -107,7 +108,8 @@ impl RegistryClient {
 	async fn fetch_from_file(&self, path: &PathBuf) -> Result<Registry, RegistryError> {
 		info!(target: "virtual_tools", "Loading registry from file: {}", path.display());
 		let content = fs_err::tokio::read_to_string(path).await?;
-		let registry: Registry = serde_json::from_str(&content)?;
+		// Parse using proto types first, then convert to hand-written types
+		let registry = parse_registry_from_proto(&content)?;
 		info!(target: "virtual_tools", "Loaded {} tools from registry file", registry.len());
 		Ok(registry)
 	}
@@ -150,7 +152,8 @@ impl RegistryClient {
 			.await
 			.map_err(|e| RegistryError::FetchError(format!("Failed to read response body: {}", e)))?;
 
-		let registry: Registry = serde_json::from_str(&body)?;
+		// Parse using proto types first, then convert to hand-written types
+		let registry = parse_registry_from_proto(&body)?;
 		info!(target: "virtual_tools", "Fetched {} tools from registry URL", registry.len());
 		Ok(registry)
 	}
