@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "tool_with_output_transform",
+      "description": "Source tool with output transformation",
+      "source": {
+        "target": "backend",
+        "tool": "raw_search"
+      },
+      "outputTransform": {
+        "mappings": {
+          "results": {"path": "$.data.items"},
+          "total": {"path": "$.data.count"},
+          "source": {"literal": {"stringValue": "backend"}}
+        }
+      }
+    }
+  ]
+}

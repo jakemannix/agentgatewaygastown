@@ -1,8 +1,23 @@
 version: v1
 plugins:
-- name: go
-  out: go/api
-  opt: paths=source_relative
-- name: golang-jsonshim
-  out: go/api
-  opt: paths=source_relative
+  # Go generation
+  - name: go
+    out: go/api
+    opt: paths=source_relative
+  - name: golang-jsonshim
+    out: go/api
+    opt: paths=source_relative
+
+  # TypeScript generation for vmcp-dsl
+  # Uses ts-proto for JSON-compatible TypeScript types
+  - plugin: ts-proto
+    out: packages/vmcp-dsl/src/generated
+    opt:
+      - esModuleInterop=true
+      - outputJsonMethods=true
+      - outputEncodeMethods=false
+      - stringEnums=true
+      - useOptionals=messages
+      - snakeToCamel=true
+      - forceLong=string
+      - oneof=unions

@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "2.0",
+
+  "schemas": [
+    {
+      "name": "SearchQuery",
+      "version": "1.0.0",
+      "description": "Standard search input",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "limit": {"type": "integer", "default": 10}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "SearchResult",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "score": {"type": "number"}
+        },
+        "required": ["id", "score"]
+      }
+    }
+  ],
+
+  "servers": [
+    {
+      "name": "search-service",
+      "version": "1.0.0",
+      "description": "Search backend service",
+      "provides": [
+        {"tool": "search", "version": "1.0.0"},
+        {"tool": "suggest", "version": "1.0.0"}
+      ],
+      "metadata": {
+        "owner": "search-team"
+      }
+    }
+  ],
+
+  "tools": [
+    {
+      "name": "search",
+      "version": "1.0.0",
+      "description": "Search with schema refs",
+      "source": {
+        "server": "search-service",
+        "serverVersion": "1.0.0",
+        "tool": "search"
+      },
+      "inputSchema": {"$ref": "#SearchQuery:1.0.0"},
+      "outputSchema": {"$ref": "#SearchResult:1.0.0"}
+    },
+    {
+      "name": "search_v1_compat",
+      "description": "v1 style source for compatibility",
+      "source": {
+        "target": "legacy-backend",
+        "tool": "old_search"
+      }
+    }
+  ],
+
+  "agents": [
+    {
+      "name": "search-agent",
+      "version": "1.0.0",
+      "description": "Search-focused agent",
+      "url": "http://search-agent:9000",
+      "protocolVersion": "0.2.1",
+      "defaultInputModes": ["text"],
+      "defaultOutputModes": ["text"],
+      "skills": [
+        {
+          "id": "search",
+          "name": "Search",
+          "description": "Search across sources",
+          "tags": ["search"],
+          "inputModes": ["text"],
+          "outputModes": ["text"],
+          "inputSchema": {"$ref": "#SearchQuery:1.0.0"}
+        }
+      ],
+      "capabilities": {
+        "streaming": true,
+        "extensions": [
+          {
+            "uri": "urn:agentgateway:sbom",
+            "params": {
+              "depends": [
+                {"type": "tool", "name": "search", "version": "1.0.0"}
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -663,7 +663,7 @@
     <div class="panel output-panel">
       <div class="output-tabs">
         <button class="output-tab active" data-tab="json">JSON Output</button>
-        <button class="output-tab" data-tab="typescript">TypeScript</button>
+        <button class="output-tab" data-tab="registry">Full Registry</button>
       </div>
       <div class="panel-content">
         <div id="validation-messages"></div>
@@ -676,9 +676,6 @@
           </button>
           <pre class="json-output" id="output-json"></pre>
         </div>
-        <div id="output-typescript" style="display: none;">
-          <pre class="json-output"></pre>
-        </div>
       </div>
     </div>
   </div>
@@ -687,13 +684,21 @@
     // ==========================================================================
     // State
     // ==========================================================================
+    //
+    // This builder generates JSON compatible with the proto3 registry format.
+    // The output can be used directly in registry files and parsed by both
+    // proto-generated types and hand-written types.
+    //
+    // Proto format reference: crates/agentgateway/proto/registry.proto
+    // ==========================================================================
 
     const state = {
       compositionName: 'my_composition',
       compositionDesc: '',
       steps: [],
       selectedStep: null,
-      expandedSteps: new Set()
+      expandedSteps: new Set(),
+      outputFormat: 'tool' // 'tool' or 'registry'
     };
 
     // Sample tools from ecommerce demo
@@ -1268,18 +1273,16 @@
     });
 
     // ==========================================================================
-    // JSON Generation
+    // JSON Generation (Proto3 Compatible Format)
+    // ==========================================================================
+    //
+    // Generated JSON follows the proto3 JSON mapping:
+    // - Field names use camelCase (e.g., stepId, schemaVersion)
+    // - The structure matches registry.proto definitions
+    // - Output can be parsed by proto-generated types or hand-written types
     // ==========================================================================
 
-    function generateJSON() {
-      if (state.steps.length === 0) {
-        return {
-          name: state.compositionName,
-          description: state.compositionDesc || undefined,
-          spec: { pipeline: { steps: [] } }
-        };
-      }
-
+    function generateToolDefinition() {
       const steps = state.steps.map(step => {
         const stepObj = {
           id: step.id,
@@ -1291,13 +1294,13 @@
           }
         };
 
-        // Add input binding
+        // Add input binding (DataBinding in proto)
         stepObj.input = convertBinding(step.input);
 
         return stepObj;
       });
 
-      return {
+      const toolDef = {
         name: state.compositionName,
         version: '1.0.0',
         description: state.compositionDesc || undefined,
@@ -1307,6 +1310,47 @@
           }
         }
       };
+
+      // Remove undefined fields for cleaner output
+      if (!toolDef.description) delete toolDef.description;
+
+      return toolDef;
+    }
+
+    function generateRegistry() {
+      // Generates a full registry with the tool composition
+      // This format matches proto Registry message
+      return {
+        schemaVersion: '2.0',
+        tools: [generateToolDefinition()],
+        schemas: [],
+        servers: [],
+        agents: []
+      };
+    }
+
+    function generateJSON() {
+      if (state.steps.length === 0) {
+        if (state.outputFormat === 'registry') {
+          return {
+            schemaVersion: '2.0',
+            tools: [{
+              name: state.compositionName,
+              spec: { pipeline: { steps: [] } }
+            }],
+            schemas: [],
+            servers: [],
+            agents: []
+          };
+        }
+        return {
+          name: state.compositionName,
+          description: state.compositionDesc || undefined,
+          spec: { pipeline: { steps: [] } }
+        };
+      }
+
+      return state.outputFormat === 'registry' ? generateRegistry() : generateToolDefinition();
     }
 
     function convertBinding(binding) {
@@ -1329,7 +1373,13 @@
     }
 
     // ==========================================================================
-    // Validation
+    // Validation (Proto3 Format Compatible)
+    // ==========================================================================
+    //
+    // Validates the composition structure matches proto3 registry format:
+    // - Step IDs must be unique
+    // - Step references must refer to prior steps
+    // - Binding types match proto DataBinding structure
     // ==========================================================================
 
     function validateComposition() {
@@ -1365,7 +1415,8 @@
       });
 
       if (messages.length === 0) {
-        messages.push({ type: 'success', message: 'Composition is valid!' });
+        const format = state.outputFormat === 'registry' ? 'Registry' : 'Tool';
+        messages.push({ type: 'success', message: `${format} is valid (proto3 compatible)` });
       }
 
       return messages;
@@ -1439,12 +1490,16 @@
     renderPipeline();
     renderOutput();
 
-    // Tab switching
+    // Tab switching for output format
     document.querySelectorAll('.output-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.output-tab').forEach(t => t.classList.remove('active'));
         tab.classList.add('active');
-        // TODO: implement TypeScript output tab
+
+        // Toggle between tool definition and full registry output
+        const tabType = tab.dataset.tab;
+        state.outputFormat = tabType === 'registry' ? 'registry' : 'tool';
+        renderOutput();
       });
     });
   </script>

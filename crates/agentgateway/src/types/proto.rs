@@ -30,6 +30,28 @@ pub mod agent {
 	pub use super::agentgateway1::agentgateway2::agentgateway3::*;
 }
 
+// Proto-generated registry types with pbjson serde support
+// Package: agentgateway.dev.registry
+//
+// pbjson generates proto3 JSON-compatible serde implementations that handle
+// oneofs correctly. The types can be serialized/deserialized using standard
+// proto3 JSON mapping rules.
+#[allow(warnings)]
+#[allow(clippy::derive_partial_eq_without_eq)]
+pub mod registry_proto {
+	// Include prost-generated types (base struct/enum definitions)
+	tonic::include_proto!("agentgateway.dev.registry");
+
+	// Include pbjson-generated serde implementations (proto3 JSON support)
+	include!(concat!(env!("OUT_DIR"), "/agentgateway.dev.registry.serde.rs"));
+}
+
+/// Re-export registry types at a convenient path
+/// These are proto-generated types with full proto3 JSON serde support
+pub mod registry {
+	pub use super::registry_proto::*;
+}
+
 #[allow(clippy::enum_variant_names)]
 #[derive(Error, Debug)]
 pub enum ProtoError {

@@ -90,6 +90,7 @@ phonenumber.workspace = true
 pin-project-lite.workspace = true
 ppp.workspace = true
 prometheus-client.workspace = true
+pbjson.workspace = true
 prost-types.workspace = true
 prost-wkt-types.workspace = true
 prost.workspace = true
@@ -155,6 +156,8 @@ tokio = { workspace = true }
 
 [build-dependencies]
 anyhow.workspace = true
+pbjson-build.workspace = true
+prost.workspace = true
 prost-build.workspace = true
 tonic-prost-build.workspace = true
 tonic-build.workspace = true

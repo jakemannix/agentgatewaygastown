@@ -1,11 +1,19 @@
 /**
  * Compiler for transforming DSL definitions to JSON IR
+ *
+ * This module provides functions for building and serializing registry definitions.
+ * For canonical JSON output, use the proto-generated types from './generated/registry.js'.
  */
 
 import type {
   Registry,
   ToolDefinition,
 } from './types.js';
+
+// Import generated types for canonical serialization
+import {
+  Registry as ProtoRegistry,
+} from './generated/registry.js';
 
 /**
  * Registry builder for accumulating tool definitions
@@ -149,9 +157,50 @@ export function compile(...tools: ToolDefinition[]): string {
 }
 
 /**
- * Parse a JSON registry
+ * Parse a JSON registry (v1 format)
  */
 export function parseRegistry(json: string): Registry {
   return JSON.parse(json) as Registry;
+}
+
+// =============================================================================
+// Proto-based Serialization (Canonical)
+// =============================================================================
+
+/**
+ * Parse a JSON string into a proto Registry using the generated types.
+ * This uses the canonical proto3 JSON format.
+ *
+ * @example
+ * const registry = parseProtoRegistry(jsonString);
+ * console.log(registry.schemaVersion);
+ */
+export function parseProtoRegistry(json: string): ProtoRegistry {
+  const parsed = JSON.parse(json);
+  return ProtoRegistry.fromJSON(parsed);
+}
+
+/**
+ * Serialize a proto Registry to canonical JSON string.
+ *
+ * @example
+ * const json = serializeProtoRegistry(registry);
+ */
+export function serializeProtoRegistry(registry: ProtoRegistry, pretty: boolean = true): string {
+  const obj = ProtoRegistry.toJSON(registry);
+  return pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj);
+}
+
+/**
+ * Validate and re-serialize a JSON registry through proto types.
+ * This ensures the output is in canonical proto3 JSON format.
+ *
+ * @example
+ * // Normalize a registry to canonical format
+ * const canonical = canonicalizeRegistry(existingJson);
+ */
+export function canonicalizeRegistry(json: string): string {
+  const registry = parseProtoRegistry(json);
+  return serializeProtoRegistry(registry);
 }
 

@@ -8,8 +8,10 @@
     "vmcp-compile": "./dist/bin/vmcp-compile.js"
   },
   "scripts": {
-    "build": "tsc",
-    "clean": "rm -rf dist",
+    "generate": "cd ../.. && npx @bufbuild/buf generate --template buf.gen.ts.yaml --path crates/agentgateway/proto/registry.proto",
+    "build": "npm run generate && tsc",
+    "build:no-gen": "tsc",
+    "clean": "rm -rf dist src/generated",
     "lint": "eslint src --ext .ts",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -22,7 +24,9 @@
   ],
   "license": "Apache-2.0",
   "devDependencies": {
+    "@bufbuild/buf": "^1.28.0",
     "@types/node": "^20.0.0",
+    "ts-proto": "^1.165.0",
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"
   },

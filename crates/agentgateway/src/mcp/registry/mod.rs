@@ -6,6 +6,21 @@
 // - Field hiding and default injection
 // - Output transformation via JSONPath
 // - Hot-reloadable registry from file or HTTP sources
+//
+// ## Implementation Status
+//
+// ### Implemented (Runtime Works)
+// - Source Tool (1:1 mapping)
+// - Pipeline (sequential execution)
+// - Scatter-Gather (parallel fan-out with aggregation)
+// - Filter (predicate-based filtering)
+// - SchemaMap (field transformation)
+// - MapEach (array element processing)
+// - Output Transform
+//
+// ### IR Only (No Runtime Executor)
+// - Retry, Timeout, Cache, CircuitBreaker, Idempotent, DeadLetter, Saga, ClaimCheck
+// - See `tests/fixtures/registry/README.md` for details
 
 mod client;
 mod compiled;
@@ -16,7 +31,11 @@ pub mod patterns;
 pub mod runtime_hooks;
 mod store;
 pub mod types;
+mod types_compat;
 pub mod validation;
+
+#[cfg(test)]
+mod tests;
 
 pub use client::{AuthConfig, RegistryClient, RegistrySource, parse_duration};
 pub use compiled::{
@@ -37,6 +56,7 @@ pub use types::{
 	Registry, Schema, Server, SourceTool, ToolDefinition, ToolImplementation, ToolSource,
 	UnknownCallerPolicy, VirtualToolDef,
 };
+pub use types_compat::parse_registry_from_proto;
 pub use validation::{validate_registry, RegistryValidator, ValidationError, ValidationResult, ValidationWarning};
 pub use runtime_hooks::{CallerIdentity, CallContext, DependencyCheckResult, RuntimeHooks, ToolVisibility};
 

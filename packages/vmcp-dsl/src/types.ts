@@ -1,7 +1,17 @@
 /**
  * Core type definitions for vMCP tool compositions
- * These types correspond to the registry.proto schema
+ *
+ * @deprecated These hand-written types are maintained for backwards compatibility.
+ * For new code, prefer importing from './generated/registry.js' which provides
+ * proto-generated types with proper JSON serialization.
+ *
+ * The generated types are the canonical source of truth, derived from registry.proto.
+ *
+ * @see ./generated/registry.ts for proto-generated types
  */
+
+// Re-export generated types under 'proto' namespace for canonical usage
+export * as proto from './generated/registry.js';
 
 // =============================================================================
 // Registry v1 (Legacy)

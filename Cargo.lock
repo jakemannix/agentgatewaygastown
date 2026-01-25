@@ -112,7 +112,7 @@ dependencies = [
  "prometheus-client",
  "prost 0.14.1",
  "prost-build",
- "prost-types",
+ "prost-types 0.14.1",
  "protox",
  "split-iter",
  "thiserror 2.0.17",
@@ -199,6 +199,8 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "parking_lot",
+ "pbjson",
+ "pbjson-build",
  "phonenumber",
  "pin-project-lite",
  "ppp",
@@ -206,7 +208,7 @@ dependencies = [
  "prometheus-client",
  "prost 0.14.1",
  "prost-build",
- "prost-types",
+ "prost-types 0.14.1",
  "prost-wkt-build",
  "prost-wkt-types",
  "protox",
@@ -1145,6 +1147,12 @@ name = "base64"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
+
+[[package]]
+name = "base64"
+version = "0.21.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 
 [[package]]
 name = "base64"
@@ -3265,6 +3273,15 @@ dependencies = [
 
 [[package]]
 name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -4104,6 +4121,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b867cad97c0791bbd3aaa6472142568c6c9e8f71937e98379f584cfb0cf35bec"
 
 [[package]]
+name = "pbjson"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7e6349fa080353f4a597daffd05cb81572a9c031a6d4fff7e504947496fcc68"
+dependencies = [
+ "base64 0.21.7",
+ "serde",
+]
+
+[[package]]
+name = "pbjson-build"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6eea3058763d6e656105d1403cb04e0a41b7bbac6362d413e7c33be0c32279c9"
+dependencies = [
+ "heck",
+ "itertools 0.13.0",
+ "prost 0.13.5",
+ "prost-types 0.13.5",
+]
+
+[[package]]
 name = "pem"
 version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4532,7 +4571,7 @@ dependencies = [
  "petgraph",
  "prettyplease",
  "prost 0.14.1",
- "prost-types",
+ "prost-types 0.14.1",
  "pulldown-cmark",
  "pulldown-cmark-to-cmark",
  "regex",
@@ -4575,7 +4614,16 @@ dependencies = [
  "logos",
  "miette 7.6.0",
  "prost 0.14.1",
- "prost-types",
+ "prost-types 0.14.1",
+]
+
+[[package]]
+name = "prost-types"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
+dependencies = [
+ "prost 0.13.5",
 ]
 
 [[package]]
@@ -4611,7 +4659,7 @@ dependencies = [
  "heck",
  "prost 0.14.1",
  "prost-build",
- "prost-types",
+ "prost-types 0.14.1",
  "quote",
 ]
 
@@ -4624,7 +4672,7 @@ dependencies = [
  "chrono",
  "prost 0.14.1",
  "prost-build",
- "prost-types",
+ "prost-types 0.14.1",
  "prost-wkt",
  "prost-wkt-build",
  "protox",
@@ -4695,7 +4743,7 @@ dependencies = [
  "miette 7.6.0",
  "prost 0.14.1",
  "prost-reflect",
- "prost-types",
+ "prost-types 0.14.1",
  "protox-parse",
  "thiserror 2.0.17",
 ]
@@ -4708,7 +4756,7 @@ checksum = "072eee358134396a4643dff81cfff1c255c9fbd3fb296be14bdb6a26f9156366"
 dependencies = [
  "logos",
  "miette 7.6.0",
- "prost-types",
+ "prost-types 0.14.1",
  "thiserror 2.0.17",
 ]
 
@@ -6488,7 +6536,7 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "prost-build",
- "prost-types",
+ "prost-types 0.14.1",
  "quote",
  "syn",
  "tempfile",
