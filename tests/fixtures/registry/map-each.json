@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "enrich_items",
+      "description": "MapEach with tool call",
+      "spec": {
+        "mapEach": {
+          "inner": {"tool": "enrich_item"}
+        }
+      }
+    },
+    {
+      "name": "transform_items",
+      "description": "MapEach with inline pattern",
+      "spec": {
+        "mapEach": {
+          "inner": {
+            "pattern": {
+              "schemaMap": {
+                "mappings": {
+                  "id": {"path": "$.item_id"},
+                  "normalized": {"literal": {"boolValue": true}}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "pipeline_tool",
+      "description": "A pipeline composition",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "step1",
+              "operation": {"tool": {"name": "fetch_data"}},
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "step2",
+              "operation": {"tool": {"name": "transform_data"}},
+              "input": {"step": {"stepId": "step1", "path": "$.result"}}
+            },
+            {
+              "id": "step3",
+              "operation": {"tool": {"name": "store_data"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "data": {"step": {"stepId": "step2", "path": "$"}},
+                    "metadata": {"input": {"path": "$.metadata"}},
+                    "timestamp": {"constant": "2024-01-01T00:00:00Z"}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

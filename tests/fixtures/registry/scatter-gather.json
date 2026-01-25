@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "parallel_search",
+      "description": "Scatter-gather across multiple sources",
+      "spec": {
+        "scatterGather": {
+          "targets": [
+            {"tool": "search_source_a"},
+            {"tool": "search_source_b"},
+            {"tool": "search_source_c"}
+          ],
+          "aggregation": {
+            "ops": [
+              {"flatten": true},
+              {"sort": {"field": "$.score", "order": "desc"}},
+              {"dedupe": {"field": "$.id"}},
+              {"limit": {"count": 25}}
+            ]
+          },
+          "timeoutMs": 10000,
+          "failFast": false
+        }
+      }
+    }
+  ]
+}
