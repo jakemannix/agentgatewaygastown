@@ -642,8 +642,11 @@ cd examples/pattern-demos
 - [x] Document migration path from v1 to v2
 - [x] All 21 golden tests passing
 
-### Phase 5: Rust Migration (PENDING)
-- [ ] Create types_compat.rs adapter layer
+### Phase 5: Rust Migration (IN PROGRESS)
+- [x] Create types_compat.rs adapter layer (27 tests passing: 21 golden + 6 compat)
+  - Implements `From<proto::*>` for all hand-written types
+  - Enables parsing with proto types, then converting to hand-written for runtime
+  - Exports `parse_registry_from_proto()` function
 - [ ] Switch store.rs to parse generated types
 - [ ] Migrate each executor module
 - [ ] Delete hand-written types.rs

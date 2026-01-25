@@ -31,6 +31,7 @@ pub mod patterns;
 pub mod runtime_hooks;
 mod store;
 pub mod types;
+mod types_compat;
 pub mod validation;
 
 #[cfg(test)]
@@ -55,6 +56,7 @@ pub use types::{
 	Registry, Schema, Server, SourceTool, ToolDefinition, ToolImplementation, ToolSource,
 	UnknownCallerPolicy, VirtualToolDef,
 };
+pub use types_compat::parse_registry_from_proto;
 pub use validation::{validate_registry, RegistryValidator, ValidationError, ValidationResult, ValidationWarning};
 pub use runtime_hooks::{CallerIdentity, CallContext, DependencyCheckResult, RuntimeHooks, ToolVisibility};
 
