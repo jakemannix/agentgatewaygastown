@@ -1,5 +1,5 @@
 // This build script is used to generate the rust source files that
-// we need for XDS GRPC communication.
+// we need for XDS GRPC communication and registry types.
 fn main() -> Result<(), anyhow::Error> {
 	let proto_files = [
 		"proto/ext_proc.proto",
@@ -28,6 +28,33 @@ fn main() -> Result<(), anyhow::Error> {
 		]);
 		c.extern_path(".google.protobuf.Value", "::prost_wkt_types::Value");
 		c.extern_path(".google.protobuf.Struct", "::prost_wkt_types::Struct");
+
+		// Registry serde support - TODO: needs work for oneof handling
+		//
+		// The registry.proto uses many oneofs (PatternSpec, DataBinding, FieldSource, etc.)
+		// and prost doesn't automatically add serde derives to oneof enum variants.
+		// The type_attribute only applies to messages, not inner oneof enums.
+		//
+		// Options to fix:
+		// 1. Use prost-wkt-build with proper oneof serde handling
+		// 2. Use serde_with for externally tagged enum serialization
+		// 3. Create a manual conversion layer from proto types
+		//
+		// For now, continue using the hand-written types in mcp::registry::types
+		// which have proper serde handling via #[serde(flatten)] for oneofs.
+		//
+		// See docs/design/proto-codegen-migration.md for full plan.
+		//
+		// TODO(Phase 2): Enable once oneof serde is solved
+		// c.type_attribute(
+		// 	".agentgateway.dev.registry",
+		// 	"#[derive(serde::Serialize, serde::Deserialize)]",
+		// );
+		// c.type_attribute(
+		// 	".agentgateway.dev.registry",
+		// 	"#[serde(rename_all = \"camelCase\")]",
+		// );
+
 		c
 	};
 	let fds = protox::compile(&proto_files, &include_dirs)?;

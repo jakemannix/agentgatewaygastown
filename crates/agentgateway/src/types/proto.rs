@@ -30,6 +30,28 @@ pub mod agent {
 	pub use super::agentgateway1::agentgateway2::agentgateway3::*;
 }
 
+// Proto-generated registry types
+// Package: agentgateway.dev.registry
+//
+// NOTE: Currently disabled due to serde+oneof complexity.
+// The registry.proto uses many oneofs (PatternSpec, DataBinding, FieldSource, etc.)
+// and prost's oneof enums don't automatically get serde derives from type_attribute.
+//
+// Options to fix:
+// 1. Use prost-wkt-build with serde-serialize feature (requires oneof handling)
+// 2. Use serde_with or custom deserialization for oneof types
+// 3. Generate types without serde and add a manual conversion layer
+//
+// For now, continue using the hand-written types in mcp::registry::types
+// which have proper serde handling for all patterns.
+//
+// TODO: Revisit in Phase 2 with prost-wkt or custom oneof serde handling
+//
+// #[allow(warnings)]
+// pub mod registry_proto_gen {
+// 	tonic::include_proto!("agentgateway.dev.registry");
+// }
+
 #[allow(clippy::enum_variant_names)]
 #[derive(Error, Debug)]
 pub enum ProtoError {
