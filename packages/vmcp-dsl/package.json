@@ -8,7 +8,7 @@
     "vmcp-compile": "./dist/bin/vmcp-compile.js"
   },
   "scripts": {
-    "generate": "cd ../.. && npx buf generate --path crates/agentgateway/proto/registry.proto",
+    "generate": "cd ../.. && npx @bufbuild/buf generate --template buf.gen.ts.yaml --path crates/agentgateway/proto/registry.proto",
     "build": "npm run generate && tsc",
     "build:no-gen": "tsc",
     "clean": "rm -rf dist src/generated",
