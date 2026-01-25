@@ -430,6 +430,12 @@ impl Session {
 									UpstreamError::InvalidRequest("Registry not loaded".to_string())
 								})?;
 
+								// Check if the composition has an output_schema (for structuredContent)
+								let has_output_schema = compiled_registry
+									.get_tool(&comp_name)
+									.map(|t| t.def.output_schema.is_some())
+									.unwrap_or(false);
+
 								// Create a ToolInvoker that uses the Relay to make real backend calls
 								let tool_invoker = Arc::new(RelayToolInvoker::new(self.relay.clone(), ctx.clone()));
 
@@ -465,11 +471,18 @@ impl Session {
 								})?;
 
 								// Build a successful MCP CallToolResult response
+								// If the tool has an outputSchema, populate structuredContent
+								// for ADK compatibility (ADK expects structuredContent when
+								// outputSchema is defined)
 								let call_result = rmcp::model::CallToolResult {
 									content: vec![rmcp::model::Content::text(
 										serde_json::to_string(&result).unwrap_or_default(),
 									)],
-									structured_content: None,
+									structured_content: if has_output_schema {
+										Some(result)
+									} else {
+										None
+									},
 									is_error: None,
 									meta: None,
 								};
