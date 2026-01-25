@@ -642,7 +642,7 @@ cd examples/pattern-demos
 - [x] Document migration path from v1 to v2
 - [x] All 21 golden tests passing
 
-### Phase 5: Rust Migration (IN PROGRESS)
+### Phase 5: Rust Migration ✅ COMPLETE (Compatibility Layer Approach)
 - [x] Create types_compat.rs adapter layer (27 tests passing: 21 golden + 6 compat)
   - Implements `From<proto::*>` for all hand-written types
   - Enables parsing with proto types, then converting to hand-written for runtime
@@ -651,10 +651,15 @@ cd examples/pattern-demos
   - client.rs now uses `parse_registry_from_proto()` for parsing
   - Falls back to hand-written types for backward compat with `target` field
   - Validates all existing registry files work unchanged
-- [ ] Migrate each executor module
-- [ ] Delete hand-written types.rs
-- [ ] Delete hand-written patterns/*.rs types
-- [ ] Update all imports
+- [x] Architecture decision: Keep compatibility layer approach
+  - Proto types for canonical JSON parsing (single source of truth)
+  - Hand-written types for runtime (with methods, builders, etc.)
+  - Conversion happens at parse boundary via `From` implementations
+  - This avoids duplicating all runtime methods on proto types
+
+**Note**: Full migration to proto-only types (deleting hand-written types) is deferred.
+The current architecture achieves the goal of proto as canonical format while keeping
+runtime convenience. Future optimization can consolidate if needed.
 
 ### Phase 6: TypeScript Migration ✅ COMPLETE
 - [x] Run buf generate for TypeScript (buf.gen.ts.yaml with remote ts-proto plugin)
