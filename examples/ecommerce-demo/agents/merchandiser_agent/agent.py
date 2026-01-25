@@ -57,6 +57,10 @@ ALLOWED_TOOLS = {
     "virtual_browse_products",
     "virtual_get_product_details",
     "virtual_get_categories",
+    # Advanced compositions
+    "virtual_top_restock_quote",
+    "virtual_product_intelligence",
+    "virtual_order_with_context",
 }
 
 # LLM Provider Configuration

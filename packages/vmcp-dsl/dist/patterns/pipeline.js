@@ -6,6 +6,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PipelineBuilder = exports.StepBuilder = void 0;
 exports.pipeline = pipeline;
 exports.step = step;
+exports.fromInput = fromInput;
+exports.fromStep = fromStep;
+exports.constant = constant;
+exports.construct = construct;
 const path_builder_js_1 = require("../path-builder.js");
 /**
  * Builder for pipeline steps
@@ -48,6 +52,14 @@ class StepBuilder {
      */
     constant(value) {
         this.step.input = { constant: value };
+        return this;
+    }
+    /**
+     * Construct input from multiple field bindings
+     * Allows building a new object from fields extracted from prior steps or input
+     */
+    construct(fields) {
+        this.step.input = { construct: { fields } };
         return this;
     }
     /**
@@ -134,5 +146,38 @@ function pipeline() {
  */
 function step(id) {
     return new StepBuilder(id);
+}
+// =============================================================================
+// Binding Helper Functions
+// =============================================================================
+/**
+ * Create an input binding (reference to composition input)
+ */
+function fromInput(pathExpr = '$') {
+    return { input: { path: (0, path_builder_js_1.path)(pathExpr) } };
+}
+/**
+ * Create a step binding (reference to prior step output)
+ */
+function fromStep(stepId, pathExpr = '$') {
+    return { step: { stepId, path: (0, path_builder_js_1.path)(pathExpr) } };
+}
+/**
+ * Create a constant binding
+ */
+function constant(value) {
+    return { constant: value };
+}
+/**
+ * Create a construct binding (build object from multiple field bindings)
+ *
+ * @example
+ * construct({
+ *   product_id: fromStep('alerts', '$.alerts[0].product_id'),
+ *   quantity: fromStep('alerts', '$.alerts[0].deficit'),
+ * })
+ */
+function construct(fields) {
+    return { construct: { fields } };
 }
 //# sourceMappingURL=pipeline.js.map

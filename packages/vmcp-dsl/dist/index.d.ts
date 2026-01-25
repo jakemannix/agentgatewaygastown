@@ -32,6 +32,6 @@ export * from './types.js';
 export * from './builder.js';
 export * from './path-builder.js';
 export { tool, ToolBuilder, SourceToolBuilder, CompositionBuilder } from './tool.js';
-export { pipeline, step, PipelineBuilder, StepBuilder, scatterGather, agg, ScatterGatherBuilder, AggregationBuilder, filter, filterBy, FilterBuilder, schemaMap, outputTransform, SchemaMapBuilder, mapEach, mapEachTool, mapEachPattern, MapEachBuilder, } from './patterns/index.js';
+export { pipeline, step, PipelineBuilder, StepBuilder, fromInput, fromStep, constant, construct, scatterGather, agg, ScatterGatherBuilder, AggregationBuilder, filter, filterBy, FilterBuilder, schemaMap, outputTransform, SchemaMapBuilder, mapEach, mapEachTool, mapEachPattern, MapEachBuilder, } from './patterns/index.js';
 export { createRegistry, compile, parseRegistry, RegistryBuilder, type ValidationResult, type ValidationError, type ValidationWarning, } from './compiler.js';
 //# sourceMappingURL=index.d.ts.map

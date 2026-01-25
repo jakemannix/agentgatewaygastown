@@ -214,7 +214,8 @@ export interface ToolCall {
 export type DataBinding =
   | { input: InputBinding }
   | { step: StepBinding }
-  | { constant: unknown };
+  | { constant: unknown }
+  | { construct: ConstructBinding };
 
 export interface InputBinding {
   path: string;
@@ -223,6 +224,11 @@ export interface InputBinding {
 export interface StepBinding {
   stepId: string;
   path: string;
+}
+
+/** Construct binding - build an object from multiple field bindings */
+export interface ConstructBinding {
+  fields: Record<string, DataBinding>;
 }
 
 /** Scatter-gather pattern - parallel fan-out with aggregation */

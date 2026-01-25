@@ -44,7 +44,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.RegistryBuilder = exports.parseRegistry = exports.compile = exports.createRegistry = exports.MapEachBuilder = exports.mapEachPattern = exports.mapEachTool = exports.mapEach = exports.SchemaMapBuilder = exports.outputTransform = exports.schemaMap = exports.FilterBuilder = exports.filterBy = exports.filter = exports.AggregationBuilder = exports.ScatterGatherBuilder = exports.agg = exports.scatterGather = exports.StepBuilder = exports.PipelineBuilder = exports.step = exports.pipeline = exports.CompositionBuilder = exports.SourceToolBuilder = exports.ToolBuilder = exports.tool = void 0;
+exports.RegistryBuilder = exports.parseRegistry = exports.compile = exports.createRegistry = exports.MapEachBuilder = exports.mapEachPattern = exports.mapEachTool = exports.mapEach = exports.SchemaMapBuilder = exports.outputTransform = exports.schemaMap = exports.FilterBuilder = exports.filterBy = exports.filter = exports.AggregationBuilder = exports.ScatterGatherBuilder = exports.agg = exports.scatterGather = exports.construct = exports.constant = exports.fromStep = exports.fromInput = exports.StepBuilder = exports.PipelineBuilder = exports.step = exports.pipeline = exports.CompositionBuilder = exports.SourceToolBuilder = exports.ToolBuilder = exports.tool = void 0;
 // Core types
 __exportStar(require("./types.js"), exports);
 // Registry v2 builders
@@ -64,6 +64,11 @@ Object.defineProperty(exports, "pipeline", { enumerable: true, get: function () 
 Object.defineProperty(exports, "step", { enumerable: true, get: function () { return index_js_1.step; } });
 Object.defineProperty(exports, "PipelineBuilder", { enumerable: true, get: function () { return index_js_1.PipelineBuilder; } });
 Object.defineProperty(exports, "StepBuilder", { enumerable: true, get: function () { return index_js_1.StepBuilder; } });
+// Binding helpers
+Object.defineProperty(exports, "fromInput", { enumerable: true, get: function () { return index_js_1.fromInput; } });
+Object.defineProperty(exports, "fromStep", { enumerable: true, get: function () { return index_js_1.fromStep; } });
+Object.defineProperty(exports, "constant", { enumerable: true, get: function () { return index_js_1.constant; } });
+Object.defineProperty(exports, "construct", { enumerable: true, get: function () { return index_js_1.construct; } });
 // Scatter-gather
 Object.defineProperty(exports, "scatterGather", { enumerable: true, get: function () { return index_js_1.scatterGather; } });
 Object.defineProperty(exports, "agg", { enumerable: true, get: function () { return index_js_1.agg; } });

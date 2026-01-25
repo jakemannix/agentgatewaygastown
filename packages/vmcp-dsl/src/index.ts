@@ -48,6 +48,11 @@ export {
   step,
   PipelineBuilder,
   StepBuilder,
+  // Binding helpers
+  fromInput,
+  fromStep,
+  constant,
+  construct,
   // Scatter-gather
   scatterGather,
   agg,

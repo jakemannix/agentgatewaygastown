@@ -8,6 +8,7 @@ import type {
   PipelineStep,
   StepOperation,
   DataBinding,
+  ConstructBinding,
 } from '../types.js';
 import { path } from '../path-builder.js';
 
@@ -58,6 +59,15 @@ export class StepBuilder {
    */
   constant(value: unknown): this {
     this.step.input = { constant: value };
+    return this;
+  }
+
+  /**
+   * Construct input from multiple field bindings
+   * Allows building a new object from fields extracted from prior steps or input
+   */
+  construct(fields: Record<string, DataBinding>): this {
+    this.step.input = { construct: { fields } };
     return this;
   }
 
@@ -151,5 +161,43 @@ export function pipeline(): PipelineBuilder {
  */
 export function step(id: string): StepBuilder {
   return new StepBuilder(id);
+}
+
+// =============================================================================
+// Binding Helper Functions
+// =============================================================================
+
+/**
+ * Create an input binding (reference to composition input)
+ */
+export function fromInput(pathExpr: string = '$'): DataBinding {
+  return { input: { path: path(pathExpr) } };
+}
+
+/**
+ * Create a step binding (reference to prior step output)
+ */
+export function fromStep(stepId: string, pathExpr: string = '$'): DataBinding {
+  return { step: { stepId, path: path(pathExpr) } };
+}
+
+/**
+ * Create a constant binding
+ */
+export function constant(value: unknown): DataBinding {
+  return { constant: value };
+}
+
+/**
+ * Create a construct binding (build object from multiple field bindings)
+ *
+ * @example
+ * construct({
+ *   product_id: fromStep('alerts', '$.alerts[0].product_id'),
+ *   quantity: fromStep('alerts', '$.alerts[0].deficit'),
+ * })
+ */
+export function construct(fields: Record<string, DataBinding>): DataBinding {
+  return { construct: { fields } };
 }
 
