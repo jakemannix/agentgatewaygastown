@@ -1,5 +1,4 @@
 {
-  "$comment": "eCommerce Demo Registry v2 - Virtual tools with compositions and reusable schemas",
   "schemaVersion": "2.0",
 
   "schemas": [
@@ -275,9 +274,6 @@
 
   "tools": [
     {
-      "$comment": "--- Shopper-Friendly Product Search ---",
-      "$comment2": "Backend search_products has: query, category, min_price, max_price, in_stock_only, sort_by, sort_order, page, limit, include_embeddings, debug_scores",
-      "$comment3": "Shopper just needs: query and optional category. Hide complexity.",
       "name": "find_products",
       "description": "Search for products using natural language (e.g., 'comfortable running shoes under $100')",
       "source": {
@@ -300,9 +296,6 @@
     },
 
     {
-      "$comment": "--- Simple Cart View for Shoppers ---",
-      "$comment2": "Backend view_cart returns: items with product details, totals, tax calculations, shipping estimates",
-      "$comment3": "Shopper wants: what's in my cart and the total",
       "name": "my_cart",
       "description": "See what's in your shopping cart",
       "source": {
@@ -328,9 +321,6 @@
     },
 
     {
-      "$comment": "--- Quick Add to Cart ---",
-      "$comment2": "Backend add_to_cart needs: user_id, product_id, quantity, check_inventory, reserve_stock",
-      "$comment3": "Shopper just says: add this product",
       "name": "add_item",
       "description": "Add a product to your cart",
       "source": {
@@ -345,9 +335,6 @@
     },
 
     {
-      "$comment": "--- Merchandiser Inventory Summary ---",
-      "$comment2": "Backend get_inventory_report returns: products, stock_levels, reorder_points, supplier_info, cost_basis, turnover_rates",
-      "$comment3": "Merchandiser quick check: just stock status and alerts",
       "name": "stock_status",
       "description": "Quick inventory status check for merchandisers",
       "source": {
@@ -367,10 +354,6 @@
 
 
     {
-      "$comment": "--- Personalized Search Pipeline ---",
-      "$comment2": "Step 1: search_index - fast token matching, returns (id, score) pairs",
-      "$comment3": "Step 2: hydrate_products - fetch full product details for IDs",
-      "$comment4": "Step 3: personalize_ranking - re-rank based on user preferences",
       "name": "personalized_search",
       "description": "Search products and personalize results based on your preferences",
       "spec": {
@@ -419,8 +402,6 @@
     },
 
     {
-      "$comment": "--- Product Details with Availability ---",
-      "$comment2": "Get product info and real-time stock in one call",
       "name": "product_with_availability",
       "description": "Get product details including real-time stock availability",
       "spec": {
@@ -591,11 +572,6 @@
 
 
     {
-      "$comment": "=== ADVANCED COMPOSITION: Top Restock Quote ===",
-      "$comment2": "This 2-step pipeline shows JSONPath field extraction and construct binding:",
-      "$comment3": "Step 1: Get low stock alerts, sorted by deficit (most critical first)",
-      "$comment4": "Step 2: Get supplier quotes for the FIRST product using its deficit as quantity",
-      "$comment5": "Showcases: pipeline, construct binding, cross-step JSONPath references",
       "name": "top_restock_quote",
       "description": "Get supplier quotes for the most critical low-stock product",
       "spec": {
@@ -641,12 +617,6 @@
 
 
     {
-      "$comment": "=== ADVANCED COMPOSITION: Full Product Intelligence ===",
-      "$comment2": "This 3-step pipeline calls 3 different services for a single product:",
-      "$comment3": "Step 1: Get product details from catalog",
-      "$comment4": "Step 2: Check real-time inventory status",
-      "$comment5": "Step 3: Get supplier quotes for restocking",
-      "$comment6": "Showcases: multi-service orchestration, constant injection, output transform",
       "name": "product_intelligence",
       "description": "Get complete product intelligence: details, inventory status, and supplier options",
       "spec": {
@@ -682,12 +652,6 @@
 
 
     {
-      "$comment": "=== ADVANCED COMPOSITION: Order with Full Context ===",
-      "$comment2": "This 3-step pipeline enriches an order with product and customer data:",
-      "$comment3": "Step 1: Get order details",
-      "$comment4": "Step 2: Get sales context (how is this product selling?)",
-      "$comment5": "Step 3: Get inventory to show remaining stock after this order",
-      "$comment6": "Showcases: order enrichment, business intelligence aggregation",
       "name": "order_with_context",
       "description": "Get order details with sales context and inventory impact",
       "spec": {
