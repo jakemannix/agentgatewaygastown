@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { createRegistry, RegistryBuilder } from '../compiler';
+import { createRegistry, RegistryBuilder, parseProtoRegistry, serializeProtoRegistry, canonicalizeRegistry } from '../compiler';
 import { tool } from '../tool';
 import { pipeline, scatterGather, agg, schemaMap } from '../patterns';
+import { proto } from '../types';
 
 describe('RegistryBuilder', () => {
   it('should create an empty registry', () => {
@@ -181,5 +182,152 @@ describe('Complex Registry', () => {
 
     expect(parsed.schemaVersion).toBe('1.0');
     expect(parsed.tools[0].name).toBe('get_weather');
+  });
+});
+
+// =============================================================================
+// Proto-based Serialization Tests
+// =============================================================================
+
+describe('Proto-based Serialization', () => {
+  it('should parse proto registry from JSON', () => {
+    const json = JSON.stringify({
+      schemaVersion: '2.0',
+      tools: [{
+        name: 'test_tool',
+        description: 'A test tool',
+        source: {
+          server: 'backend',
+          tool: 'actual_tool',
+        },
+      }],
+      schemas: [],
+      servers: [],
+      agents: [],
+    });
+
+    const registry = parseProtoRegistry(json);
+
+    expect(registry.schemaVersion).toBe('2.0');
+    expect(registry.tools.length).toBe(1);
+    expect(registry.tools[0].name).toBe('test_tool');
+  });
+
+  it('should serialize proto registry to JSON', () => {
+    const registry: proto.Registry = {
+      schemaVersion: '2.0',
+      tools: [{
+        name: 'my_tool',
+        description: 'Description',
+        implementation: {
+          $case: 'source',
+          source: {
+            server: 'backend',
+            tool: 'actual',
+            defaults: {},
+            hideFields: [],
+            serverVersion: undefined,
+          },
+        },
+        inputSchema: undefined,
+        outputTransform: undefined,
+        version: undefined,
+        metadata: {},
+      }],
+      schemas: [],
+      servers: [],
+      agents: [],
+    };
+
+    const json = serializeProtoRegistry(registry);
+    const parsed = JSON.parse(json);
+
+    expect(parsed.schemaVersion).toBe('2.0');
+    expect(parsed.tools[0].name).toBe('my_tool');
+    expect(parsed.tools[0].source.server).toBe('backend');
+  });
+
+  it('should canonicalize registry JSON', () => {
+    // Input with various field formats
+    const input = JSON.stringify({
+      schemaVersion: '2.0',
+      tools: [{
+        name: 'tool1',
+        source: {
+          server: 'backend',
+          tool: 'actual',
+        },
+      }],
+    });
+
+    const canonical = canonicalizeRegistry(input);
+    const parsed = JSON.parse(canonical);
+
+    // Should have all required fields
+    expect(parsed.schemaVersion).toBe('2.0');
+    expect(parsed.tools[0].name).toBe('tool1');
+  });
+
+  it('should parse pipeline from proto JSON', () => {
+    const json = JSON.stringify({
+      schemaVersion: '2.0',
+      tools: [{
+        name: 'pipeline_tool',
+        spec: {
+          pipeline: {
+            steps: [{
+              id: 'step1',
+              operation: { tool: { name: 'fetch' } },
+              input: { input: { path: '$' } },
+            }],
+          },
+        },
+      }],
+      schemas: [],
+      servers: [],
+      agents: [],
+    });
+
+    const registry = parseProtoRegistry(json);
+
+    expect(registry.tools.length).toBe(1);
+    expect(registry.tools[0].name).toBe('pipeline_tool');
+  });
+
+  it('should handle v2 features (schemas, servers, agents)', () => {
+    const json = JSON.stringify({
+      schemaVersion: '2.0',
+      tools: [],
+      schemas: [{
+        name: 'SearchQuery',
+        version: '1.0.0',
+        schema: { type: 'object' },
+      }],
+      servers: [{
+        name: 'doc-service',
+        version: '1.0.0',
+        providedTools: [],
+        metadata: {},
+      }],
+      agents: [{
+        name: 'research-agent',
+        version: '1.0.0',
+        endpoint: {
+          a2a: { url: 'http://localhost:8000' },
+        },
+        skills: [],
+        dependencies: [],
+        metadata: {},
+      }],
+    });
+
+    const registry = parseProtoRegistry(json);
+
+    expect(registry.schemas.length).toBe(1);
+    expect(registry.servers.length).toBe(1);
+    expect(registry.agents.length).toBe(1);
+    expect(registry.schemas[0].name).toBe('SearchQuery');
+    expect(registry.servers[0].name).toBe('doc-service');
+    expect(registry.agents[0].name).toBe('research-agent');
   });
 });
