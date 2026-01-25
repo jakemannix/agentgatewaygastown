@@ -6,6 +6,42 @@ import "google/protobuf/struct.proto";
 
 option go_package = "github.com/agentgateway/agentgateway/go/api;api";
 
+// =============================================================================
+// Registry Proto - Tool Composition IR
+// =============================================================================
+//
+// This proto defines the Intermediate Representation (IR) for tool compositions.
+// It is the single source of truth for the registry schema.
+//
+// ## Implementation Status
+//
+// IMPLEMENTED (Runtime Works):
+//   - SourceTool: 1:1 mapping to backend tools
+//   - PipelineSpec: Sequential execution with data binding
+//   - ScatterGatherSpec: Parallel fan-out with aggregation
+//   - FilterSpec: Predicate-based array filtering
+//   - SchemaMapSpec: Field transformation and mapping
+//   - MapEachSpec: Per-element array processing
+//   - OutputTransform: Result field mapping
+//
+// IR ONLY (Types Defined, No Runtime Executor):
+//   - RetrySpec: Retry with backoff
+//   - TimeoutSpec: Execution time limits
+//   - CacheSpec: Read-through caching
+//   - IdempotentSpec: Duplicate prevention
+//   - CircuitBreakerSpec: Fail-fast protection
+//   - DeadLetterSpec: Failure capture
+//   - SagaSpec: Distributed transactions (partial - executor exists)
+//   - ClaimCheckSpec: Large payload externalization
+//
+// When implementing new patterns:
+//   1. Add the proto message definition
+//   2. Add to PatternSpec oneof
+//   3. Mark as "IR only" until runtime executor is implemented
+//   4. Update tests/fixtures/registry/README.md
+//
+// =============================================================================
+
 // Registry is the root container for the v2 registry IR
 // Contains schemas, servers, agents, and tools for full registry definition
 message Registry {
@@ -418,12 +454,15 @@ message DataBinding {
   oneof source {
     // From composition input
     InputBinding input = 1;
-    
+
     // From a previous step's output
     StepBinding step = 2;
-    
+
     // Constant value
     google.protobuf.Value constant = 3;
+
+    // Construct an object from multiple bindings
+    ConstructBinding construct = 4;
   }
 }
 
@@ -435,9 +474,16 @@ message InputBinding {
 message StepBinding {
   // ID of the step to reference
   string step_id = 1;
-  
+
   // JSONPath into step output
   string path = 2;
+}
+
+// ConstructBinding builds an object from multiple bindings
+// Enables symmetric input construction (like outputTransform does for outputs)
+message ConstructBinding {
+  // Field name -> binding that produces the field value
+  map<string, DataBinding> fields = 1;
 }
 
 // =============================================================================

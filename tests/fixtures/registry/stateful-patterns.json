@@ -1,0 +1,76 @@
+{
+  "$comment": "IMPORTANT: These patterns have IR defined but NO RUNTIME IMPLEMENTATION yet.",
+  "$comment2": "This fixture exists to test JSON parsing only, NOT execution.",
+  "$comment3": "See docs/design/proto-codegen-migration.md for implementation status.",
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "retry_tool",
+      "description": "[NOT IMPLEMENTED] Retry with exponential backoff - IR only",
+      "spec": {
+        "retry": {
+          "inner": {"tool": {"name": "flaky_service"}},
+          "maxAttempts": 5,
+          "backoff": {
+            "exponential": {
+              "initialDelayMs": 100,
+              "maxDelayMs": 5000,
+              "multiplier": 2.0
+            }
+          },
+          "jitter": 0.1,
+          "attemptTimeoutMs": 3000
+        }
+      }
+    },
+    {
+      "name": "timeout_tool",
+      "description": "[NOT IMPLEMENTED] Timeout with fallback - IR only",
+      "spec": {
+        "timeout": {
+          "inner": {"tool": {"name": "slow_service"}},
+          "durationMs": 5000,
+          "message": "Operation timed out"
+        }
+      }
+    },
+    {
+      "name": "cached_tool",
+      "description": "[NOT IMPLEMENTED] Cache with TTL - IR only",
+      "spec": {
+        "cache": {
+          "keyPaths": ["$.userId", "$.query"],
+          "inner": {"tool": {"name": "expensive_lookup"}},
+          "store": "main_cache",
+          "ttlSeconds": 300
+        }
+      }
+    },
+    {
+      "name": "circuit_breaker_tool",
+      "description": "[NOT IMPLEMENTED] Circuit breaker protection - IR only",
+      "spec": {
+        "circuitBreaker": {
+          "name": "external_api",
+          "inner": {"tool": {"name": "external_call"}},
+          "store": "circuit_store",
+          "failureThreshold": 5,
+          "failureWindowSeconds": 60,
+          "resetTimeoutSeconds": 30
+        }
+      }
+    },
+    {
+      "name": "idempotent_tool",
+      "description": "[NOT IMPLEMENTED] Idempotent operation - IR only",
+      "spec": {
+        "idempotent": {
+          "keyPaths": ["$.requestId"],
+          "inner": {"tool": {"name": "create_order"}},
+          "store": "idempotency_store",
+          "onDuplicate": "cached"
+        }
+      }
+    }
+  ]
+}

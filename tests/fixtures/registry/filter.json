@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "filter_gt",
+      "description": "Filter with greater-than predicate",
+      "spec": {
+        "filter": {
+          "predicate": {
+            "field": "$.score",
+            "op": "gt",
+            "value": {"numberValue": 0.5}
+          }
+        }
+      }
+    },
+    {
+      "name": "filter_in",
+      "description": "Filter with in-list predicate",
+      "spec": {
+        "filter": {
+          "predicate": {
+            "field": "$.status",
+            "op": "in",
+            "value": {
+              "listValue": [
+                {"stringValue": "active"},
+                {"stringValue": "pending"}
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "filter_contains",
+      "description": "Filter with contains predicate",
+      "spec": {
+        "filter": {
+          "predicate": {
+            "field": "$.tags",
+            "op": "contains",
+            "value": {"stringValue": "important"}
+          }
+        }
+      }
+    }
+  ]
+}

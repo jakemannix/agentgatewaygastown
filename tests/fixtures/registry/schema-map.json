@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "transform_schema",
+      "description": "SchemaMap with all field source types",
+      "spec": {
+        "schemaMap": {
+          "mappings": {
+            "id": {"path": "$.data.id"},
+            "status": {"literal": {"stringValue": "processed"}},
+            "url": {
+              "coalesce": {
+                "paths": ["$.data.primary_url", "$.data.fallback_url", "$.data.default_url"]
+              }
+            },
+            "citation": {
+              "template": {
+                "template": "{author} ({year}). {title}",
+                "vars": {
+                  "author": "$.metadata.author",
+                  "year": "$.metadata.year",
+                  "title": "$.data.title"
+                }
+              }
+            },
+            "fullName": {
+              "concat": {
+                "paths": ["$.firstName", "$.lastName"],
+                "separator": " "
+              }
+            },
+            "nested": {
+              "nested": {
+                "mappings": {
+                  "inner_id": {"path": "$.nested.id"},
+                  "inner_value": {"literal": {"numberValue": 42}}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

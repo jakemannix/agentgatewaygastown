@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "simple_tool",
+      "description": "A simple source tool",
+      "source": {
+        "target": "backend-server",
+        "tool": "actual_tool"
+      }
+    },
+    {
+      "name": "tool_with_defaults",
+      "description": "Source tool with defaults and hidden fields",
+      "source": {
+        "target": "backend-server",
+        "tool": "another_tool",
+        "defaults": {
+          "api_key": "${API_KEY}",
+          "timeout": 30
+        },
+        "hideFields": ["api_key", "internal_id"]
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"}
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}

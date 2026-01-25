@@ -82,5 +82,12 @@ export {
   type ValidationResult,
   type ValidationError,
   type ValidationWarning,
+  // Proto-based canonical serialization
+  parseProtoRegistry,
+  serializeProtoRegistry,
+  canonicalizeRegistry,
 } from './compiler.js';
+
+// Generated types (canonical, from proto)
+export * as proto from './generated/registry.js';
 
