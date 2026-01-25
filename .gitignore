@@ -5,3 +5,7 @@
 .venv
 *.local
 var/
+
+# Node.js
+node_modules/
+dist/
