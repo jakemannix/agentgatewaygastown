@@ -454,12 +454,15 @@ message DataBinding {
   oneof source {
     // From composition input
     InputBinding input = 1;
-    
+
     // From a previous step's output
     StepBinding step = 2;
-    
+
     // Constant value
     google.protobuf.Value constant = 3;
+
+    // Construct an object from multiple bindings
+    ConstructBinding construct = 4;
   }
 }
 
@@ -471,9 +474,16 @@ message InputBinding {
 message StepBinding {
   // ID of the step to reference
   string step_id = 1;
-  
+
   // JSONPath into step output
   string path = 2;
+}
+
+// ConstructBinding builds an object from multiple bindings
+// Enables symmetric input construction (like outputTransform does for outputs)
+message ConstructBinding {
+  // Field name -> binding that produces the field value
+  map<string, DataBinding> fields = 1;
 }
 
 // =============================================================================
