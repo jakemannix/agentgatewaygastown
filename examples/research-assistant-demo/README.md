@@ -24,7 +24,7 @@ This demo showcases how virtual tools can provide **distributed joins** and **or
 │  Composition Patterns:                                   │
 │  • Scatter-Gather (parallel search)                      │
 │  • Pipeline (fetch → extract → process)                  │
-│  • Saga (transactional storage with compensation)        │
+│  • Cross-Service Pipeline (distributed joins)            │
 └───┬───────┬───────┬───────┬───────┬─────────────────────┘
     │       │       │       │       │
     ▼       ▼       ▼       ▼       ▼
@@ -55,7 +55,7 @@ This separation demonstrates how virtual tools **compose** these services into c
 
 - **multi_source_search**: Scatter-gather across 4 search backends in parallel
 - **deep_research**: Pipeline that searches → extracts URLs → fetches content
-- **store_research_finding**: Saga that creates entity + registers content + tags (with compensation on failure)
+- **store_research_finding**: Cross-service pipeline that creates entity + registers content + tags
 
 ## Quick Start
 
@@ -190,30 +190,48 @@ The `fetch_and_extract` tool chains operations:
 - Data flows through JSONPath references
 - Combined into single atomic operation
 
-### Saga: Transactional Operations with Compensation
+### Cross-Service Pipeline: Distributed Joins
 
-The `store_research_finding` tool uses saga pattern for consistency:
+The `store_research_finding` tool demonstrates a pipeline that spans multiple services:
 
 ```json
 {
   "name": "store_research_finding",
   "spec": {
-    "saga": {
+    "pipeline": {
       "steps": [
         {
           "id": "create_entity",
-          "action": {"tool": {"name": "create_entity", "server": "entity-service"}},
-          "compensate": {"tool": {"name": "delete_entity", "server": "entity-service"}}
+          "operation": {"tool": {"name": "create_entity", "server": "entity-service"}},
+          "input": {"construct": {"fields": {"name": {"input": {"path": "$.title"}}, ...}}}
         },
         {
           "id": "register_content",
-          "action": {"tool": {"name": "register_content", "server": "tag-service"}},
-          "compensate": {"tool": {"name": "delete_content", "server": "tag-service"}}
+          "operation": {"tool": {"name": "register_content", "server": "tag-service"}},
+          "input": {
+            "construct": {
+              "fields": {
+                "metadata": {
+                  "construct": {
+                    "fields": {
+                      "entity_id": {"reference": {"step": "create_entity", "path": "$.entity.id"}}
+                    }
+                  }
+                }
+              }
+            }
+          }
         },
         {
           "id": "tag_content",
-          "action": {"tool": {"name": "tag_content", "server": "tag-service"}},
-          "compensate": {"tool": {"name": "untag_content", "server": "tag-service"}}
+          "operation": {"tool": {"name": "tag_content", "server": "tag-service"}},
+          "input": {
+            "construct": {
+              "fields": {
+                "content_id": {"reference": {"step": "register_content", "path": "$.content.id"}}
+              }
+            }
+          }
         }
       ]
     }
@@ -222,9 +240,10 @@ The `store_research_finding` tool uses saga pattern for consistency:
 ```
 
 **What it demonstrates:**
-- Atomic operation across 2 services (entity + tag)
-- If step 3 fails, steps 1 and 2 are automatically rolled back
-- Distributed transaction semantics without 2PC
+- Pipeline spans 2 different services (entity-service → tag-service)
+- Step 2 receives the entity ID created in step 1
+- Step 3 receives the content ID created in step 2
+- "Distributed join" - linking data across service boundaries
 
 ### Hybrid: research_with_context
 

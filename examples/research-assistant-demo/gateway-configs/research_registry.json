@@ -461,15 +461,13 @@
     {
       "name": "store_research_finding",
       "version": "1.0.0",
-      "description": "Store a research finding: creates an entity in the knowledge graph, registers the content for tagging, and tags it with relevant categories. Uses saga pattern for transactional consistency.",
+      "description": "Store a research finding: creates an entity in the knowledge graph, registers the content for tagging, and tags it with relevant categories. Pipeline across entity-service and tag-service.",
       "spec": {
-        "saga": {
+        "pipeline": {
           "steps": [
             {
               "id": "create_entity",
-              "name": "Create Knowledge Entity",
-              "action": {"tool": {"name": "create_entity", "server": "entity-service"}},
-              "compensate": {"tool": {"name": "delete_entity", "server": "entity-service"}},
+              "operation": {"tool": {"name": "create_entity", "server": "entity-service"}},
               "input": {
                 "construct": {
                   "fields": {
@@ -490,9 +488,7 @@
             },
             {
               "id": "register_content",
-              "name": "Register Content for Tagging",
-              "action": {"tool": {"name": "register_content", "server": "tag-service"}},
-              "compensate": {"tool": {"name": "delete_content", "server": "tag-service"}},
+              "operation": {"tool": {"name": "register_content", "server": "tag-service"}},
               "input": {
                 "construct": {
                   "fields": {
@@ -514,9 +510,7 @@
             },
             {
               "id": "tag_content",
-              "name": "Tag with Category",
-              "action": {"tool": {"name": "tag_content", "server": "tag-service"}},
-              "compensate": {"tool": {"name": "untag_content", "server": "tag-service"}},
+              "operation": {"tool": {"name": "tag_content", "server": "tag-service"}},
               "input": {
                 "construct": {
                   "fields": {
@@ -529,8 +523,6 @@
               }
             }
           ],
-          "sagaIdPath": "$.url",
-          "timeoutMs": 30000,
           "output": {
             "construct": {
               "fields": {
