@@ -245,9 +245,90 @@ The `store_research_finding` tool demonstrates a pipeline that spans multiple se
 - Step 3 receives the content ID created in step 2
 - "Distributed join" - linking data across service boundaries
 
+### DAG with Nested Patterns: comprehensive_research
+
+The `comprehensive_research` tool demonstrates a true DAG where parallel branches join:
+
+```
+                    ┌─► exa_search ────────┐
+                    ├─► arxiv_search ──────┤
+    ┌─► [external]──┼─► github_search ─────┼──┐
+    │               └─► huggingface_search─┘  │
+    │                                         ├──► merge ──► batch_fetch
+    │               ┌─► entity_search ────┐   │
+    └─► [internal]──┼─► search_categories─┼───┘
+                    └─► search_content ───┘
+```
+
+```json
+{
+  "name": "comprehensive_research",
+  "spec": {
+    "pipeline": {
+      "steps": [
+        {
+          "id": "parallel_search",
+          "operation": {
+            "pattern": {
+              "scatterGather": {
+                "targets": [
+                  {
+                    "pattern": {
+                      "scatterGather": {
+                        "targets": [
+                          {"tool": "exa_search", "server": "search-service"},
+                          {"tool": "arxiv_search", "server": "search-service"},
+                          {"tool": "github_search", "server": "search-service"},
+                          {"tool": "huggingface_search", "server": "search-service"}
+                        ],
+                        "aggregation": {"ops": [{"flatten": true}, {"sort": ...}, {"limit": ...}]}
+                      }
+                    }
+                  },
+                  {
+                    "pattern": {
+                      "scatterGather": {
+                        "targets": [
+                          {"tool": "entity_search", "server": "entity-service"},
+                          {"tool": "search_categories", "server": "category-service"},
+                          {"tool": "search_content", "server": "tag-service"}
+                        ]
+                      }
+                    }
+                  }
+                ],
+                "aggregation": {"ops": [{"merge": true}]}
+              }
+            }
+          }
+        },
+        {
+          "id": "fetch_top_external",
+          "operation": {"tool": {"name": "batch_fetch", "server": "fetch-service"}},
+          "input": {
+            "construct": {
+              "fields": {
+                "urls": {"reference": {"step": "parallel_search", "path": "$[0].results[0:3].url"}}
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+**What it demonstrates:**
+- **Nested scatter-gather**: Two groups of parallel searches run simultaneously
+- **Branch 1**: External APIs (4 tools in parallel)
+- **Branch 2**: Internal knowledge (3 tools in parallel)
+- **Join/Merge**: Both branches merged into single result
+- **Chained processing**: Merged results feed into batch_fetch
+
 ### Hybrid: research_with_context
 
-Combines external search with internal knowledge lookup:
+Combines external search with internal knowledge lookup (flat scatter-gather):
 
 ```json
 {

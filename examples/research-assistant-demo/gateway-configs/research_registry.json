@@ -334,6 +334,116 @@
     },
 
     {
+      "name": "comprehensive_research",
+      "version": "1.0.0",
+      "description": "Full DAG research: parallel branches for external search and internal knowledge, joined and processed. Demonstrates nested scatter-gather patterns forming a true DAG.",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "parallel_search",
+              "operation": {
+                "pattern": {
+                  "scatterGather": {
+                    "targets": [
+                      {
+                        "pattern": {
+                          "scatterGather": {
+                            "targets": [
+                              {"tool": "exa_search", "server": "search-service"},
+                              {"tool": "arxiv_search", "server": "search-service"},
+                              {"tool": "github_search", "server": "search-service"},
+                              {"tool": "huggingface_search", "server": "search-service"}
+                            ],
+                            "aggregation": {
+                              "ops": [
+                                {"flatten": true},
+                                {"sort": {"field": "$.score", "order": "desc"}},
+                                {"limit": {"count": 15}}
+                              ]
+                            },
+                            "timeoutMs": 25000,
+                            "failFast": false
+                          }
+                        }
+                      },
+                      {
+                        "pattern": {
+                          "scatterGather": {
+                            "targets": [
+                              {"tool": "entity_search", "server": "entity-service"},
+                              {"tool": "search_categories", "server": "category-service"},
+                              {"tool": "search_content", "server": "tag-service"}
+                            ],
+                            "aggregation": {
+                              "ops": [
+                                {"flatten": true}
+                              ]
+                            },
+                            "timeoutMs": 10000,
+                            "failFast": false
+                          }
+                        }
+                      }
+                    ],
+                    "aggregation": {
+                      "ops": [
+                        {"merge": true}
+                      ]
+                    },
+                    "timeoutMs": 30000,
+                    "failFast": false
+                  }
+                }
+              },
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "fetch_top_external",
+              "operation": {"tool": {"name": "batch_fetch", "server": "fetch-service"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "urls": {"reference": {"step": "parallel_search", "path": "$[0].results[0:3].url"}},
+                    "max_length_per_url": {"constant": 3000}
+                  }
+                }
+              }
+            }
+          ],
+          "output": {
+            "construct": {
+              "fields": {
+                "query": {"input": {"path": "$.query"}},
+                "external_results": {"reference": {"step": "parallel_search", "path": "$[0]"}},
+                "internal_knowledge": {"reference": {"step": "parallel_search", "path": "$[1]"}},
+                "fetched_content": {"reference": {"step": "fetch_top_external", "path": "$.results"}}
+              }
+            }
+          }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Research topic for comprehensive investigation"
+          },
+          "num_results": {
+            "type": "integer",
+            "default": 10
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10
+          }
+        },
+        "required": ["query"]
+      }
+    },
+
+    {
       "name": "fetch_and_extract",
       "version": "1.0.0",
       "description": "Fetch a URL's content and extract all links from it. Useful for exploring a page and finding related resources.",
@@ -726,6 +836,7 @@
                 {"type": "tool", "name": "academic_search", "version": "1.0.0"},
                 {"type": "tool", "name": "code_search", "version": "1.0.0"},
                 {"type": "tool", "name": "research_with_context", "version": "1.0.0"},
+                {"type": "tool", "name": "comprehensive_research", "version": "1.0.0"},
                 {"type": "tool", "name": "fetch_and_extract", "version": "1.0.0"},
                 {"type": "tool", "name": "deep_research", "version": "1.0.0"},
                 {"type": "tool", "name": "store_research_finding", "version": "1.0.0"},
