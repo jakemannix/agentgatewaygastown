@@ -1,0 +1,54 @@
+# Research Assistant Demo - Gateway Configuration
+#
+# This gateway configuration multiplexes 5 microservices:
+# - search-service (8001): External searches (Exa, arXiv, GitHub, HuggingFace)
+# - fetch-service (8002): URL fetching and content extraction
+# - entity-service (8003): Knowledge graph with vector search
+# - category-service (8004): Hierarchical taxonomy
+# - tag-service (8005): Content tagging system
+#
+# The gateway exposes virtual/composite tools that orchestrate these services.
+
+# Virtual tools registry
+registry:
+  source: file://./examples/research-assistant-demo/gateway-configs/research_registry.json
+  refreshInterval: 30s
+
+# Telemetry configuration
+config:
+  tracing:
+    randomSampling: "true"
+    compositionVerbosity: "full"
+
+# MCP backends
+binds:
+  - port: 3000
+    listeners:
+      - routes:
+          - backends:
+              - mcp:
+                  targets:
+                    # External search services
+                    - name: search-service
+                      mcp:
+                        host: http://localhost:8001/mcp
+
+                    # URL fetching and extraction
+                    - name: fetch-service
+                      mcp:
+                        host: http://localhost:8002/mcp
+
+                    # Knowledge graph (entities + relations)
+                    - name: entity-service
+                      mcp:
+                        host: http://localhost:8003/mcp
+
+                    # Hierarchical categories
+                    - name: category-service
+                      mcp:
+                        host: http://localhost:8004/mcp
+
+                    # Content tagging
+                    - name: tag-service
+                      mcp:
+                        host: http://localhost:8005/mcp
