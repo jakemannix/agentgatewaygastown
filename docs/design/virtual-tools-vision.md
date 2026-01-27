@@ -95,6 +95,59 @@ Compositions support flexible data binding:
 
 ## What's Not Implemented
 
+### Schema Type Safety in DSL
+
+The TypeScript DSL currently has **no type-level awareness of output schemas**. Tool references are just strings, so the compiler cannot detect schema mismatches at build time.
+
+**Current problem:**
+```typescript
+// This compiles but produces semantically broken output
+scatterGather()
+  .targets(
+    'normalized_search',      // returns NormalizedSearchResponse
+    'entity_search',          // returns EntitySearchResponse
+    'search_categories'       // returns CategorySearchResponse
+  )
+  .aggregate(agg().flatten()) // Flattening heterogeneous types!
+  .build()
+```
+
+**What the proper fix requires:**
+
+1. **Typed tool handles** instead of string references:
+   ```typescript
+   interface Tool<Input, Output> { name: string; _input: Input; _output: Output; }
+
+   const normalizedSearch: Tool<SearchInput, NormalizedSearchResponse> = ...;
+   const entitySearch: Tool<SearchInput, EntitySearchResponse> = ...;
+   ```
+
+2. **Generic scatter-gather builder** that constrains target types:
+   ```typescript
+   class ScatterGatherBuilder<T> {
+     target<U extends T>(tool: Tool<any, U>): ScatterGatherBuilder<T> { ... }
+   }
+
+   // This would be a type error:
+   scatterGather<NormalizedSearchResponse>()
+     .target(normalizedSearch)  // OK
+     .target(entitySearch)       // ERROR: EntitySearchResponse not assignable to NormalizedSearchResponse
+   ```
+
+3. **Phantom types** or a **registry-aware type system** to propagate schema info through compositions.
+
+**Current workaround:**
+
+Run `scripts/validate-registry-schemas.py` as a post-build lint step. It catches heterogeneous scatter-gather with flatten, but only at the JSON level, not at compile time.
+
+```bash
+python scripts/validate-registry-schemas.py registry.json --strict
+```
+
+This is tracked for Phase 3 implementation.
+
+---
+
 ### Stateful Patterns
 
 These patterns are designed but not yet implemented in the executor:

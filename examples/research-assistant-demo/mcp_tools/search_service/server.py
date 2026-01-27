@@ -1,12 +1,12 @@
 """Search Service - External search APIs for web, arXiv, GitHub, HuggingFace.
 
-This service provides unified search interfaces across multiple external sources.
-Each search tool returns a normalized result format for easy composition.
+This service provides search interfaces to multiple external sources.
+Each tool returns its NATIVE API format - normalization is done declaratively
+via outputTransform mappings in the gateway registry.
 """
 
 import os
-import re
-from datetime import datetime
+from dataclasses import dataclass, field
 from typing import Annotated
 
 import httpx
@@ -19,25 +19,28 @@ mcp = FastMCP(
 )
 
 
-# Normalized result schema (all search tools return this format)
-def normalize_result(
-    source: str,
-    title: str,
-    url: str,
-    snippet: str,
-    score: float = 1.0,
-    metadata: dict | None = None,
-) -> dict:
-    """Create a normalized search result."""
-    return {
-        "source": source,
-        "title": title,
-        "url": url,
-        "snippet": snippet,
-        "score": score,
-        "metadata": metadata or {},
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+# =============================================================================
+# Exa Search - Native Response Types
+# =============================================================================
+
+
+@dataclass
+class ExaResult:
+    """Single result from Exa API."""
+    title: str
+    url: str
+    text: str | None = None
+    highlight: str | None = None
+    score: float = 1.0
+    published_date: str | None = None
+
+
+@dataclass
+class ExaSearchResponse:
+    """Native Exa API response format."""
+    query: str
+    results: list[ExaResult] = field(default_factory=list)
+    error: str | None = None
 
 
 @mcp.tool()
@@ -45,16 +48,21 @@ async def exa_search(
     query: Annotated[str, Field(description="Search query for web search")],
     num_results: Annotated[int, Field(description="Number of results to return", ge=1, le=20)] = 10,
     use_autoprompt: Annotated[bool, Field(description="Use Exa's autoprompt feature")] = True,
-) -> dict:
+) -> ExaSearchResponse:
     """Search the web using Exa API.
 
     Exa provides high-quality web search results optimized for AI applications.
-    Returns normalized search results with URLs, titles, and snippets.
+    Requires EXA_API_KEY environment variable.
     """
     exa_api_key = os.getenv("EXA_API_KEY")
 
-    if exa_api_key:
-        # Real Exa API call
+    if not exa_api_key:
+        return ExaSearchResponse(
+            query=query,
+            error="EXA_API_KEY environment variable not set. Get an API key at https://exa.ai"
+        )
+
+    try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 "https://api.exa.ai/search",
@@ -71,37 +79,55 @@ async def exa_search(
             data = response.json()
 
             results = [
-                normalize_result(
-                    source="exa",
+                ExaResult(
                     title=r.get("title", ""),
                     url=r.get("url", ""),
-                    snippet=r.get("text", r.get("highlight", ""))[:500],
+                    text=r.get("text"),
+                    highlight=r.get("highlight"),
                     score=r.get("score", 1.0),
-                    metadata={"published_date": r.get("publishedDate")},
+                    published_date=r.get("publishedDate"),
                 )
                 for r in data.get("results", [])
             ]
-    else:
-        # Mock results for demo
-        results = [
-            normalize_result(
-                source="exa",
-                title=f"Web Result: {query} - Article {i+1}",
-                url=f"https://example.com/article/{query.replace(' ', '-')}-{i+1}",
-                snippet=f"This is a simulated web search result for '{query}'. "
-                        f"In production, this would contain actual content from the web.",
-                score=0.9 - (i * 0.05),
-                metadata={"published_date": "2025-01-15"},
-            )
-            for i in range(min(num_results, 5))
-        ]
 
-    return {
-        "query": query,
-        "source": "exa",
-        "total": len(results),
-        "results": results,
-    }
+            return ExaSearchResponse(query=query, results=results)
+
+    except httpx.HTTPStatusError as e:
+        return ExaSearchResponse(
+            query=query,
+            error=f"Exa API error: HTTP {e.response.status_code}"
+        )
+    except httpx.TimeoutException:
+        return ExaSearchResponse(query=query, error="Exa API timeout")
+    except Exception as e:
+        return ExaSearchResponse(query=query, error=f"Exa API error: {e}")
+
+
+# =============================================================================
+# arXiv Search - Native Response Types
+# =============================================================================
+
+
+@dataclass
+class ArxivPaper:
+    """Single paper from arXiv API."""
+    arxiv_id: str
+    title: str
+    abstract: str
+    authors: list[str] = field(default_factory=list)
+    categories: list[str] = field(default_factory=list)
+    pdf_url: str | None = None
+    abs_url: str | None = None
+    published: str | None = None
+    updated: str | None = None
+
+
+@dataclass
+class ArxivSearchResponse:
+    """Native arXiv API response format."""
+    query: str
+    papers: list[ArxivPaper] = field(default_factory=list)
+    error: str | None = None
 
 
 @mcp.tool()
@@ -109,25 +135,24 @@ async def arxiv_search(
     query: Annotated[str, Field(description="Search query for arXiv papers")],
     num_results: Annotated[int, Field(description="Number of papers to return", ge=1, le=50)] = 10,
     sort_by: Annotated[str, Field(description="Sort order: relevance, lastUpdatedDate, submittedDate")] = "relevance",
-) -> dict:
+) -> ArxivSearchResponse:
     """Search arXiv for academic papers.
 
     Searches the arXiv preprint server for papers matching the query.
     Returns paper metadata including title, authors, abstract, and PDF URL.
+    No API key required - arXiv API is free.
     """
-    # arXiv API is free and doesn't require a key
-    async with httpx.AsyncClient() as client:
-        # Build arXiv API query
-        search_query = query.replace(" ", "+")
-        params = {
-            "search_query": f"all:{search_query}",
-            "start": 0,
-            "max_results": num_results,
-            "sortBy": sort_by,
-            "sortOrder": "descending",
-        }
+    try:
+        async with httpx.AsyncClient() as client:
+            search_query = query.replace(" ", "+")
+            params = {
+                "search_query": f"all:{search_query}",
+                "start": 0,
+                "max_results": num_results,
+                "sortBy": sort_by,
+                "sortOrder": "descending",
+            }
 
-        try:
             response = await client.get(
                 "http://export.arxiv.org/api/query",
                 params=params,
@@ -141,18 +166,21 @@ async def arxiv_search(
             root = ET.fromstring(response.text)
             ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
 
-            results = []
+            papers = []
             for entry in root.findall("atom:entry", ns):
-                title = entry.find("atom:title", ns)
-                summary = entry.find("atom:summary", ns)
-                published = entry.find("atom:published", ns)
+                title_el = entry.find("atom:title", ns)
+                summary_el = entry.find("atom:summary", ns)
+                published_el = entry.find("atom:published", ns)
+                updated_el = entry.find("atom:updated", ns)
 
-                # Get PDF link
-                pdf_url = ""
+                # Get PDF and abs links
+                pdf_url = None
+                abs_url = None
                 for link in entry.findall("atom:link", ns):
                     if link.get("title") == "pdf":
                         pdf_url = link.get("href", "")
-                        break
+                    elif link.get("type") == "text/html":
+                        abs_url = link.get("href", "")
 
                 # Get authors
                 authors = [
@@ -161,52 +189,84 @@ async def arxiv_search(
                     if a.find("atom:name", ns) is not None
                 ]
 
-                # Get arXiv ID
-                arxiv_id = entry.find("atom:id", ns)
-                arxiv_id = arxiv_id.text if arxiv_id is not None else ""
-                if "abs/" in arxiv_id:
-                    arxiv_id = arxiv_id.split("abs/")[-1]
+                # Get arXiv ID from entry id
+                id_el = entry.find("atom:id", ns)
+                arxiv_id = ""
+                if id_el is not None and id_el.text:
+                    arxiv_id = id_el.text
+                    if "abs/" in arxiv_id:
+                        arxiv_id = arxiv_id.split("abs/")[-1]
 
                 # Get categories
                 categories = [
                     cat.get("term", "")
                     for cat in entry.findall("atom:category", ns)
+                    if cat.get("term")
                 ]
 
-                results.append(normalize_result(
-                    source="arxiv",
-                    title=title.text.strip() if title is not None else "",
-                    url=pdf_url or f"https://arxiv.org/abs/{arxiv_id}",
-                    snippet=(summary.text.strip()[:500] if summary is not None else ""),
-                    score=1.0 - (len(results) * 0.02),  # Relevance-ordered
-                    metadata={
-                        "arxiv_id": arxiv_id,
-                        "authors": authors[:5],  # Limit to first 5 authors
-                        "published": published.text if published is not None else None,
-                        "categories": categories[:3],
-                    },
+                papers.append(ArxivPaper(
+                    arxiv_id=arxiv_id,
+                    title=title_el.text.strip() if title_el is not None and title_el.text else "",
+                    abstract=summary_el.text.strip() if summary_el is not None and summary_el.text else "",
+                    authors=authors,
+                    categories=categories,
+                    pdf_url=pdf_url,
+                    abs_url=abs_url or f"https://arxiv.org/abs/{arxiv_id}",
+                    published=published_el.text if published_el is not None else None,
+                    updated=updated_el.text if updated_el is not None else None,
                 ))
 
-        except Exception as e:
-            # Fallback to mock results on error
-            results = [
-                normalize_result(
-                    source="arxiv",
-                    title=f"[arXiv] {query} - Paper {i+1}",
-                    url=f"https://arxiv.org/abs/2501.{10000+i}",
-                    snippet=f"Mock arXiv paper about {query}. Error fetching real results: {e}",
-                    score=0.9 - (i * 0.05),
-                    metadata={"arxiv_id": f"2501.{10000+i}", "authors": ["Author A", "Author B"]},
-                )
-                for i in range(min(num_results, 5))
-            ]
+            return ArxivSearchResponse(query=query, papers=papers)
 
-    return {
-        "query": query,
-        "source": "arxiv",
-        "total": len(results),
-        "results": results,
-    }
+    except httpx.HTTPStatusError as e:
+        return ArxivSearchResponse(
+            query=query,
+            error=f"arXiv API error: HTTP {e.response.status_code}"
+        )
+    except httpx.TimeoutException:
+        return ArxivSearchResponse(query=query, error="arXiv API timeout")
+    except ET.ParseError as e:
+        return ArxivSearchResponse(query=query, error=f"arXiv XML parse error: {e}")
+    except Exception as e:
+        return ArxivSearchResponse(query=query, error=f"arXiv API error: {e}")
+
+
+# =============================================================================
+# GitHub Search - Native Response Types
+# =============================================================================
+
+
+@dataclass
+class GitHubRepo:
+    """Single repository from GitHub API."""
+    full_name: str
+    html_url: str
+    description: str | None = None
+    stargazers_count: int = 0
+    forks_count: int = 0
+    language: str | None = None
+    topics: list[str] = field(default_factory=list)
+    updated_at: str | None = None
+
+
+@dataclass
+class GitHubCodeResult:
+    """Single code search result from GitHub API."""
+    name: str
+    path: str
+    html_url: str
+    repository_full_name: str
+
+
+@dataclass
+class GitHubSearchResponse:
+    """Native GitHub API response format."""
+    query: str
+    search_type: str
+    total_count: int = 0
+    repos: list[GitHubRepo] = field(default_factory=list)
+    code_results: list[GitHubCodeResult] = field(default_factory=list)
+    error: str | None = None
 
 
 @mcp.tool()
@@ -214,19 +274,19 @@ async def github_search(
     query: Annotated[str, Field(description="Search query for GitHub repositories")],
     num_results: Annotated[int, Field(description="Number of repositories to return", ge=1, le=30)] = 10,
     search_type: Annotated[str, Field(description="What to search: repositories, code")] = "repositories",
-) -> dict:
+) -> GitHubSearchResponse:
     """Search GitHub for repositories or code.
 
     Searches GitHub's public repositories for projects matching the query.
-    Returns repository metadata including name, description, stars, and URL.
+    GITHUB_TOKEN is optional but recommended to avoid rate limits.
     """
     github_token = os.getenv("GITHUB_TOKEN")
     headers = {"Accept": "application/vnd.github.v3+json"}
     if github_token:
         headers["Authorization"] = f"token {github_token}"
 
-    async with httpx.AsyncClient() as client:
-        try:
+    try:
+        async with httpx.AsyncClient() as client:
             if search_type == "repositories":
                 response = await client.get(
                     "https://api.github.com/search/repositories",
@@ -246,59 +306,107 @@ async def github_search(
             data = response.json()
 
             if search_type == "repositories":
-                results = [
-                    normalize_result(
-                        source="github",
-                        title=r.get("full_name", ""),
-                        url=r.get("html_url", ""),
-                        snippet=r.get("description", "") or "No description",
-                        score=min(1.0, r.get("stargazers_count", 0) / 10000),
-                        metadata={
-                            "stars": r.get("stargazers_count", 0),
-                            "forks": r.get("forks_count", 0),
-                            "language": r.get("language"),
-                            "topics": r.get("topics", [])[:5],
-                            "updated_at": r.get("updated_at"),
-                        },
+                repos = [
+                    GitHubRepo(
+                        full_name=r.get("full_name", ""),
+                        html_url=r.get("html_url", ""),
+                        description=r.get("description"),
+                        stargazers_count=r.get("stargazers_count", 0),
+                        forks_count=r.get("forks_count", 0),
+                        language=r.get("language"),
+                        topics=r.get("topics", [])[:5],
+                        updated_at=r.get("updated_at"),
                     )
                     for r in data.get("items", [])
                 ]
-            else:
-                results = [
-                    normalize_result(
-                        source="github",
-                        title=f"{r.get('repository', {}).get('full_name', '')}/{r.get('name', '')}",
-                        url=r.get("html_url", ""),
-                        snippet=f"Code file in {r.get('repository', {}).get('full_name', '')}",
-                        score=0.9,
-                        metadata={
-                            "path": r.get("path"),
-                            "repository": r.get("repository", {}).get("full_name"),
-                        },
-                    )
-                    for r in data.get("items", [])
-                ]
-
-        except Exception as e:
-            # Mock results on error
-            results = [
-                normalize_result(
-                    source="github",
-                    title=f"example/{query.replace(' ', '-')}-{i+1}",
-                    url=f"https://github.com/example/{query.replace(' ', '-')}-{i+1}",
-                    snippet=f"Mock GitHub repository for {query}. API error: {e}",
-                    score=0.9 - (i * 0.05),
-                    metadata={"stars": 1000 - (i * 100), "language": "Python"},
+                return GitHubSearchResponse(
+                    query=query,
+                    search_type=search_type,
+                    total_count=data.get("total_count", 0),
+                    repos=repos,
                 )
-                for i in range(min(num_results, 5))
-            ]
+            else:
+                code_results = [
+                    GitHubCodeResult(
+                        name=r.get("name", ""),
+                        path=r.get("path", ""),
+                        html_url=r.get("html_url", ""),
+                        repository_full_name=r.get("repository", {}).get("full_name", ""),
+                    )
+                    for r in data.get("items", [])
+                ]
+                return GitHubSearchResponse(
+                    query=query,
+                    search_type=search_type,
+                    total_count=data.get("total_count", 0),
+                    code_results=code_results,
+                )
 
-    return {
-        "query": query,
-        "source": "github",
-        "total": len(results),
-        "results": results,
-    }
+    except httpx.HTTPStatusError as e:
+        error_msg = f"GitHub API error: HTTP {e.response.status_code}"
+        if e.response.status_code == 403:
+            error_msg += " (rate limited - set GITHUB_TOKEN to increase limits)"
+        return GitHubSearchResponse(
+            query=query, search_type=search_type, error=error_msg
+        )
+    except httpx.TimeoutException:
+        return GitHubSearchResponse(
+            query=query, search_type=search_type, error="GitHub API timeout"
+        )
+    except Exception as e:
+        return GitHubSearchResponse(
+            query=query, search_type=search_type, error=f"GitHub API error: {e}"
+        )
+
+
+# =============================================================================
+# HuggingFace Search - Native Response Types
+# =============================================================================
+
+
+@dataclass
+class HuggingFaceModel:
+    """Single model from HuggingFace API."""
+    id: str
+    url: str
+    description: str | None = None
+    downloads: int = 0
+    likes: int = 0
+    pipeline_tag: str | None = None
+    tags: list[str] = field(default_factory=list)
+    library_name: str | None = None
+
+
+@dataclass
+class HuggingFaceDataset:
+    """Single dataset from HuggingFace API."""
+    id: str
+    url: str
+    description: str | None = None
+    downloads: int = 0
+    likes: int = 0
+    tags: list[str] = field(default_factory=list)
+
+
+@dataclass
+class HuggingFaceSpace:
+    """Single space from HuggingFace API."""
+    id: str
+    url: str
+    description: str | None = None
+    likes: int = 0
+    sdk: str | None = None
+
+
+@dataclass
+class HuggingFaceSearchResponse:
+    """Native HuggingFace API response format."""
+    query: str
+    search_type: str
+    models: list[HuggingFaceModel] = field(default_factory=list)
+    datasets: list[HuggingFaceDataset] = field(default_factory=list)
+    spaces: list[HuggingFaceSpace] = field(default_factory=list)
+    error: str | None = None
 
 
 @mcp.tool()
@@ -306,20 +414,19 @@ async def huggingface_search(
     query: Annotated[str, Field(description="Search query for HuggingFace")],
     num_results: Annotated[int, Field(description="Number of results to return", ge=1, le=30)] = 10,
     search_type: Annotated[str, Field(description="What to search: models, datasets, spaces")] = "models",
-) -> dict:
+) -> HuggingFaceSearchResponse:
     """Search HuggingFace for models, datasets, or spaces.
 
-    Searches the HuggingFace Hub for ML models, datasets, or Spaces matching the query.
-    Returns metadata including name, description, downloads, and URL.
+    Searches the HuggingFace Hub for ML models, datasets, or Spaces.
+    HF_TOKEN is optional but recommended to avoid rate limits.
     """
     hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
     headers = {"Accept": "application/json"}
     if hf_token:
         headers["Authorization"] = f"Bearer {hf_token}"
 
-    async with httpx.AsyncClient() as client:
-        try:
-            # HuggingFace API endpoint
+    try:
+        async with httpx.AsyncClient() as client:
             base_url = f"https://huggingface.co/api/{search_type}"
             params = {"search": query, "limit": num_results, "sort": "downloads", "direction": "-1"}
 
@@ -332,69 +439,69 @@ async def huggingface_search(
             response.raise_for_status()
             data = response.json()
 
-            results = []
-            for item in data:
-                if search_type == "models":
-                    results.append(normalize_result(
-                        source="huggingface",
-                        title=item.get("id", ""),
+            if search_type == "models":
+                models = [
+                    HuggingFaceModel(
+                        id=item.get("id", ""),
                         url=f"https://huggingface.co/{item.get('id', '')}",
-                        snippet=item.get("description", item.get("pipeline_tag", "")) or "ML model",
-                        score=min(1.0, item.get("downloads", 0) / 1000000),
-                        metadata={
-                            "downloads": item.get("downloads", 0),
-                            "likes": item.get("likes", 0),
-                            "pipeline_tag": item.get("pipeline_tag"),
-                            "tags": item.get("tags", [])[:5],
-                            "library_name": item.get("library_name"),
-                        },
-                    ))
-                elif search_type == "datasets":
-                    results.append(normalize_result(
-                        source="huggingface",
-                        title=item.get("id", ""),
-                        url=f"https://huggingface.co/datasets/{item.get('id', '')}",
-                        snippet=item.get("description", "") or "Dataset",
-                        score=min(1.0, item.get("downloads", 0) / 100000),
-                        metadata={
-                            "downloads": item.get("downloads", 0),
-                            "likes": item.get("likes", 0),
-                            "tags": item.get("tags", [])[:5],
-                        },
-                    ))
-                else:  # spaces
-                    results.append(normalize_result(
-                        source="huggingface",
-                        title=item.get("id", ""),
-                        url=f"https://huggingface.co/spaces/{item.get('id', '')}",
-                        snippet=item.get("description", "") or "HuggingFace Space",
-                        score=item.get("likes", 0) / 1000,
-                        metadata={
-                            "likes": item.get("likes", 0),
-                            "sdk": item.get("sdk"),
-                        },
-                    ))
-
-        except Exception as e:
-            # Mock results on error
-            results = [
-                normalize_result(
-                    source="huggingface",
-                    title=f"org/{query.replace(' ', '-')}-{search_type[:-1]}-{i+1}",
-                    url=f"https://huggingface.co/{search_type}/org/{query.replace(' ', '-')}-{i+1}",
-                    snippet=f"Mock HuggingFace {search_type[:-1]} for {query}. API error: {e}",
-                    score=0.9 - (i * 0.05),
-                    metadata={"downloads": 10000 - (i * 1000)},
+                        description=item.get("description") or item.get("pipeline_tag"),
+                        downloads=item.get("downloads", 0),
+                        likes=item.get("likes", 0),
+                        pipeline_tag=item.get("pipeline_tag"),
+                        tags=item.get("tags", [])[:5],
+                        library_name=item.get("library_name"),
+                    )
+                    for item in data
+                ]
+                return HuggingFaceSearchResponse(
+                    query=query, search_type=search_type, models=models
                 )
-                for i in range(min(num_results, 5))
-            ]
 
-    return {
-        "query": query,
-        "source": f"huggingface_{search_type}",
-        "total": len(results),
-        "results": results,
-    }
+            elif search_type == "datasets":
+                datasets = [
+                    HuggingFaceDataset(
+                        id=item.get("id", ""),
+                        url=f"https://huggingface.co/datasets/{item.get('id', '')}",
+                        description=item.get("description"),
+                        downloads=item.get("downloads", 0),
+                        likes=item.get("likes", 0),
+                        tags=item.get("tags", [])[:5],
+                    )
+                    for item in data
+                ]
+                return HuggingFaceSearchResponse(
+                    query=query, search_type=search_type, datasets=datasets
+                )
+
+            else:  # spaces
+                spaces = [
+                    HuggingFaceSpace(
+                        id=item.get("id", ""),
+                        url=f"https://huggingface.co/spaces/{item.get('id', '')}",
+                        description=item.get("description"),
+                        likes=item.get("likes", 0),
+                        sdk=item.get("sdk"),
+                    )
+                    for item in data
+                ]
+                return HuggingFaceSearchResponse(
+                    query=query, search_type=search_type, spaces=spaces
+                )
+
+    except httpx.HTTPStatusError as e:
+        return HuggingFaceSearchResponse(
+            query=query,
+            search_type=search_type,
+            error=f"HuggingFace API error: HTTP {e.response.status_code}"
+        )
+    except httpx.TimeoutException:
+        return HuggingFaceSearchResponse(
+            query=query, search_type=search_type, error="HuggingFace API timeout"
+        )
+    except Exception as e:
+        return HuggingFaceSearchResponse(
+            query=query, search_type=search_type, error=f"HuggingFace API error: {e}"
+        )
 
 
 if __name__ == "__main__":

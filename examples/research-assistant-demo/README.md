@@ -70,7 +70,7 @@ This separation demonstrates how virtual tools **compose** these services into c
 
 ```bash
 # From the repository root
-cargo build --release -p agentgateway-app
+cargo build -p agentgateway-app
 ```
 
 ### 2. Configure Environment
@@ -82,10 +82,40 @@ cd examples/research-assistant-demo
 cp .env.example .env
 
 # Edit .env with your API keys
-# At minimum, set one LLM provider key:
-# - ANTHROPIC_API_KEY (recommended)
-# - OPENAI_API_KEY
-# - GOOGLE_API_KEY
+```
+
+#### Required Environment Variables
+
+At minimum, you need **one LLM provider**:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_API_KEY` | One of these | Claude models (recommended) |
+| `OPENAI_API_KEY` | One of these | GPT models |
+| `GOOGLE_API_KEY` | One of these | Gemini models |
+
+#### Search Service API Keys
+
+Each search source requires its own API key. **Without a key, the search will return an error** (no mock data):
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `EXA_API_KEY` | For web search | Get at [exa.ai](https://exa.ai). Without it, `exa_search` returns an error |
+| `GITHUB_TOKEN` | Optional | Increases rate limits. Without it, you may hit rate limits |
+| `HF_TOKEN` | Optional | Increases rate limits for HuggingFace API |
+
+**Note:** arXiv API is free and requires no key.
+
+#### Example .env file
+
+```bash
+# LLM Provider (at least one required)
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Search APIs
+EXA_API_KEY=...              # Required for web search
+GITHUB_TOKEN=ghp_...         # Optional, for higher rate limits
+HF_TOKEN=hf_...              # Optional, for higher rate limits
 ```
 
 ### 3. Start Services
@@ -122,9 +152,47 @@ tmux attach -t research-demo
 
 ## Virtual Tools Showcase
 
+### Declarative Output Transformation
+
+Each search backend returns its **native API format**. The gateway uses `outputTransform` mappings to normalize them into a common schema. This demonstrates declarative data transformation without code:
+
+```json
+{
+  "name": "normalized_arxiv_search",
+  "source": {"server": "search-service", "tool": "arxiv_search"},
+  "outputTransform": {
+    "mappings": {
+      "query": {"path": "$.query"},
+      "source": {"literal": {"stringValue": "arxiv"}},
+      "error": {"path": "$.error"},
+      "results": {"path": "$.papers[*]", "nested": {
+        "mappings": {
+          "source": {"literal": {"stringValue": "arxiv"}},
+          "title": {"path": "$.title"},
+          "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"]}},
+          "snippet": {"path": "$.abstract"},
+          "score": {"literal": {"numberValue": 1.0}},
+          "metadata": {
+            "nested": {"mappings": {"arxiv_id": {"path": "$.arxiv_id"}, ...}}
+          }
+        }
+      }}
+    }
+  }
+}
+```
+
+**Available mapping types:**
+- `path`: JSONPath extraction (field renaming via target key)
+- `literal`: Constant values (`stringValue`, `numberValue`, `boolValue`)
+- `coalesce`: First non-null from multiple paths
+- `nested`: Recursive object construction
+- `template`: String interpolation with variables
+- `concat`: Concatenate multiple paths
+
 ### Scatter-Gather: Parallel Multi-Source Search
 
-The `multi_source_search` tool demonstrates parallel execution across multiple backends:
+The `multi_source_search` tool demonstrates parallel execution using normalized wrapper tools:
 
 ```json
 {
@@ -132,10 +200,10 @@ The `multi_source_search` tool demonstrates parallel execution across multiple b
   "spec": {
     "scatterGather": {
       "targets": [
-        {"tool": "exa_search", "server": "search-service"},
-        {"tool": "arxiv_search", "server": "search-service"},
-        {"tool": "github_search", "server": "search-service"},
-        {"tool": "huggingface_search", "server": "search-service"}
+        {"tool": "normalized_exa_search"},
+        {"tool": "normalized_arxiv_search"},
+        {"tool": "normalized_github_search"},
+        {"tool": "normalized_huggingface_search"}
       ],
       "aggregation": {
         "ops": [
@@ -151,8 +219,10 @@ The `multi_source_search` tool demonstrates parallel execution across multiple b
 
 **What it demonstrates:**
 - 4 external APIs called simultaneously
+- Each tool applies its `outputTransform` to normalize native responses
 - Results aggregated, sorted by relevance, limited to top 40
 - Single tool call from the agent's perspective
+- Error handling: failed sources return `error` field instead of results
 
 ### Pipeline: Sequential Processing
 
@@ -356,16 +426,22 @@ Combines external search with internal knowledge lookup (flat scatter-gather):
 
 ### Search Service (8001)
 
-External search API integrations:
+External search API integrations. Each tool returns its **native API format** - normalization happens via gateway `outputTransform`:
 
-| Tool | Source | API | Notes |
-|------|--------|-----|-------|
-| `exa_search` | Web | Exa.ai | Neural web search |
-| `arxiv_search` | Academic | arXiv API | Free, no key needed |
-| `github_search` | Code | GitHub API | Token optional for rate limits |
-| `huggingface_search` | ML | HuggingFace API | Token optional |
+| Tool | Source | API | Returns | Notes |
+|------|--------|-----|---------|-------|
+| `exa_search` | Web | Exa.ai | `ExaSearchResponse` | Requires `EXA_API_KEY` |
+| `arxiv_search` | Academic | arXiv API | `ArxivSearchResponse` | Free, no key needed |
+| `github_search` | Code | GitHub API | `GitHubSearchResponse` | `GITHUB_TOKEN` optional |
+| `huggingface_search` | ML | HuggingFace API | `HuggingFaceSearchResponse` | `HF_TOKEN` optional |
 
-All return normalized results with: source, title, url, snippet, score, metadata.
+**Virtual wrapper tools** normalize these into a common `NormalizedSearchResponse` format:
+- `normalized_exa_search` - wraps `exa_search` with output transform
+- `normalized_arxiv_search` - wraps `arxiv_search` with output transform
+- `normalized_github_search` - wraps `github_search` with output transform
+- `normalized_huggingface_search` - wraps `huggingface_search` with output transform
+
+Each wrapper uses JSONPath mappings to transform native fields (e.g., `$.papers[*].abstract` → `$.results[*].snippet`).
 
 ### Fetch Service (8002)
 
@@ -513,9 +589,23 @@ cd examples/research-assistant-demo
 uv run python -c "from agents.shared.llm_config import print_llm_config; print_llm_config()"
 ```
 
-### arXiv search returns errors
+### Search returns errors
 
-arXiv API can be slow or rate-limited. The service will return mock results on error. For production use, consider caching or using a proxy.
+Each search tool returns errors in the response body (not exceptions). Check the `error` field:
+
+```json
+{
+  "query": "transformers",
+  "source": "exa",
+  "error": "EXA_API_KEY environment variable not set. Get an API key at https://exa.ai",
+  "results": []
+}
+```
+
+Common errors:
+- `EXA_API_KEY environment variable not set` - Set the API key in `.env`
+- `GitHub API error: HTTP 403 (rate limited)` - Set `GITHUB_TOKEN` for higher limits
+- `arXiv API timeout` - arXiv can be slow; retry or increase timeout
 
 ## Files Reference
 
