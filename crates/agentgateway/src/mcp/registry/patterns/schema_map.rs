@@ -61,8 +61,11 @@ pub enum FieldSource {
 	/// Concatenate multiple fields
 	Concat(ConcatSource),
 
-	/// Nested object mapping
+	/// Nested object mapping (applies mappings to same input context)
 	Nested(Box<SchemaMapSpec>),
+
+	/// Array mapping - iterate over array, apply mappings to each element
+	ArrayMap(ArrayMapSource),
 }
 
 impl FieldSource {
@@ -155,6 +158,30 @@ pub struct ConcatSource {
 	/// Separator between values
 	#[serde(default)]
 	pub separator: Option<String>,
+}
+
+/// ArrayMap source - iterate over array and apply mappings to each element
+///
+/// Example JSON:
+/// ```json
+/// {
+///   "arrayMap": {
+///     "over": "$.papers",
+///     "each": {
+///       "title": {"path": "$.title"},
+///       "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"]}}
+///     }
+///   }
+/// }
+/// ```
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArrayMapSource {
+	/// JSONPath to the source array
+	pub over: String,
+
+	/// Mappings to apply to each element
+	pub each: HashMap<String, FieldSource>,
 }
 
 #[cfg(test)]
@@ -275,6 +302,31 @@ mod tests {
 			.with_literal("type", LiteralValue::StringValue("doc".to_string()));
 
 		assert_eq!(schema.mappings.len(), 2);
+	}
+
+	#[test]
+	fn test_parse_field_source_array_map() {
+		let json = r#"{
+			"arrayMap": {
+				"over": "$.papers",
+				"each": {
+					"title": { "path": "$.title" },
+					"url": { "coalesce": { "paths": ["$.pdf_url", "$.abs_url"] } },
+					"source": { "literal": { "stringValue": "arxiv" } }
+				}
+			}
+		}"#;
+
+		let source: FieldSource = serde_json::from_str(json).unwrap();
+		if let FieldSource::ArrayMap(am) = source {
+			assert_eq!(am.over, "$.papers");
+			assert_eq!(am.each.len(), 3);
+			assert!(matches!(am.each.get("title"), Some(FieldSource::Path(_))));
+			assert!(matches!(am.each.get("url"), Some(FieldSource::Coalesce(_))));
+			assert!(matches!(am.each.get("source"), Some(FieldSource::Literal(_))));
+		} else {
+			panic!("Expected ArrayMap");
+		}
 	}
 
 	#[test]

@@ -11,7 +11,7 @@ use rmcp::model::Tool;
 use serde_json_path::JsonPath;
 
 use super::error::RegistryError;
-use super::patterns::{FieldSource, PatternSpec};
+use super::patterns::{ArrayMapSource, FieldSource, PatternSpec};
 use super::types::{
 	AgentDefinition, OutputTransform, Registry, Schema, Server, SourceTool, ToolDefinition,
 	ToolImplementation, UnknownCallerPolicy, VirtualToolDef,
@@ -114,8 +114,17 @@ pub enum CompiledFieldSource {
 		paths: Vec<JsonPath>,
 		separator: String,
 	},
-	/// Nested mapping
+	/// Nested mapping (applies to same input)
 	Nested(Box<CompiledOutputTransform>),
+	/// Array mapping - iterate over array, apply mappings to each element
+	ArrayMap {
+		/// JSONPath to the source array
+		over: JsonPath,
+		/// Original path string for error messages
+		over_original: String,
+		/// Compiled mappings to apply to each element
+		each: Box<CompiledOutputTransform>,
+	},
 }
 
 // =============================================================================
@@ -911,6 +920,18 @@ impl CompiledFieldSource {
 				})?;
 				Ok(CompiledFieldSource::Nested(Box::new(compiled)))
 			},
+			FieldSource::ArrayMap(ArrayMapSource { over, each }) => {
+				let over_jsonpath = JsonPath::parse(over)
+					.map_err(|e| RegistryError::invalid_jsonpath(over, e.to_string()))?;
+				let each_compiled = CompiledOutputTransform::compile(&OutputTransform {
+					mappings: each.clone(),
+				})?;
+				Ok(CompiledFieldSource::ArrayMap {
+					over: over_jsonpath,
+					over_original: over.clone(),
+					each: Box::new(each_compiled),
+				})
+			},
 		}
 	}
 
@@ -960,6 +981,29 @@ impl CompiledFieldSource {
 				Ok(serde_json::Value::String(parts.join(separator)))
 			},
 			CompiledFieldSource::Nested(transform) => transform.apply(input),
+			CompiledFieldSource::ArrayMap { over, each, .. } => {
+				// Extract the source array
+				let nodes = over.query(input);
+				let items: Vec<_> = nodes.iter().map(|v| (*v).clone()).collect();
+
+				// If we got a single array, use its contents; otherwise use the matched nodes
+				let array_items = if items.len() == 1 {
+					match &items[0] {
+						serde_json::Value::Array(arr) => arr.clone(),
+						other => vec![other.clone()],
+					}
+				} else {
+					items
+				};
+
+				// Apply the element transform to each item
+				let transformed: Result<Vec<serde_json::Value>, RegistryError> = array_items
+					.iter()
+					.map(|item| each.apply(item))
+					.collect();
+
+				Ok(serde_json::Value::Array(transformed?))
+			},
 		}
 	}
 }
@@ -1639,6 +1683,72 @@ mod tests {
 		let result = compiled.transform_output(response).unwrap();
 		assert_eq!(result["source"], "arxiv");
 		assert_eq!(result["relevance"], 0.85);
+	}
+
+	#[test]
+	fn test_output_transform_array_map() {
+		// Test the arrayMap pattern for transforming arrays element-by-element
+		let json = r#"{
+			"name": "arxiv_search",
+			"source": { "target": "arxiv", "tool": "search" },
+			"outputTransform": {
+				"mappings": {
+					"query": { "path": "$.query" },
+					"results": {
+						"arrayMap": {
+							"over": "$.papers",
+							"each": {
+								"title": { "path": "$.title" },
+								"url": { "coalesce": { "paths": ["$.pdf_url", "$.abs_url"] } },
+								"source": { "literal": { "stringValue": "arxiv" } }
+							}
+						}
+					}
+				}
+			}
+		}"#;
+
+		let def: ToolDefinition = serde_json::from_str(json).unwrap();
+		let defs = HashMap::new();
+		let compiled = CompiledTool::compile(&def, &defs, &HashMap::new(), 0).unwrap();
+
+		let response = json!({
+			"query": "transformers",
+			"papers": [
+				{
+					"title": "Attention Is All You Need",
+					"pdf_url": "http://arxiv.org/pdf/1234.pdf",
+					"abs_url": "http://arxiv.org/abs/1234",
+					"arxiv_id": "1234.5678"
+				},
+				{
+					"title": "BERT: Pre-training",
+					"abs_url": "http://arxiv.org/abs/5678"
+				}
+			]
+		});
+
+		let result = compiled.transform_output(response).unwrap();
+
+		// Check query passthrough
+		assert_eq!(result["query"], "transformers");
+
+		// Check results array transformation
+		let results = result["results"].as_array().unwrap();
+		assert_eq!(results.len(), 2);
+
+		// First paper: has pdf_url
+		assert_eq!(results[0]["title"], "Attention Is All You Need");
+		assert_eq!(results[0]["url"], "http://arxiv.org/pdf/1234.pdf");
+		assert_eq!(results[0]["source"], "arxiv");
+		// Should not have original fields
+		assert!(results[0].get("arxiv_id").is_none());
+		assert!(results[0].get("pdf_url").is_none());
+
+		// Second paper: falls back to abs_url
+		assert_eq!(results[1]["title"], "BERT: Pre-training");
+		assert_eq!(results[1]["url"], "http://arxiv.org/abs/5678");
+		assert_eq!(results[1]["source"], "arxiv");
 	}
 
 	#[test]

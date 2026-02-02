@@ -40,7 +40,41 @@ impl SchemaMapExecutor {
 					.now_or_never()
 					.unwrap()
 			},
+			FieldSource::ArrayMap(am) => Self::array_map(&am.over, &am.each, input),
 		}
+	}
+
+	/// ArrayMap: iterate over array and apply mappings to each element
+	fn array_map(
+		over_path: &str,
+		each_mappings: &HashMap<String, FieldSource>,
+		input: &Value,
+	) -> Result<Value, ExecutionError> {
+		// Extract the source array
+		let array_value = Self::extract_path(over_path, input)?;
+
+		// Get the array items
+		let items = match array_value {
+			Value::Array(arr) => arr,
+			Value::Null => return Ok(Value::Array(vec![])),
+			other => vec![other], // Single item becomes array of one
+		};
+
+		// Apply the element mappings to each item
+		let element_spec = SchemaMapSpec {
+			mappings: each_mappings.clone(),
+		};
+
+		let transformed: Result<Vec<Value>, ExecutionError> = items
+			.into_iter()
+			.map(|item| {
+				Box::pin(Self::execute(&element_spec, item))
+					.now_or_never()
+					.unwrap()
+			})
+			.collect();
+
+		Ok(Value::Array(transformed?))
 	}
 
 	/// Extract value using JSONPath
@@ -142,7 +176,7 @@ impl<F: std::future::Future> NowOrNever for F {
 mod tests {
 	use super::*;
 	use crate::mcp::registry::patterns::{
-		CoalesceSource, ConcatSource, LiteralValue, TemplateSource,
+		ArrayMapSource, CoalesceSource, ConcatSource, LiteralValue, TemplateSource,
 	};
 	use serde_json::json;
 
@@ -318,5 +352,119 @@ mod tests {
 		assert_eq!(result["title"], "Paper Title");
 		assert_eq!(result["author_info"]["name"], "Jane Doe");
 		assert_eq!(result["author_info"]["affiliation"], "University");
+	}
+
+	#[tokio::test]
+	async fn test_schema_map_array_map() {
+		// Test the arrayMap pattern for iterating over arrays
+		let spec = SchemaMapSpec {
+			mappings: HashMap::from([(
+				"results".to_string(),
+				FieldSource::ArrayMap(ArrayMapSource {
+					over: "$.papers".to_string(),
+					each: HashMap::from([
+						("title".to_string(), FieldSource::Path("$.title".to_string())),
+						(
+							"url".to_string(),
+							FieldSource::Coalesce(CoalesceSource {
+								paths: vec!["$.pdf_url".to_string(), "$.abs_url".to_string()],
+							}),
+						),
+						(
+							"source".to_string(),
+							FieldSource::Literal(LiteralValue::StringValue("arxiv".to_string())),
+						),
+					]),
+				}),
+			)]),
+		};
+
+		let input = json!({
+			"papers": [
+				{
+					"title": "Paper One",
+					"pdf_url": "http://example.com/paper1.pdf",
+					"abs_url": "http://example.com/paper1",
+					"extra_field": "ignored"
+				},
+				{
+					"title": "Paper Two",
+					"abs_url": "http://example.com/paper2"
+				}
+			]
+		});
+
+		let result = SchemaMapExecutor::execute(&spec, input).await.unwrap();
+
+		// Verify results is an array
+		let results = result["results"].as_array().unwrap();
+		assert_eq!(results.len(), 2);
+
+		// First paper: has pdf_url, so coalesce picks it
+		assert_eq!(results[0]["title"], "Paper One");
+		assert_eq!(results[0]["url"], "http://example.com/paper1.pdf");
+		assert_eq!(results[0]["source"], "arxiv");
+		// Extra field should not be present
+		assert!(results[0].get("extra_field").is_none());
+
+		// Second paper: no pdf_url, so coalesce picks abs_url
+		assert_eq!(results[1]["title"], "Paper Two");
+		assert_eq!(results[1]["url"], "http://example.com/paper2");
+		assert_eq!(results[1]["source"], "arxiv");
+	}
+
+	#[tokio::test]
+	async fn test_schema_map_array_map_nested() {
+		// Test nested arrayMap with nested mappings within each element
+		let spec = SchemaMapSpec {
+			mappings: HashMap::from([(
+				"items".to_string(),
+				FieldSource::ArrayMap(ArrayMapSource {
+					over: "$.data".to_string(),
+					each: HashMap::from([
+						("id".to_string(), FieldSource::Path("$.id".to_string())),
+						(
+							"metadata".to_string(),
+							FieldSource::Nested(Box::new(SchemaMapSpec {
+								mappings: HashMap::from([
+									(
+										"created".to_string(),
+										FieldSource::Path("$.meta.created_at".to_string()),
+									),
+									(
+										"author".to_string(),
+										FieldSource::Path("$.meta.author".to_string()),
+									),
+								]),
+							})),
+						),
+					]),
+				}),
+			)]),
+		};
+
+		let input = json!({
+			"data": [
+				{
+					"id": "item1",
+					"meta": { "created_at": "2024-01-01", "author": "Alice" }
+				},
+				{
+					"id": "item2",
+					"meta": { "created_at": "2024-02-01", "author": "Bob" }
+				}
+			]
+		});
+
+		let result = SchemaMapExecutor::execute(&spec, input).await.unwrap();
+		let items = result["items"].as_array().unwrap();
+
+		assert_eq!(items[0]["id"], "item1");
+		assert_eq!(items[0]["metadata"]["created"], "2024-01-01");
+		assert_eq!(items[0]["metadata"]["author"], "Alice");
+
+		assert_eq!(items[1]["id"], "item2");
+		assert_eq!(items[1]["metadata"]["created"], "2024-02-01");
+		assert_eq!(items[1]["metadata"]["author"], "Bob");
 	}
 }

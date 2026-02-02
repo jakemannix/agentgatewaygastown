@@ -21,7 +21,8 @@ pub use scatter_gather::{
 	AggregationOp, AggregationStrategy, DedupeOp, LimitOp, ScatterGatherSpec, ScatterTarget, SortOp,
 };
 pub use schema_map::{
-	CoalesceSource, ConcatSource, FieldSource, LiteralValue, SchemaMapSpec, TemplateSource,
+	ArrayMapSource, CoalesceSource, ConcatSource, FieldSource, LiteralValue, SchemaMapSpec,
+	TemplateSource,
 };
 pub use stateful::{
 	BackoffStrategy, CacheSpec, CircuitBreakerSpec, ClaimCheckSpec, DeadLetterSpec,

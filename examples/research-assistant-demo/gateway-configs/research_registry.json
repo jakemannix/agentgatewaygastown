@@ -215,22 +215,25 @@
           "query": {"path": "$.query"},
           "source": {"literal": {"stringValue": "exa"}},
           "error": {"path": "$.error"},
-          "results": {"path": "$.results[*]", "nested": {
-            "mappings": {
-              "source": {"literal": {"stringValue": "exa"}},
-              "title": {"path": "$.title"},
-              "url": {"path": "$.url"},
-              "snippet": {"coalesce": {"paths": ["$.text", "$.highlight"]}},
-              "score": {"path": "$.score"},
-              "metadata": {
-                "nested": {
-                  "mappings": {
-                    "published_date": {"path": "$.published_date"}
+          "results": {
+            "arrayMap": {
+              "over": "$.results",
+              "each": {
+                "source": {"literal": {"stringValue": "exa"}},
+                "title": {"path": "$.title"},
+                "url": {"path": "$.url"},
+                "snippet": {"coalesce": {"paths": ["$.text", "$.highlight"]}},
+                "score": {"path": "$.score"},
+                "metadata": {
+                  "nested": {
+                    "mappings": {
+                      "published_date": {"path": "$.published_date"}
+                    }
                   }
                 }
               }
             }
-          }}
+          }
         }
       }
     },
@@ -249,25 +252,28 @@
           "query": {"path": "$.query"},
           "source": {"literal": {"stringValue": "arxiv"}},
           "error": {"path": "$.error"},
-          "results": {"path": "$.papers[*]", "nested": {
-            "mappings": {
-              "source": {"literal": {"stringValue": "arxiv"}},
-              "title": {"path": "$.title"},
-              "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"]}},
-              "snippet": {"path": "$.abstract"},
-              "score": {"literal": {"numberValue": 1.0}},
-              "metadata": {
-                "nested": {
-                  "mappings": {
-                    "arxiv_id": {"path": "$.arxiv_id"},
-                    "authors": {"path": "$.authors"},
-                    "categories": {"path": "$.categories"},
-                    "published": {"path": "$.published"}
+          "results": {
+            "arrayMap": {
+              "over": "$.papers",
+              "each": {
+                "source": {"literal": {"stringValue": "arxiv"}},
+                "title": {"path": "$.title"},
+                "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"]}},
+                "snippet": {"path": "$.abstract"},
+                "score": {"literal": {"numberValue": 1.0}},
+                "metadata": {
+                  "nested": {
+                    "mappings": {
+                      "arxiv_id": {"path": "$.arxiv_id"},
+                      "authors": {"path": "$.authors"},
+                      "categories": {"path": "$.categories"},
+                      "published": {"path": "$.published"}
+                    }
                   }
                 }
               }
             }
-          }}
+          }
         }
       }
     },
@@ -286,26 +292,29 @@
           "query": {"path": "$.query"},
           "source": {"literal": {"stringValue": "github"}},
           "error": {"path": "$.error"},
-          "results": {"path": "$.repos[*]", "nested": {
-            "mappings": {
-              "source": {"literal": {"stringValue": "github"}},
-              "title": {"path": "$.full_name"},
-              "url": {"path": "$.html_url"},
-              "snippet": {"coalesce": {"paths": ["$.description"]}},
-              "score": {"literal": {"numberValue": 1.0}},
-              "metadata": {
-                "nested": {
-                  "mappings": {
-                    "stars": {"path": "$.stargazers_count"},
-                    "forks": {"path": "$.forks_count"},
-                    "language": {"path": "$.language"},
-                    "topics": {"path": "$.topics"},
-                    "updated_at": {"path": "$.updated_at"}
+          "results": {
+            "arrayMap": {
+              "over": "$.repos",
+              "each": {
+                "source": {"literal": {"stringValue": "github"}},
+                "title": {"path": "$.full_name"},
+                "url": {"path": "$.html_url"},
+                "snippet": {"coalesce": {"paths": ["$.description"]}},
+                "score": {"literal": {"numberValue": 1.0}},
+                "metadata": {
+                  "nested": {
+                    "mappings": {
+                      "stars": {"path": "$.stargazers_count"},
+                      "forks": {"path": "$.forks_count"},
+                      "language": {"path": "$.language"},
+                      "topics": {"path": "$.topics"},
+                      "updated_at": {"path": "$.updated_at"}
+                    }
                   }
                 }
               }
             }
-          }}
+          }
         }
       }
     },
@@ -324,26 +333,29 @@
           "query": {"path": "$.query"},
           "source": {"literal": {"stringValue": "huggingface"}},
           "error": {"path": "$.error"},
-          "results": {"path": "$.models[*]", "nested": {
-            "mappings": {
-              "source": {"literal": {"stringValue": "huggingface"}},
-              "title": {"path": "$.id"},
-              "url": {"path": "$.url"},
-              "snippet": {"coalesce": {"paths": ["$.description", "$.pipeline_tag"]}},
-              "score": {"literal": {"numberValue": 1.0}},
-              "metadata": {
-                "nested": {
-                  "mappings": {
-                    "downloads": {"path": "$.downloads"},
-                    "likes": {"path": "$.likes"},
-                    "pipeline_tag": {"path": "$.pipeline_tag"},
-                    "tags": {"path": "$.tags"},
-                    "library_name": {"path": "$.library_name"}
+          "results": {
+            "arrayMap": {
+              "over": "$.models",
+              "each": {
+                "source": {"literal": {"stringValue": "huggingface"}},
+                "title": {"path": "$.id"},
+                "url": {"path": "$.url"},
+                "snippet": {"coalesce": {"paths": ["$.description", "$.pipeline_tag"]}},
+                "score": {"literal": {"numberValue": 1.0}},
+                "metadata": {
+                  "nested": {
+                    "mappings": {
+                      "downloads": {"path": "$.downloads"},
+                      "likes": {"path": "$.likes"},
+                      "pipeline_tag": {"path": "$.pipeline_tag"},
+                      "tags": {"path": "$.tags"},
+                      "library_name": {"path": "$.library_name"}
+                    }
                   }
                 }
               }
             }
-          }}
+          }
         }
       }
     },
