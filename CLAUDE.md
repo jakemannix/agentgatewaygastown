@@ -147,3 +147,78 @@ Only fields explicitly operated on are defined; unknown fields pass through.
 4. **Test session-stored caller identity** - The fix for storing caller identity from MCP `clientInfo` during initialize (instead of only from headers) has been committed but needs integration testing. Run the test: `cargo test -p agentgateway session_identity_from_client_info_filters_tools`
 
 5. **Test and validate test_integration.py** - New integration test script at `examples/ecommerce-demo/test_integration.py` has been added but is untested. Run with `python test_integration.py` (requires gateway + services running). Verify it works and update as needed.
+
+## Current Work: Research Assistant Demo + FieldSource ArrayMap
+
+### Context
+The `examples/research-assistant-demo/` showcases virtual/composite tools for a research workflow. The agent has been refactored to use Google ADK with proper `Runner` + `InMemorySessionService` pattern (not the broken `agent.run()` call).
+
+### Blocking Issue: Missing `ArrayMap` FieldSource variant
+
+The research registry (`examples/research-assistant-demo/gateway-configs/research_registry.json`) uses `outputTransform` to normalize different search backends into a common schema. It needs to transform arrays element-by-element:
+
+```json
+"results": {"path": "$.results[*]", "nested": {
+  "mappings": {
+    "title": {"path": "$.title"},
+    "url": {"path": "$.url"},
+    ...
+  }
+}}
+```
+
+**Intent:** Iterate over `$.results[*]` array, apply nested mappings to each element.
+
+**Problem:** The Rust `FieldSource` enum (in `crates/agentgateway/src/mcp/registry/patterns/schema_map.rs`) has mutually exclusive variants. You cannot combine `path` + `nested`. Current variants:
+
+1. `Path(String)` - JSONPath extraction
+2. `Literal(LiteralValue)` - Constant value
+3. `Coalesce(CoalesceSource)` - First non-null from paths
+4. `Template(TemplateSource)` - String interpolation
+5. `Concat(ConcatSource)` - Join multiple paths
+6. `Nested(Box<SchemaMapSpec>)` - Apply sub-mappings to **same input** (not array elements)
+
+**Proposed Solution:** Add new variant:
+
+```rust
+ArrayMap {
+    path: String,
+    element_transform: Box<SchemaMapSpec>,
+}
+```
+
+JSON syntax:
+```json
+{
+  "arrayMap": {
+    "path": "$.results[*]",
+    "mappings": {
+      "title": {"path": "$.title"},
+      ...
+    }
+  }
+}
+```
+
+This supports arbitrary nesting - an ArrayMap's mappings can contain another ArrayMap for nested arrays.
+
+### Files to modify for ArrayMap implementation:
+1. `crates/agentgateway/src/mcp/registry/patterns/schema_map.rs` - Add variant to enum
+2. `crates/agentgateway/src/mcp/registry/executor/schema_map.rs` - Add execution logic
+3. `crates/agentgateway/src/mcp/registry/compiled.rs` - Add compiled variant
+4. `scripts/validate-registry-schemas.py` - Update Python validator to match
+5. `schema/` - Update JSON schema if applicable
+
+### Testing the Research Demo (once ArrayMap is implemented)
+```bash
+cd examples/research-assistant-demo
+./start_services.sh
+# Open http://localhost:8080 for web UI
+# Or: curl -X POST http://localhost:9001/chat -H "Content-Type: application/json" -d '{"message":"Research transformers"}'
+```
+
+Services started by the demo:
+- MCP backends on ports 8001-8005 (search, fetch, entity, category, tag)
+- Gateway on port 3000
+- Research agent on port 9001
+- Web UI on port 8080

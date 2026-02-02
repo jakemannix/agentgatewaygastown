@@ -9,16 +9,82 @@ This agent uses the gateway's virtual/composite tools to:
 The LLM is configurable via environment variables (see llm_config.py).
 """
 
+import logging
 import os
-import sys
-
-# Add parent to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from typing import Optional
 
 from google.adk import Agent
-from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_toolset import StreamableHTTPConnectionParams
+from google.genai import types
 
-from agents.shared.llm_config import get_llm_config, get_adk_model_string
+logger = logging.getLogger(__name__)
+
+# Configuration
+AGENT_NAME = "research-agent"
+AGENT_VERSION = "1.0.0"
+GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://localhost:3000")
+
+# LLM Provider Configuration (using LiteLLM format for non-Google models)
+DEFAULT_MODELS = {
+    "anthropic": "anthropic/claude-sonnet-4-20250514",
+    "openai": "openai/gpt-4o",
+    "google": "gemini-2.0-flash",
+}
+
+API_KEY_ENV_VARS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+}
+
+# Provider detection priority
+PROVIDER_PRIORITY = ["anthropic", "openai", "google"]
+
+
+def detect_llm_provider() -> str | None:
+    """Detect which LLM provider is available based on API keys."""
+    for provider in PROVIDER_PRIORITY:
+        env_var = API_KEY_ENV_VARS[provider]
+        if os.environ.get(env_var):
+            return provider
+    return None
+
+
+def get_configured_model() -> str:
+    """Get the configured LLM model with multi-provider support.
+
+    Checks in order:
+    1. LLM_MODEL env var (explicit model override)
+    2. LLM_PROVIDER env var (explicit provider selection)
+    3. Auto-detect from available API keys (Anthropic > OpenAI > Google)
+    """
+    # Check for explicit model override
+    if model := os.environ.get("LLM_MODEL"):
+        logger.info(f"Using explicit model override: {model}")
+        return model
+
+    # Check for explicit provider selection
+    if provider := os.environ.get("LLM_PROVIDER", "").lower():
+        if provider in DEFAULT_MODELS:
+            model = DEFAULT_MODELS[provider]
+            logger.info(f"Using {provider} provider: {model}")
+            return model
+
+    # Auto-detect from API keys
+    provider = detect_llm_provider()
+    if provider:
+        model = DEFAULT_MODELS[provider]
+        logger.info(f"Auto-detected {provider} provider: {model}")
+        return model
+
+    # No API key found - this will fail at runtime
+    raise RuntimeError(
+        "No LLM API key found. Set one of: "
+        f"{', '.join(API_KEY_ENV_VARS.values())}"
+    )
 
 
 SYSTEM_PROMPT = """You are a Research Assistant specialized in helping users explore and organize knowledge about technical topics, particularly in AI/ML, software engineering, and related fields.
@@ -82,44 +148,163 @@ When a user asks you to research a topic:
 """
 
 
-def create_mcp_toolset(gateway_url: str = "http://localhost:3000/mcp") -> McpToolset:
-    """Create MCP toolset connected to the gateway."""
+def _create_mcp_toolset() -> McpToolset:
+    """Create McpToolset connected to the gateway.
+
+    The gateway filters tools based on agent identity (via clientInfo.name
+    in the MCP initialize request). Tool filtering is handled server-side
+    based on the registry's agent dependencies configuration.
+    """
     return McpToolset(
         connection_params=StreamableHTTPConnectionParams(
-            url=gateway_url,
+            url=f"{GATEWAY_URL}/mcp",
             headers={
-                "X-Agent-Name": "research-agent",
-                "X-Agent-Version": "1.0.0",
-            }
-        )
+                "X-Agent-Name": AGENT_NAME,
+                "X-Agent-Version": AGENT_VERSION,
+            },
+        ),
     )
 
 
-def create_research_agent(gateway_url: str = "http://localhost:3000/mcp") -> Agent:
-    """Create the research agent with configured LLM and MCP tools.
+# Global session service (shared across requests)
+_session_service: Optional[InMemorySessionService] = None
+_runner: Optional[Runner] = None
+_mcp_toolset: Optional[McpToolset] = None
 
-    Args:
-        gateway_url: URL of the gateway's MCP endpoint
+
+def _get_session_service() -> InMemorySessionService:
+    """Get or create the session service."""
+    global _session_service
+    if _session_service is None:
+        _session_service = InMemorySessionService()
+    return _session_service
+
+
+def _get_mcp_toolset() -> McpToolset:
+    """Get or create the MCP toolset."""
+    global _mcp_toolset
+    if _mcp_toolset is None:
+        logger.info(f"Creating MCP toolset connected to gateway: {GATEWAY_URL}/mcp")
+        logger.info(f"Agent identity: {AGENT_NAME} v{AGENT_VERSION}")
+        _mcp_toolset = _create_mcp_toolset()
+    return _mcp_toolset
+
+
+def create_research_agent() -> Agent:
+    """Create the research agent with configured LLM and MCP tools.
 
     Returns:
         Configured Agent instance
     """
-    # Get LLM configuration
-    llm_config = get_llm_config()
-    model = get_adk_model_string(llm_config)
+    model = get_configured_model()
+    mcp_toolset = _get_mcp_toolset()
 
-    print(f"Creating research agent with {llm_config.provider} model: {llm_config.model}")
+    logger.info(f"Creating research agent with model: {model}")
 
-    # Create MCP toolset
-    mcp_tools = create_mcp_toolset(gateway_url)
-
-    # Create and return agent
     return Agent(
         name="research_agent",
         model=model,
+        description="Research assistant that helps discover and organize technical knowledge",
         instruction=SYSTEM_PROMPT,
-        tools=[mcp_tools],
+        tools=[mcp_toolset],
     )
+
+
+def get_runner() -> Runner:
+    """Get or create the Runner with session service.
+
+    Returns:
+        Configured Runner instance
+    """
+    global _runner
+    if _runner is None:
+        agent = create_research_agent()
+        session_service = _get_session_service()
+        _runner = Runner(
+            app_name="research_assistant_app",
+            agent=agent,
+            session_service=session_service,
+        )
+    return _runner
+
+
+APP_NAME = "research_assistant_app"
+
+
+async def _ensure_session(session_service: InMemorySessionService, user_id: str, session_id: str):
+    """Ensure a session exists, creating it if needed."""
+    session = await session_service.get_session(
+        app_name=APP_NAME,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    if session is None:
+        # Session doesn't exist, create it
+        session = await session_service.create_session(
+            app_name=APP_NAME,
+            user_id=user_id,
+            session_id=session_id,
+        )
+    return session
+
+
+async def run_research_query(
+    query: str,
+    user_id: str = "default-user",
+    session_id: str = "default-session",
+) -> str:
+    """Run a single query through the research agent.
+
+    Args:
+        query: The user's research question or request
+        user_id: The user ID for personalization
+        session_id: Session ID for conversation continuity
+
+    Returns:
+        Agent's response
+
+    Raises:
+        RuntimeError: If no LLM API key is configured or agent fails
+    """
+    # Validate that at least one provider is configured
+    provider = detect_llm_provider()
+    if not provider:
+        raise RuntimeError(
+            "No LLM API key found. Set one of: "
+            f"{', '.join(API_KEY_ENV_VARS.values())}"
+        )
+
+    runner = get_runner()
+    session_service = _get_session_service()
+
+    # Ensure session exists
+    await _ensure_session(session_service, user_id, session_id)
+
+    # Create the message
+    message = types.Content(
+        role="user",
+        parts=[types.Part(text=query)],
+    )
+
+    # Run the agent
+    logger.info(f"Running agent for user={user_id}, session={session_id}")
+    response_parts = []
+
+    async for event in runner.run_async(
+        user_id=user_id,
+        session_id=session_id,
+        new_message=message,
+    ):
+        # Collect response parts
+        if hasattr(event, "content") and event.content:
+            for part in event.content.parts:
+                if hasattr(part, "text") and part.text:
+                    response_parts.append(part.text)
+
+    if not response_parts:
+        raise RuntimeError("Agent returned empty response")
+
+    return "".join(response_parts)
 
 
 # For direct testing

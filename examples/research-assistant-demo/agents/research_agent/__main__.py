@@ -1,174 +1,162 @@
-"""Entry point for research agent - runs as A2A server."""
+"""Research Agent A2A Server - Entry point.
+
+This agent uses Google ADK with LiteLLM for multi-provider support.
+Requires one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY
+"""
 
 import argparse
-import asyncio
 import logging
 import os
 import sys
-from contextlib import asynccontextmanager
-
-import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 
 # Add parent to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, str(__file__).rsplit("/", 3)[0])
 
-from agents.research_agent.agent import create_research_agent, SYSTEM_PROMPT
-from agents.shared.llm_config import get_llm_config
+from agents.shared.a2a_server import A2AServer
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
 
-# Global agent instance
-_agent = None
+# Configuration
+AGENT_NAME = "Research Assistant Agent"
+AGENT_PORT = int(os.environ.get("RESEARCH_AGENT_PORT", 9001))
+GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://localhost:3000")
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Initialize agent on startup."""
-    global _agent
-    gateway_url = os.getenv("GATEWAY_URL", "http://localhost:3000/mcp")
-    logger.info(f"Initializing research agent with gateway: {gateway_url}")
-    _agent = create_research_agent(gateway_url)
-    yield
-    logger.info("Shutting down research agent")
-
-
-app = FastAPI(
-    title="Research Agent",
-    description="A2A-compatible research assistant agent",
-    lifespan=lifespan,
-)
-
-
-@app.get("/.well-known/agent.json")
-async def agent_card():
-    """Return A2A agent card."""
-    llm_config = get_llm_config()
-    return {
-        "name": "research-agent",
-        "version": "1.0.0",
-        "description": "Research assistant for discovering and organizing technical knowledge",
-        "url": f"http://localhost:{os.getenv('PORT', '9001')}",
-        "capabilities": {
-            "streaming": False,
-            "pushNotifications": False,
-        },
-        "skills": [
-            {
-                "id": "research_topic",
-                "name": "Research Topic",
-                "description": "Research a technical topic across multiple sources",
-                "tags": ["research", "search", "knowledge"],
-                "examples": [
-                    "Research transformer alternatives for 2025-2026",
-                    "Find papers about state space models",
-                    "Search for implementations of Mamba architecture",
-                ],
-            },
-            {
-                "id": "organize_knowledge",
-                "name": "Organize Knowledge",
-                "description": "Store and organize research findings",
-                "tags": ["knowledge", "organize", "tag"],
-                "examples": [
-                    "Save this paper to my knowledge base",
-                    "Create a category for attention mechanisms",
-                    "Link these two concepts together",
-                ],
-            },
-            {
-                "id": "explore_knowledge",
-                "name": "Explore Knowledge",
-                "description": "Query stored knowledge and relationships",
-                "tags": ["knowledge", "query", "explore"],
-                "examples": [
-                    "What do I know about transformers?",
-                    "Show me the category tree",
-                    "How is Mamba related to state space models?",
-                ],
-            },
+# Agent skills for A2A discovery
+SKILLS = [
+    {
+        "id": "research-topic",
+        "name": "Research Topic",
+        "description": "Research a technical topic across multiple sources (web, arXiv, GitHub, HuggingFace)",
+        "tags": ["research", "search", "papers", "code"],
+        "examples": [
+            "Research transformer alternatives for 2025-2026",
+            "Find papers about state space models",
+            "Search for implementations of Mamba architecture",
         ],
-        "defaultInputModes": ["text"],
-        "defaultOutputModes": ["text"],
-        "provider": {
-            "organization": "AgentGateway Demo",
-        },
-        "metadata": {
-            "llm_provider": llm_config.provider,
-            "llm_model": llm_config.model,
-        },
-    }
+        "inputModes": ["text"],
+        "outputModes": ["text"],
+    },
+    {
+        "id": "store-knowledge",
+        "name": "Store Knowledge",
+        "description": "Store research findings in the knowledge graph with entities and relationships",
+        "tags": ["knowledge", "store", "organize"],
+        "examples": [
+            "Save this paper to my knowledge base",
+            "Create an entity for this concept",
+            "Link these two research topics together",
+        ],
+        "inputModes": ["text"],
+        "outputModes": ["text"],
+    },
+    {
+        "id": "explore-knowledge",
+        "name": "Explore Knowledge",
+        "description": "Query stored knowledge, explore relationships, and browse categories",
+        "tags": ["knowledge", "query", "explore"],
+        "examples": [
+            "What do I know about transformers?",
+            "Show me the category tree",
+            "How is Mamba related to state space models?",
+        ],
+        "inputModes": ["text"],
+        "outputModes": ["text"],
+    },
+    {
+        "id": "deep-research",
+        "name": "Deep Research",
+        "description": "Perform comprehensive research with content fetching and extraction",
+        "tags": ["research", "fetch", "analyze"],
+        "examples": [
+            "Do a deep dive on attention mechanisms",
+            "Fetch and analyze the top papers on this topic",
+            "Extract key information from these URLs",
+        ],
+        "inputModes": ["text"],
+        "outputModes": ["text"],
+    },
+]
 
 
-@app.post("/chat")
-async def chat(request: Request):
-    """Simple chat endpoint for testing."""
-    global _agent
+async def handle_research_message(message_text: str, context: dict) -> str:
+    """Handle incoming research messages using the Google ADK agent.
 
-    if _agent is None:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "Agent not initialized"},
-        )
+    Args:
+        message_text: The user's message
+        context: Request context including session info
 
-    try:
-        body = await request.json()
-        message = body.get("message", "")
-        session_id = body.get("session_id", "default")
+    Returns:
+        Agent's response
 
-        if not message:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Message required"},
-            )
+    Raises:
+        RuntimeError: If no LLM API key is set or agent fails
+    """
+    from .agent import run_research_query
 
-        logger.info(f"Chat request [session={session_id}]: {message[:100]}...")
+    # Extract session info (handle both A2A context_id and REST session_id)
+    session_id = context.get("session_id") or context.get("context_id") or "default-session"
+    user_id = context.get("user_id", session_id[:8])
 
-        # Run the agent
-        # Note: This is a simplified implementation
-        # In production, you'd want proper session management
-        response = await _agent.run(message)
+    logger.info(f"Processing message for user={user_id}, session={session_id}: {message_text[:100]}...")
 
-        return {
-            "session_id": session_id,
-            "response": response.text if hasattr(response, 'text') else str(response),
-        }
+    # Run the agent - let errors propagate
+    response = await run_research_query(
+        query=message_text,
+        user_id=user_id,
+        session_id=session_id,
+    )
 
-    except Exception as e:
-        logger.exception("Error in chat endpoint")
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e)},
-        )
-
-
-@app.get("/health")
-async def health():
-    """Health check endpoint."""
-    return {"status": "healthy", "agent": "research-agent"}
+    logger.info(f"Agent response: {response[:100]}...")
+    return response
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run Research Agent A2A Server")
-    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "9001")))
-    parser.add_argument("--host", type=str, default="0.0.0.0")
-    parser.add_argument("--gateway-url", type=str, default="http://localhost:3000/mcp")
+    """Main entry point."""
+    parser = argparse.ArgumentParser(description="Research Assistant Agent (Google ADK)")
+    parser.add_argument("--port", type=int, default=AGENT_PORT, help="Port to run on")
+    parser.add_argument("--gateway", default=GATEWAY_URL, help="Gateway URL")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     args = parser.parse_args()
 
-    # Set gateway URL in environment for lifespan to pick up
-    os.environ["GATEWAY_URL"] = args.gateway_url
+    # Check for LLM provider
+    from .agent import detect_llm_provider, get_configured_model, API_KEY_ENV_VARS
 
-    logger.info(f"Starting Research Agent on {args.host}:{args.port}")
-    logger.info(f"Gateway URL: {args.gateway_url}")
+    provider = detect_llm_provider()
+    if not provider:
+        logger.error(
+            "No LLM API key found.\n"
+            "The Research Agent requires one of:\n"
+            f"  {', '.join(API_KEY_ENV_VARS.values())}\n"
+            "Example: export ANTHROPIC_API_KEY='your-key-here'"
+        )
+        sys.exit(1)
 
-    uvicorn.run(
-        app,
-        host=args.host,
+    # Get the model that will be used
+    model = get_configured_model()
+
+    # Update environment
+    os.environ["GATEWAY_URL"] = args.gateway
+
+    # Create and configure A2A server
+    server = A2AServer(
+        name=AGENT_NAME,
+        description="AI research assistant that helps discover, organize, and connect technical knowledge (powered by Google ADK)",
         port=args.port,
-        log_level="info",
+        skills=SKILLS,
     )
+
+    # Set the message handler
+    server.set_message_handler(handle_research_message)
+
+    # Run the server
+    logger.info(f"Research Agent starting on port {args.port}")
+    logger.info(f"Gateway URL: {args.gateway}")
+    logger.info(f"LLM Provider: {provider}, Model: {model}")
+    server.run(host=args.host)
 
 
 if __name__ == "__main__":

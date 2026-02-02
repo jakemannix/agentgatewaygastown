@@ -15,8 +15,9 @@ dependencies = [
     "httpx>=0.27.0",
     "beautifulsoup4>=4.12.0",
 
-    # Web UI
+    # Web UI and A2A server
     "python-fasthtml>=0.4.0",
+    "starlette>=0.37.0",
     "uvicorn>=0.30.0",
 
     # Agent framework

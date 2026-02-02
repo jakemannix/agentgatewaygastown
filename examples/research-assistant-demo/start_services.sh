@@ -85,11 +85,15 @@ sleep 1
 
 # Create new window for gateway
 tmux new-window -t research-demo -n gateway
-tmux send-keys -t research-demo "cd '$PROJECT_ROOT' && echo 'Starting AgentGateway on :3000...' && sleep 3 && ./target/release/agentgateway -f examples/research-assistant-demo/gateway-configs/config.yaml" C-m
+tmux send-keys -t research-demo "cd '$PROJECT_ROOT' && echo 'Starting AgentGateway on :3000...' && sleep 3 && ./target/debug/agentgateway -f examples/research-assistant-demo/gateway-configs/config.yaml" C-m
 
 # Create new window for agent
 tmux new-window -t research-demo -n agent
-tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Research Agent on :9001...' && sleep 5 && uv run python -m agents.research_agent --port 9001 --gateway-url http://localhost:3000/mcp" C-m
+tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Research Agent on :9001...' && sleep 5 && uv run python -m agents.research_agent --port 9001 --gateway-url http://localhost:3000" C-m
+
+# Create new window for web UI
+tmux new-window -t research-demo -n webui
+tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Web UI on :8080...' && sleep 7 && uv run python -m web_ui.chat_app" C-m
 
 echo -e "\n${GREEN}========================================${NC}"
 echo -e "${GREEN}Services Starting!${NC}"
@@ -103,11 +107,15 @@ echo "  - Category Service: http://localhost:8004/mcp"
 echo "  - Tag Service:      http://localhost:8005/mcp"
 echo "  - Gateway:          http://localhost:3000/mcp"
 echo "  - Research Agent:   http://localhost:9001"
+echo "  - Web UI:           http://localhost:8080"
 echo ""
 echo -e "To view logs: ${YELLOW}tmux attach -t research-demo${NC}"
 echo -e "To stop:      ${YELLOW}./stop_services.sh${NC} or ${YELLOW}tmux kill-session -t research-demo${NC}"
 echo ""
-echo -e "${GREEN}Test the agent:${NC}"
+echo -e "${GREEN}Open the Web UI:${NC}"
+echo "  http://localhost:8080"
+echo ""
+echo -e "${GREEN}Or test via curl:${NC}"
 echo '  curl -X POST http://localhost:9001/chat \'
 echo '    -H "Content-Type: application/json" \'
 echo '    -d '\''{"message":"Research transformer alternatives for 2025-2026"}'\'''

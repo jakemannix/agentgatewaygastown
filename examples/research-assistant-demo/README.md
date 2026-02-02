@@ -126,7 +126,11 @@ HF_TOKEN=hf_...              # Optional, for higher rate limits
 
 This starts all 5 microservices, the gateway, and the research agent in a tmux session.
 
-### 4. Test the Agent
+### 4. Use the Web UI
+
+Open [http://localhost:8080](http://localhost:8080) in your browser for an interactive chat interface.
+
+### 5. Or Test via CLI
 
 ```bash
 # Simple chat request
@@ -138,7 +142,7 @@ curl -X POST http://localhost:9001/chat \
 curl http://localhost:9001/.well-known/agent.json
 ```
 
-### 5. Monitor & Debug
+### 6. Monitor & Debug
 
 ```bash
 # View all service logs
@@ -613,10 +617,13 @@ Common errors:
 research-assistant-demo/
 ├── agents/
 │   ├── research_agent/
-│   │   ├── agent.py           # Agent definition and system prompt
+│   │   ├── agent.py           # Agent definition with ADK Runner
 │   │   └── __main__.py        # A2A server entry point
 │   └── shared/
+│       ├── a2a_server.py      # A2A server base implementation
 │       └── llm_config.py      # LLM provider configuration
+├── web_ui/
+│   └── chat_app.py            # FastHTML web chat interface
 ├── mcp_tools/
 │   ├── search_service/        # External search APIs
 │   ├── fetch_service/         # URL fetching

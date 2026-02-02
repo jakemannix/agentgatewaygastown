@@ -9,3 +9,17 @@ var/
 # Node.js
 node_modules/
 dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.egg-info/
+
+# Demo data/artifacts
+examples/research-assistant-demo/data/
+examples/research-assistant-demo/.sesskey
+examples/research-assistant-demo/uv.lock
+examples/ecommerce-demo/data/
+examples/ecommerce-demo/.sesskey
