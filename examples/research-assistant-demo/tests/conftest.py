@@ -6,7 +6,7 @@ Services and gateway are started as subprocesses.
 
 import asyncio
 import os
-import signal
+import socket
 import subprocess
 import sys
 import time
@@ -34,9 +34,22 @@ SERVICES = [
     (8005, "mcp_tools.tag_service"),
 ]
 
-GATEWAY_URL = "http://localhost:3000/mcp"
-STARTUP_WAIT_SECS = 3
-GATEWAY_WAIT_SECS = 2
+GATEWAY_PORT = 3000
+GATEWAY_URL = f"http://localhost:{GATEWAY_PORT}/mcp"
+MAX_STARTUP_WAIT_SECS = 30
+POLL_INTERVAL_SECS = 0.5
+
+
+def wait_for_port(port: int, timeout: float = MAX_STARTUP_WAIT_SECS) -> bool:
+    """Wait for a port to become available."""
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            with socket.create_connection(("localhost", port), timeout=1):
+                return True
+        except (ConnectionRefusedError, socket.timeout, OSError):
+            time.sleep(POLL_INTERVAL_SECS)
+    return False
 
 
 class ServiceManager:
@@ -46,7 +59,7 @@ class ServiceManager:
         self.procs: list[subprocess.Popen] = []
 
     def start(self) -> None:
-        """Start all backend services."""
+        """Start all backend services and wait for them to be ready."""
         for port, module in SERVICES:
             proc = subprocess.Popen(
                 [sys.executable, "-m", module, "--port", str(port)],
@@ -56,7 +69,10 @@ class ServiceManager:
             )
             self.procs.append(proc)
 
-        time.sleep(STARTUP_WAIT_SECS)
+        # Wait for all services to be ready
+        for port, module in SERVICES:
+            if not wait_for_port(port):
+                pytest.fail(f"Service {module} on port {port} failed to start")
 
     def stop(self) -> None:
         """Stop all backend services."""
@@ -83,7 +99,7 @@ class GatewayManager:
         self.proc: subprocess.Popen | None = None
 
     def start(self) -> None:
-        """Start the gateway."""
+        """Start the gateway and wait for it to be ready."""
         if not GATEWAY_BIN.exists():
             pytest.skip(f"Gateway binary not found at {GATEWAY_BIN}. Run: cargo build -p agentgateway-app")
 
@@ -97,7 +113,9 @@ class GatewayManager:
             stderr=subprocess.PIPE,
             env=env,
         )
-        time.sleep(GATEWAY_WAIT_SECS)
+
+        if not wait_for_port(GATEWAY_PORT):
+            pytest.fail(f"Gateway on port {GATEWAY_PORT} failed to start")
 
     def stop(self) -> None:
         """Stop the gateway."""
