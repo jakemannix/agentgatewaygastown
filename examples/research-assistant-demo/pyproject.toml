@@ -21,9 +21,10 @@ dependencies = [
     "uvicorn>=0.30.0",
 
     # Agent framework
-    "google-adk>=0.5.0",
+    "google-adk[extensions]>=0.5.0",
 
     # LLM providers (configurable)
+    "litellm>=1.75.5",
     "anthropic>=0.40.0",
     "openai>=1.50.0",
     "google-generativeai>=0.8.0",
@@ -37,3 +38,11 @@ dev-dependencies = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

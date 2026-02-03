@@ -284,13 +284,22 @@ This eliminates:
 - The `default_target_name` special case for single-backend configs
 - String manipulation in `resource_name()` and `parse_resource_name()`
 
-## TODO: Integration Tests for Virtual Tools
+## Integration Tests for Virtual Tools (IMPLEMENTED)
 
 **Goal:** Test virtual tool compositions without requiring an LLM, enabling CI/CD integration and regression testing.
 
-### Test Infrastructure Needed
+**Status:** 43 tests implemented in `examples/research-assistant-demo/tests/`
 
-Location: `examples/research-assistant-demo/tests/` (Python) or `crates/agentgateway/tests/` (Rust)
+### Running Tests
+
+```bash
+cd examples/research-assistant-demo
+uv run pytest tests/ -v
+```
+
+### Test Infrastructure
+
+Location: `examples/research-assistant-demo/tests/`
 
 ```
 tests/

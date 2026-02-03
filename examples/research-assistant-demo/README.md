@@ -660,59 +660,72 @@ research-assistant-demo/
 └── README.md                  # This file
 ```
 
-## Next Steps: Integration Tests
+## Integration Tests
 
-The virtual tools and compositions should be tested without requiring an LLM. This allows:
+Integration tests verify the gateway's virtual tool compositions without requiring an LLM, enabling:
 - **CI/CD integration**: Run tests as part of the build pipeline
 - **Regression testing**: Verify tool compositions work after gateway changes
 - **Fast feedback**: No API costs or rate limits during development
 
-### Planned Test Architecture
+### Test Architecture
 
 ```
 tests/
-├── conftest.py               # Pytest fixtures for services
-├── test_virtual_tools.py     # Test individual virtual tools
-├── test_scatter_gather.py    # Test parallel search compositions
-├── test_pipelines.py         # Test sequential pipelines
-└── test_cross_service.py     # Test distributed joins
+├── conftest.py                 # Pytest fixtures: services, gateway, MCP client
+├── test_arraymap_transforms.py # ArrayMap field source tests
+├── test_scatter_gather.py      # Parallel execution + aggregation
+├── test_pipelines.py           # Sequential step execution
+├── test_aggregation_ops.py     # Extract, flatten, dedupe, merge
+└── test_error_handling.py      # Error cases, partial failures
 ```
 
-### Test Approach
+### Prerequisites
 
-1. **Start minimal services**: Only the MCP backends needed for the test
-2. **Start gateway**: With the research_registry.json
-3. **Call tools via MCP client**: Python `mcp` library or curl
-4. **Assert on responses**: Validate structure and data flow
+1. **Build the gateway** (if not already done):
+   ```bash
+   cargo build -p agentgateway-app
+   ```
 
-Example test:
-```python
-async def test_normalized_github_search(gateway_client):
-    """Test that github search results are normalized correctly."""
-    result = await gateway_client.call_tool(
-        "virtual_normalized_github",
-        {"query": "langchain", "num_results": 5}
-    )
+2. **Install test dependencies**:
+   ```bash
+   cd examples/research-assistant-demo
+   uv sync --dev
+   ```
 
-    assert "results" in result
-    assert len(result["results"]) <= 5
-    for item in result["results"]:
-        assert item["source"] == "github"
-        assert item["source_type"] == "repo"
-        assert "title" in item
-        assert "url" in item
-        assert "snippet" in item
-```
-
-### Running Tests (Once Implemented)
+### Running Tests
 
 ```bash
+cd examples/research-assistant-demo
+
 # Run all integration tests
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run specific test file
-pytest tests/test_scatter_gather.py -v
+uv run pytest tests/test_scatter_gather.py -v
+
+# Run a single test
+uv run pytest tests/test_arraymap_transforms.py::test_normalized_github_schema -v
 
 # Run with coverage
-pytest tests/ --cov=. --cov-report=html
+uv run pytest tests/ --cov=. --cov-report=html
 ```
+
+The tests automatically start the backend services and gateway as session-scoped fixtures, so no manual setup is needed.
+
+### Test Categories
+
+| Test File | What It Tests |
+|-----------|---------------|
+| `test_arraymap_transforms.py` | Each normalized search tool produces common schema (title, url, snippet, source) |
+| `test_scatter_gather.py` | Parallel execution, result aggregation, failFast behavior |
+| `test_pipelines.py` | Sequential steps, data flow between steps |
+| `test_aggregation_ops.py` | Extract, flatten, dedupe, merge operations |
+| `test_error_handling.py` | Invalid tools, missing params, partial failures |
+
+### Skipped Tests
+
+Some tests are skipped by default because they require API keys:
+- `test_normalized_exa_schema` - Requires `EXA_API_KEY`
+- `test_multi_source_search_all_four` - Requires all 4 search API keys
+
+To run these tests, ensure the API keys are set in your environment.
