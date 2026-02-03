@@ -289,14 +289,14 @@ class CategoryDatabase:
 
         conn = get_connection(self.db_path)
         try:
+            # sqlite-vec vec0 requires k= constraint for KNN queries
             results = conn.execute(
                 """
                 SELECT c.*, ce.distance
                 FROM category_embeddings ce
                 JOIN categories c ON c.id = ce.category_id
-                WHERE ce.description_embedding MATCH ?
+                WHERE ce.description_embedding MATCH ? AND k = ?
                 ORDER BY ce.distance
-                LIMIT ?
                 """,
                 [serialize_embedding(query_embedding), limit]
             ).fetchall()
