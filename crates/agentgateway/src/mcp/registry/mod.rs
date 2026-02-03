@@ -49,6 +49,7 @@ pub use patterns::{
 	FieldPredicate, FieldSource, FilterSpec, InputBinding, LimitOp, LiteralValue, MapEachInner,
 	MapEachSpec, PatternSpec, PipelineSpec, PipelineStep, PredicateValue, ScatterGatherSpec,
 	ScatterTarget, SchemaMapSpec, SortOp, StepBinding, StepOperation, TemplateSource, ToolCall,
+	ToolRef,
 };
 pub use store::{RegistryStore, RegistryStoreRef};
 pub use types::{

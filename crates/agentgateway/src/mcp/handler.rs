@@ -321,20 +321,41 @@ impl Relay {
 				use rmcp::model::ServerResult;
 				match resp.result {
 					ServerResult::CallToolResult(ctr) => {
+						// Check if the tool returned an error
+						if ctr.is_error == Some(true) {
+							// Extract error message from content
+							let error_msg = ctr
+								.content
+								.iter()
+								.find_map(|c| {
+									if let rmcp::model::RawContent::Text(t) = &c.raw {
+										Some(t.text.clone())
+									} else {
+										None
+									}
+								})
+								.unwrap_or_else(|| "Tool returned error".to_string());
+							return Err(UpstreamError::InvalidRequest(format!(
+								"Tool '{}' returned error: {}",
+								tool_name, error_msg
+							)));
+						}
+
 						// Find text content and try to parse as JSON
 						for content in &ctr.content {
 							if let rmcp::model::RawContent::Text(t) = &content.raw {
-								// Try to parse as JSON, fall back to raw text
+								// Try to parse as JSON, fall back to wrapping in an object
 								if let Ok(json) = serde_json::from_str::<serde_json::Value>(&t.text) {
 									return Ok(json);
 								} else {
-									// Return as string value if not valid JSON
-									return Ok(serde_json::Value::String(t.text.clone()));
+									// Return as an object with a "text" field for MCP structuredContent compatibility
+									// This ensures the result is always a valid JSON object
+									return Ok(serde_json::json!({ "text": t.text }));
 								}
 							}
 						}
-						// No text content found, return null
-						Ok(serde_json::Value::Null)
+						// No text content found, return empty object
+						Ok(serde_json::json!({}))
 					},
 					other => {
 						// For other result types, serialize as-is
@@ -386,10 +407,58 @@ impl ToolInvoker for RelayToolInvoker {
 		tool_name: &str,
 		args: serde_json::Value,
 	) -> Result<serde_json::Value, ExecutionError> {
+		tracing::debug!(
+			target: "virtual_tools",
+			tool = tool_name,
+			"RelayToolInvoker::invoke called"
+		);
+
+		// When called from composition execution, tool names are registry names
+		// (e.g., "normalized_arxiv_search") not prefixed MCP names (e.g., "virtual_normalized_arxiv_search").
+		// We need to check if the tool is in the registry and add the virtual_ prefix if so,
+		// otherwise resolve_tool_call will misparse it as a backend tool.
+		let effective_tool_name = if !tool_name.starts_with(&format!("{}{}", VIRTUAL_SERVER_NAME, DELIMITER)) {
+			// Check if this is a registry tool (virtual tool or composition)
+			if let Some(ref reg) = self.relay.registry {
+				let guard = reg.get();
+				if let Some(ref compiled_registry) = **guard {
+					if compiled_registry.get_tool(tool_name).is_some() {
+						// Tool exists in registry - add virtual_ prefix
+						let prefixed = format!("{}_{}", VIRTUAL_SERVER_NAME, tool_name);
+						tracing::debug!(
+							target: "virtual_tools",
+							original = tool_name,
+							prefixed = %prefixed,
+							"RelayToolInvoker: adding virtual_ prefix for registry tool"
+						);
+						prefixed
+					} else {
+						tracing::debug!(
+							target: "virtual_tools",
+							tool = tool_name,
+							"RelayToolInvoker: tool not in registry, using as-is"
+						);
+						tool_name.to_string()
+					}
+				} else {
+					tool_name.to_string()
+				}
+			} else {
+				tool_name.to_string()
+			}
+		} else {
+			tracing::debug!(
+				target: "virtual_tools",
+				tool = tool_name,
+				"RelayToolInvoker: tool already has virtual_ prefix"
+			);
+			tool_name.to_string()
+		};
+
 		// Resolve the tool call (handles virtual tools, compositions, and backend tools)
 		let resolved = self
 			.relay
-			.resolve_tool_call(tool_name, args.clone())
+			.resolve_tool_call(&effective_tool_name, args.clone())
 			.map_err(|e| ExecutionError::ToolExecutionFailed(e.to_string()))?;
 
 		match resolved {

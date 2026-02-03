@@ -342,6 +342,74 @@ impl CompositionExecutor {
 		})
 	}
 
+	/// Execute a tool by name, optionally on a specific server
+	///
+	/// When server is specified, creates a qualified name "server/tool" for routing.
+	/// This enables scatter-gather to fan out to tools on different backend servers.
+	pub fn execute_tool_on_server<'a>(
+		&'a self,
+		name: &'a str,
+		server: Option<&'a str>,
+		args: Value,
+		ctx: &'a ExecutionContext,
+	) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, ExecutionError>> + Send + 'a>>
+	{
+		Box::pin(async move {
+			// If server is specified, use qualified name format for routing
+			// Must use "_" as delimiter to match relay's parse_resource_name convention
+			let qualified_name = match server {
+				Some(srv) => format!("{}_{}", srv, name),
+				None => name.to_string(),
+			};
+
+			tracing::debug!(
+				target: "virtual_tools",
+				tool = name,
+				server = ?server,
+				qualified_name = %qualified_name,
+				"execute_tool_on_server called"
+			);
+
+			// First, check if it's a composition in the registry
+			if let Some(tool) = self.registry.get_tool(&qualified_name)
+				&& let Some(composition) = tool.composition_info()
+			{
+				tracing::debug!(
+					target: "virtual_tools",
+					tool = %qualified_name,
+					"found composition in registry, executing"
+				);
+				return self
+					.execute_composition_internal(tool, composition, args, ctx.tracing.clone())
+					.await;
+			}
+
+			// Try unqualified name if qualified didn't match
+			if server.is_some() {
+				if let Some(tool) = self.registry.get_tool(name)
+					&& let Some(composition) = tool.composition_info()
+				{
+					tracing::debug!(
+						target: "virtual_tools",
+						tool = name,
+						"found composition by unqualified name, executing"
+					);
+					return self
+						.execute_composition_internal(tool, composition, args, ctx.tracing.clone())
+						.await;
+				}
+			}
+
+			// Otherwise, invoke via the tool invoker using qualified name
+			tracing::debug!(
+				target: "virtual_tools",
+				tool = %qualified_name,
+				"not a composition, invoking via tool_invoker"
+			);
+			ctx.tool_invoker.invoke(&qualified_name, args).await
+		})
+	}
+
 	/// Validate input against the tool's input schema
 	///
 	/// Checks that required fields are present in the input.

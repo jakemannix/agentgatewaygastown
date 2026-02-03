@@ -1241,7 +1241,7 @@ mod tests {
 	use super::*;
 	use crate::mcp::registry::patterns::{
 		AggregationOp, AggregationStrategy, PipelineSpec, PipelineStep, ScatterGatherSpec,
-		ScatterTarget, StepOperation, ToolCall,
+		ScatterTarget, StepOperation, ToolCall, ToolRef,
 	};
 	use crate::mcp::registry::types::OutputField;
 
@@ -1827,8 +1827,8 @@ mod tests {
 			"pipeline",
 			PatternSpec::ScatterGather(ScatterGatherSpec {
 				targets: vec![
-					ScatterTarget::Tool("tool_a".to_string()),
-					ScatterTarget::Tool("tool_b".to_string()),
+					ScatterTarget::Tool(ToolRef::new("tool_a")),
+					ScatterTarget::Tool(ToolRef::new("tool_b")),
 				],
 				aggregation: AggregationStrategy {
 					ops: vec![AggregationOp::Flatten(true)],

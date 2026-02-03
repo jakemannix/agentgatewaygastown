@@ -94,8 +94,8 @@ pub enum StepOperationNode {
 /// A target in scatter-gather
 #[derive(Debug, Clone)]
 pub enum ScatterTargetNode {
-	/// Tool reference
-	Tool(String),
+	/// Tool reference (with optional server)
+	Tool(super::patterns::ToolRef),
 	/// Inline pattern
 	Pattern(Box<PatternSpec>),
 }
@@ -187,7 +187,7 @@ impl ExecutionGraph {
 					.targets
 					.iter()
 					.map(|t| match t {
-						super::patterns::ScatterTarget::Tool(name) => ScatterTargetNode::Tool(name.clone()),
+						super::patterns::ScatterTarget::Tool(tool_ref) => ScatterTargetNode::Tool(tool_ref.clone()),
 						super::patterns::ScatterTarget::Pattern(p) => ScatterTargetNode::Pattern(p.clone()),
 					})
 					.collect();
@@ -265,7 +265,7 @@ impl ExecutionGraph {
 			NodeOperation::ScatterGather { targets, .. } => {
 				for target in targets {
 					match target {
-						ScatterTargetNode::Tool(name) => refs.push(name.clone()),
+						ScatterTargetNode::Tool(tool_ref) => refs.push(tool_ref.tool.clone()),
 						ScatterTargetNode::Pattern(p) => {
 							let inner_op = Self::pattern_to_operation(p);
 							Self::collect_tool_refs(&inner_op, refs);
@@ -296,7 +296,7 @@ impl ExecutionGraph {
 mod tests {
 	use super::super::patterns::{
 		AggregationOp, AggregationStrategy, PipelineSpec, PipelineStep, ScatterGatherSpec,
-		StepOperation, ToolCall,
+		StepOperation, ToolCall, ToolRef,
 	};
 	use super::*;
 
@@ -332,8 +332,8 @@ mod tests {
 	fn test_build_scatter_gather_graph() {
 		let spec = PatternSpec::ScatterGather(ScatterGatherSpec {
 			targets: vec![
-				super::super::patterns::ScatterTarget::Tool("tool_a".to_string()),
-				super::super::patterns::ScatterTarget::Tool("tool_b".to_string()),
+				super::super::patterns::ScatterTarget::Tool(ToolRef::new("tool_a")),
+				super::super::patterns::ScatterTarget::Tool(ToolRef::new("tool_b")),
 			],
 			aggregation: AggregationStrategy {
 				ops: vec![AggregationOp::Flatten(true)],

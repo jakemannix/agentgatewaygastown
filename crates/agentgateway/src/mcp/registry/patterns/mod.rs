@@ -18,7 +18,8 @@ pub use pipeline::{
 	StepBinding, StepOperation, ToolCall,
 };
 pub use scatter_gather::{
-	AggregationOp, AggregationStrategy, DedupeOp, LimitOp, ScatterGatherSpec, ScatterTarget, SortOp,
+	AggregationOp, AggregationStrategy, DedupeOp, ExtractOp, LimitOp, ScatterGatherSpec,
+	ScatterTarget, SortOp, ToolRef, WrapOp,
 };
 pub use schema_map::{
 	ArrayMapSource, CoalesceSource, ConcatSource, FieldSource, LiteralValue, SchemaMapSpec,

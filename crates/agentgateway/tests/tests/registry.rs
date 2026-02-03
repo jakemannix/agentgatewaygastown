@@ -370,7 +370,7 @@ async fn test_output_transformation_passthrough() -> anyhow::Result<()> {
 
 use agentgateway::mcp::registry::{
 	PatternSpec, PipelineSpec, PipelineStep, StepOperation, ToolCall,
-	ScatterGatherSpec, ScatterTarget, AggregationStrategy, AggregationOp,
+	ScatterGatherSpec, ScatterTarget, AggregationStrategy, AggregationOp, ToolRef,
 };
 
 /// Test parsing and compiling a composition-based tool
@@ -421,8 +421,8 @@ async fn test_mixed_registry() -> anyhow::Result<()> {
 		"multi_search",
 		PatternSpec::ScatterGather(ScatterGatherSpec {
 			targets: vec![
-				ScatterTarget::Tool("search_web".to_string()),
-				ScatterTarget::Tool("search_arxiv".to_string()),
+				ScatterTarget::Tool(ToolRef::new("search_web")),
+				ScatterTarget::Tool(ToolRef::new("search_arxiv")),
 			],
 			aggregation: AggregationStrategy {
 				ops: vec![AggregationOp::Flatten(true)],

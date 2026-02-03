@@ -963,6 +963,41 @@ mod tests {
 	}
 
 	#[test]
+	fn test_parse_tool_with_output_transform_array_map() {
+		// Test that arrayMap in outputTransform deserializes correctly
+		let json = r#"{
+			"name": "normalized_search",
+			"source": {
+				"target": "search",
+				"tool": "raw_search"
+			},
+			"outputTransform": {
+				"mappings": {
+					"items": {
+						"arrayMap": {
+							"over": "$.results",
+							"each": {
+								"title": { "path": "$.name" },
+								"url": { "path": "$.link" },
+								"source": { "literal": { "stringValue": "web" } }
+							}
+						}
+					}
+				}
+			}
+		}"#;
+
+		let tool: ToolDefinition = serde_json::from_str(json).unwrap();
+		assert!(tool.output_transform.is_some());
+		let transform = tool.output_transform.unwrap();
+		assert_eq!(transform.mappings.len(), 1);
+
+		// Verify the arrayMap was parsed
+		let items_mapping = transform.mappings.get("items").unwrap();
+		assert!(matches!(items_mapping, FieldSource::ArrayMap(_)));
+	}
+
+	#[test]
 	fn test_legacy_virtual_tool_conversion() {
 		let legacy = VirtualToolDef::new("get_weather", "weather", "fetch_weather")
 			.with_description("Get weather info")

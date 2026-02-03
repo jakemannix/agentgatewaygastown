@@ -22,7 +22,7 @@ use super::patterns::{
 	IdempotentSpec, InputBinding, LimitOp, LinearBackoff, LiteralValue, MapEachInner, MapEachSpec,
 	OnDuplicate, PatternSpec, PipelineSpec, PipelineStep, PredicateValue, RetrySpec, SagaSpec,
 	SagaStep, ScatterGatherSpec, ScatterTarget, SchemaMapSpec, SortOp, StepBinding, StepOperation,
-	TemplateSource, TimeoutSpec, ToolCall,
+	TemplateSource, TimeoutSpec, ToolCall, ToolRef,
 };
 use super::types::{
 	AgentDefinition, AgentSkillDefinition, OutputTransform, Registry, Schema, Server, SourceTool,
@@ -415,12 +415,15 @@ impl From<proto::ScatterGatherSpec> for ScatterGatherSpec {
 impl From<proto::ScatterTarget> for ScatterTarget {
 	fn from(p: proto::ScatterTarget) -> Self {
 		match p.target {
-			Some(proto::scatter_target::Target::Tool(name)) => ScatterTarget::Tool(name),
+			Some(proto::scatter_target::Target::Tool(name)) => {
+				// Proto only has tool name, no server (for XDS compatibility)
+				ScatterTarget::Tool(ToolRef::new(name))
+			},
 			Some(proto::scatter_target::Target::Pattern(pattern)) => {
 				// Pattern is not boxed in proto ScatterTarget
 				ScatterTarget::Pattern(Box::new(pattern.into()))
 			},
-			None => ScatterTarget::Tool(String::new()),
+			None => ScatterTarget::Tool(ToolRef::new("")),
 		}
 	}
 }

@@ -1,6 +1,6 @@
 // Scatter-Gather pattern types
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::PatternSpec;
 
@@ -35,22 +35,105 @@ impl ScatterGatherSpec {
 }
 
 /// A target in a scatter-gather operation
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ScatterTarget {
-	/// Tool name (resolved from registry or backend)
-	Tool(String),
+	/// Tool reference (optionally with server)
+	Tool(ToolRef),
 
 	/// Inline pattern
 	Pattern(Box<PatternSpec>),
+}
+
+/// Reference to a tool, optionally on a specific server/backend
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolRef {
+	/// Tool name
+	pub tool: String,
+
+	/// Server/backend name (None = resolve from registry virtual tools)
+	#[serde(default)]
+	pub server: Option<String>,
+}
+
+impl ToolRef {
+	/// Create a new tool reference without a server
+	pub fn new(tool: impl Into<String>) -> Self {
+		Self {
+			tool: tool.into(),
+			server: None,
+		}
+	}
+
+	/// Create a new tool reference with a server
+	pub fn with_server(tool: impl Into<String>, server: impl Into<String>) -> Self {
+		Self {
+			tool: tool.into(),
+			server: Some(server.into()),
+		}
+	}
+}
+
+// Custom deserialization to handle both formats:
+// - { "tool": "name" }
+// - { "tool": "name", "server": "backend" }
+// - { "pattern": { ... } }
+impl<'de> Deserialize<'de> for ScatterTarget {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		#[derive(Deserialize)]
+		#[serde(rename_all = "camelCase")]
+		struct ScatterTargetHelper {
+			#[serde(default)]
+			tool: Option<String>,
+			#[serde(default)]
+			server: Option<String>,
+			#[serde(default)]
+			pattern: Option<PatternSpec>,
+		}
+
+		let helper = ScatterTargetHelper::deserialize(deserializer)?;
+
+		if let Some(pattern) = helper.pattern {
+			Ok(ScatterTarget::Pattern(Box::new(pattern)))
+		} else if let Some(tool) = helper.tool {
+			Ok(ScatterTarget::Tool(ToolRef {
+				tool,
+				server: helper.server,
+			}))
+		} else {
+			Err(serde::de::Error::custom(
+				"ScatterTarget must have either 'tool' or 'pattern' field",
+			))
+		}
+	}
 }
 
 impl ScatterTarget {
 	/// Get the names of tools referenced by this target
 	pub fn referenced_tools(&self) -> Vec<&str> {
 		match self {
-			ScatterTarget::Tool(name) => vec![name.as_str()],
+			ScatterTarget::Tool(tool_ref) => vec![tool_ref.tool.as_str()],
 			ScatterTarget::Pattern(p) => p.referenced_tools(),
+		}
+	}
+
+	/// Get the server name if this is a backend tool reference
+	pub fn server(&self) -> Option<&str> {
+		match self {
+			ScatterTarget::Tool(tool_ref) => tool_ref.server.as_deref(),
+			ScatterTarget::Pattern(_) => None,
+		}
+	}
+
+	/// Get the tool name if this is a tool reference
+	pub fn tool_name(&self) -> Option<&str> {
+		match self {
+			ScatterTarget::Tool(tool_ref) => Some(&tool_ref.tool),
+			ScatterTarget::Pattern(_) => None,
 		}
 	}
 }
@@ -92,6 +175,31 @@ pub enum AggregationOp {
 
 	/// Merge objects (for object results)
 	Merge(bool),
+
+	/// Wrap the result array in an object with a specified field name
+	/// e.g., Wrap("results") turns [a, b, c] into {"results": [a, b, c]}
+	Wrap(WrapOp),
+
+	/// Extract a field from each element using JSONPath
+	/// e.g., Extract("$.results") on [{results: [a, b]}, {results: [c]}]
+	/// produces [[a, b], [c]] which can then be flattened
+	Extract(ExtractOp),
+}
+
+/// Wrap operation - wraps an array in an object with specified field name
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WrapOp {
+	/// The field name to wrap the array under
+	pub field: String,
+}
+
+/// Extract operation - extracts a field from each array element using JSONPath
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractOp {
+	/// JSONPath to extract from each element
+	pub path: String,
 }
 
 /// Sort operation
@@ -155,8 +263,20 @@ mod tests {
 		let json = r#"{ "tool": "my_tool" }"#;
 		let target: ScatterTarget = serde_json::from_str(json).unwrap();
 		assert!(matches!(target, ScatterTarget::Tool(_)));
-		if let ScatterTarget::Tool(name) = target {
-			assert_eq!(name, "my_tool");
+		if let ScatterTarget::Tool(tool_ref) = target {
+			assert_eq!(tool_ref.tool, "my_tool");
+			assert!(tool_ref.server.is_none());
+		}
+	}
+
+	#[test]
+	fn test_parse_scatter_target_tool_with_server() {
+		let json = r#"{ "tool": "get_entity", "server": "entity-service" }"#;
+		let target: ScatterTarget = serde_json::from_str(json).unwrap();
+		assert!(matches!(target, ScatterTarget::Tool(_)));
+		if let ScatterTarget::Tool(tool_ref) = target {
+			assert_eq!(tool_ref.tool, "get_entity");
+			assert_eq!(tool_ref.server, Some("entity-service".to_string()));
 		}
 	}
 
