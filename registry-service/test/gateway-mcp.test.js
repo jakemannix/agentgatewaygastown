@@ -52,7 +52,9 @@ async function isGatewayRunning() {
       }),
       signal: AbortSignal.timeout(5000),
     });
-    return response.ok || response.status === 406; // 406 means it's running but needs right headers
+    // Gateway is running if we get any HTTP response with mcp-session-id header
+    // (even 500 if backends aren't available)
+    return response.headers.has('mcp-session-id') || response.ok || response.status === 406;
   } catch {
     return false;
   }
