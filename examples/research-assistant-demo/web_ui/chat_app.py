@@ -41,44 +41,135 @@ def get_session(session_id: str) -> dict:
     return sessions[session_id]
 
 
+async def ensure_session_exists(client: httpx.AsyncClient, agent_url: str, user_id: str, session_id: str) -> str:
+    """Ensure an ADK session exists, creating it if necessary. Returns the session ID."""
+    # Check if session exists
+    sessions_url = f"{agent_url}/apps/research_agent/users/{user_id}/sessions"
+    try:
+        resp = await client.get(sessions_url)
+        if resp.status_code == 200:
+            sessions = resp.json()
+            # Check if our session already exists
+            for s in sessions:
+                if s.get("id") == session_id:
+                    return session_id
+
+        # Session doesn't exist, create it
+        create_resp = await client.post(sessions_url, json={})
+        if create_resp.status_code == 200:
+            new_session = create_resp.json()
+            logger.info(f"Created new ADK session: {new_session.get('id')}")
+            return new_session.get("id", session_id)
+    except Exception as e:
+        logger.warning(f"Session check/create failed: {e}, will try with provided session_id")
+
+    return session_id
+
+
 async def send_chat_message(agent_url: str, message: str, session_id: str, user_id: str = "web-user") -> str:
-    """Send a message to the agent via REST /chat endpoint."""
-    request_body = {
-        "message": message,
-        "session_id": session_id,
-        "user_id": user_id,
-    }
-
+    """Send a message to the agent via ADK /run endpoint."""
     async with httpx.AsyncClient(timeout=120.0) as client:
+        # Ensure session exists first
+        actual_session_id = await ensure_session_exists(client, agent_url, user_id, session_id)
+
+        # ADK expects this format for the /run endpoint
+        request_body = {
+            "app_name": "research_agent",
+            "user_id": user_id,
+            "session_id": actual_session_id,
+            "new_message": {
+                "role": "user",
+                "parts": [{"text": message}]
+            }
+        }
         try:
-            response = await client.post(f"{agent_url}/chat", json=request_body)
-            response.raise_for_status()
+            response = await client.post(f"{agent_url}/run", json=request_body)
+
+            # Handle non-2xx responses that may still have JSON error info
+            if response.status_code >= 400:
+                try:
+                    error_result = response.json()
+                    error_msg = error_result.get("error", f"HTTP {response.status_code}")
+                    details = error_result.get("details", "")
+                    logger.error(f"Agent returned error: {error_msg} (details: {details})")
+                    return f"⚠️ Agent error: {error_msg}"
+                except Exception:
+                    return f"⚠️ Agent returned HTTP {response.status_code}: {response.text[:200]}"
+
             result = response.json()
+            logger.debug(f"ADK response type: {type(result)}, keys/len: {result.keys() if isinstance(result, dict) else len(result) if isinstance(result, list) else 'N/A'}")
 
-            if "response" in result:
-                return result["response"]
-            elif "error" in result:
-                return f"Error: {result['error']}"
-            else:
-                return "Unexpected response format."
+            # ADK /run returns an array of events - find the last model response
+            if isinstance(result, list):
+                # Look for the last content event with role=model
+                for event in reversed(result):
+                    if isinstance(event, dict) and "content" in event:
+                        content = event["content"]
+                        if isinstance(content, dict):
+                            if content.get("role") == "model" and "parts" in content:
+                                parts = content["parts"]
+                                if parts and isinstance(parts[0], dict) and "text" in parts[0]:
+                                    return parts[0]["text"]
+                # Fallback: just return the whole thing as string
+                return str(result)
 
+            # ADK response format: look for the agent's response in various places
+            # The response structure depends on the agent's output
+            if isinstance(result, dict):
+                # Try to extract the text response from ADK format
+                # ADK returns events, the last content event has the response
+                if "content" in result:
+                    content = result["content"]
+                    if isinstance(content, dict) and "parts" in content:
+                        parts = content["parts"]
+                        if parts and isinstance(parts[0], dict) and "text" in parts[0]:
+                            return parts[0]["text"]
+                    elif isinstance(content, str):
+                        return content
+
+                # Check for response field
+                if "response" in result:
+                    return result["response"]
+
+                # Check for text directly
+                if "text" in result:
+                    return result["text"]
+
+                # Check for message field
+                if "message" in result:
+                    msg = result["message"]
+                    if isinstance(msg, dict) and "content" in msg:
+                        return msg["content"]
+                    return str(msg)
+
+                # Return the whole thing as string if we can't parse it
+                logger.warning(f"Unexpected ADK response format: {list(result.keys())}")
+                return str(result)
+
+            return str(result)
+
+        except httpx.TimeoutException:
+            logger.error("Timeout calling agent")
+            return "⚠️ Request timed out. The research may be taking longer than expected. Please try again or try a simpler query."
         except httpx.HTTPError as e:
             logger.error(f"HTTP error calling agent: {e}")
-            return f"Error communicating with agent: {str(e)}"
+            return f"⚠️ Connection error: {str(e)}"
         except Exception as e:
             logger.error(f"Error calling agent: {e}")
-            return f"Error: {str(e)}"
+            return f"⚠️ Error: {str(e)}"
 
 
 async def get_agent_card(agent_url: str) -> dict:
-    """Fetch agent card from A2A endpoint."""
+    """Check if agent is available by hitting the root endpoint."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            response = await client.get(f"{agent_url}/.well-known/agent.json")
-            response.raise_for_status()
-            return response.json()
+            # ADK doesn't have .well-known/agent.json, just check if server responds
+            response = await client.get(f"{agent_url}/list-apps")
+            if response.status_code == 200:
+                return {"description": "Research Assistant - AI-powered research agent", "online": True}
+            return {}
         except Exception as e:
-            logger.error(f"Error fetching agent card: {e}")
+            logger.debug(f"Agent not reachable: {e}")
             return {}
 
 

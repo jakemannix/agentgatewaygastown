@@ -39,6 +39,17 @@ fi
 
 cd "$SCRIPT_DIR"
 
+# Load environment variables from .env if it exists
+if [ -f ".env" ]; then
+    echo -e "\n${YELLOW}Loading environment from .env...${NC}"
+    set -a  # automatically export all variables
+    source .env
+    set +a
+else
+    echo -e "\n${YELLOW}Warning: No .env file found. API keys may not be set.${NC}"
+    echo "Copy .env.example to .env and add your API keys."
+fi
+
 # Install dependencies
 echo -e "\n${YELLOW}Installing Python dependencies...${NC}"
 uv sync --quiet
@@ -56,18 +67,21 @@ tmux kill-session -t research-demo 2>/dev/null || true
 echo -e "\n${YELLOW}Starting services in tmux session 'research-demo'...${NC}"
 tmux new-session -d -s research-demo -n services
 
+# Create logs directory
+mkdir -p "$SCRIPT_DIR/logs"
+
 # Start Search Service (8001)
-tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Search Service on :8001...' && uv run python -m mcp_tools.search_service --port 8001" C-m
+tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Search Service on :8001...' && uv run python -m mcp_tools.search_service --port 8001 2>&1 | tee logs/search.log" C-m
 sleep 1
 tmux split-window -h -t research-demo
 
 # Start Fetch Service (8002)
-tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Fetch Service on :8002...' && uv run python -m mcp_tools.fetch_service --port 8002" C-m
+tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Fetch Service on :8002...' && uv run python -m mcp_tools.fetch_service --port 8002 2>&1 | tee logs/fetch.log" C-m
 sleep 1
 tmux split-window -v -t research-demo
 
 # Start Entity Service (8003)
-tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Entity Service on :8003...' && uv run python -m mcp_tools.entity_service --port 8003" C-m
+tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Entity Service on :8003...' && uv run python -m mcp_tools.entity_service --port 8003 2>&1 | tee logs/entity.log" C-m
 sleep 1
 
 # Select first pane and split
@@ -75,25 +89,25 @@ tmux select-pane -t research-demo:0.0
 tmux split-window -v -t research-demo
 
 # Start Category Service (8004)
-tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Category Service on :8004...' && uv run python -m mcp_tools.category_service --port 8004" C-m
+tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Category Service on :8004...' && uv run python -m mcp_tools.category_service --port 8004 2>&1 | tee logs/category.log" C-m
 sleep 1
 tmux split-window -v -t research-demo
 
 # Start Tag Service (8005)
-tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Tag Service on :8005...' && uv run python -m mcp_tools.tag_service --port 8005" C-m
+tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Tag Service on :8005...' && uv run python -m mcp_tools.tag_service --port 8005 2>&1 | tee logs/tag.log" C-m
 sleep 1
 
 # Create new window for gateway
 tmux new-window -t research-demo -n gateway
-tmux send-keys -t research-demo "cd '$PROJECT_ROOT' && echo 'Starting AgentGateway on :3000...' && sleep 3 && ./target/debug/agentgateway -f examples/research-assistant-demo/gateway-configs/config.yaml" C-m
+tmux send-keys -t research-demo "cd '$PROJECT_ROOT' && echo 'Starting AgentGateway on :3000...' && sleep 3 && ./target/debug/agentgateway -f examples/research-assistant-demo/gateway-configs/config.yaml 2>&1 | tee '$SCRIPT_DIR/logs/gateway.log'" C-m
 
-# Create new window for agent
+# Create new window for agent (using ADK's get_fast_api_app pattern)
 tmux new-window -t research-demo -n agent
-tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Research Agent on :9001...' && sleep 5 && uv run python -m agents.research_agent --port 9001 --gateway-url http://localhost:3000" C-m
+tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Research Agent on :9001...' && sleep 5 && GATEWAY_URL=http://localhost:3000 uv run python main.py 2>&1 | tee logs/agent.log" C-m
 
 # Create new window for web UI
 tmux new-window -t research-demo -n webui
-tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Web UI on :8080...' && sleep 7 && uv run python -m web_ui.chat_app" C-m
+tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Web UI on :8080...' && sleep 7 && uv run python -m web_ui.chat_app 2>&1 | tee logs/webui.log" C-m
 
 echo -e "\n${GREEN}========================================${NC}"
 echo -e "${GREEN}Services Starting!${NC}"

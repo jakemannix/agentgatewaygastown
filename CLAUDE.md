@@ -234,6 +234,7 @@ Agent refactored to use Google ADK standard pattern:
 2. **Fix arXiv backend** - Getting HTTP 301 redirect, need to follow redirects or update URL
 3. **Test Exa** - Requires API key, verify arrayMap works with real data
 4. **Design proper tool algebra** (see below) - Clean up virtual_ prefix handling
+5. **Review REGISTRY_FORMAT.md** - Document in `examples/research-assistant-demo/gateway-configs/REGISTRY_FORMAT.md` needs review and possible expansion to cover all patterns
 
 ### Design TODO: Proper Tool Algebra
 

@@ -300,9 +300,21 @@ class A2AServer:
             })
 
         except Exception as e:
+            import traceback
             logger.error(f"[{self.name}] Error in chat: {e}")
+            logger.error(f"[{self.name}] Traceback:\n{traceback.format_exc()}")
+
+            # Return more informative error to client
+            error_msg = str(e)
+            if "Connection closed" in error_msg or "connection" in error_msg.lower():
+                error_msg = f"Connection error with backend service: {error_msg}"
+            elif "timeout" in error_msg.lower():
+                error_msg = f"Request timed out: {error_msg}"
+            elif "structuredContent" in error_msg:
+                error_msg = f"Invalid tool response format: {error_msg}"
+
             return JSONResponse(
-                {"error": str(e), "session_id": session_id},
+                {"error": error_msg, "session_id": session_id, "details": str(e)},
                 status_code=500,
             )
 

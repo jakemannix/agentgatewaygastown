@@ -21,5 +21,12 @@ __pycache__/
 examples/research-assistant-demo/data/
 examples/research-assistant-demo/.sesskey
 examples/research-assistant-demo/uv.lock
+examples/research-assistant-demo/logs/
+examples/research-assistant-demo/sessions.db
+examples/research-assistant-demo/agents/*/.adk/
 examples/ecommerce-demo/data/
 examples/ecommerce-demo/.sesskey
+examples/ecommerce-demo/logs/
+
+# Build artifacts (don't commit binaries)
+agentgateway

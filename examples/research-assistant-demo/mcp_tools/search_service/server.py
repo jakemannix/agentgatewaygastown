@@ -48,7 +48,7 @@ async def exa_search(
     query: Annotated[str, Field(description="Search query for web search")],
     num_results: Annotated[int, Field(description="Number of results to return", ge=1, le=20)] = 10,
     use_autoprompt: Annotated[bool, Field(description="Use Exa's autoprompt feature")] = True,
-) -> ExaSearchResponse:
+) -> dict:  # Returns ExaSearchResponse as dict (no outputSchema to avoid validation issues with transforms)
     """Search the web using Exa API.
 
     Exa provides high-quality web search results optimized for AI applications.
@@ -135,7 +135,7 @@ async def arxiv_search(
     query: Annotated[str, Field(description="Search query for arXiv papers")],
     num_results: Annotated[int, Field(description="Number of papers to return", ge=1, le=50)] = 10,
     sort_by: Annotated[str, Field(description="Sort order: relevance, lastUpdatedDate, submittedDate")] = "relevance",
-) -> ArxivSearchResponse:
+) -> dict:  # Returns ArxivSearchResponse as dict (no outputSchema to avoid validation issues with transforms)
     """Search arXiv for academic papers.
 
     Searches the arXiv preprint server for papers matching the query.
@@ -154,7 +154,7 @@ async def arxiv_search(
             }
 
             response = await client.get(
-                "http://export.arxiv.org/api/query",
+                "https://export.arxiv.org/api/query",
                 params=params,
                 timeout=30.0,
             )
@@ -274,7 +274,7 @@ async def github_search(
     query: Annotated[str, Field(description="Search query for GitHub repositories")],
     num_results: Annotated[int, Field(description="Number of repositories to return", ge=1, le=30)] = 10,
     search_type: Annotated[str, Field(description="What to search: repositories, code")] = "repositories",
-) -> GitHubSearchResponse:
+) -> dict:  # Returns GitHubSearchResponse as dict (no outputSchema to avoid validation issues with transforms)
     """Search GitHub for repositories or code.
 
     Searches GitHub's public repositories for projects matching the query.
@@ -414,7 +414,7 @@ async def huggingface_search(
     query: Annotated[str, Field(description="Search query for HuggingFace")],
     num_results: Annotated[int, Field(description="Number of results to return", ge=1, le=30)] = 10,
     search_type: Annotated[str, Field(description="What to search: models, datasets, spaces")] = "models",
-) -> HuggingFaceSearchResponse:
+) -> dict:  # Returns HuggingFaceSearchResponse as dict (no outputSchema to avoid validation issues with transforms)
     """Search HuggingFace for models, datasets, or spaces.
 
     Searches the HuggingFace Hub for ML models, datasets, or Spaces.

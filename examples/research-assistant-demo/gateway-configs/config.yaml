@@ -14,11 +14,11 @@ registry:
   source: file://./examples/research-assistant-demo/gateway-configs/research_registry.json
   refreshInterval: 30s
 
-# Telemetry configuration
-config:
-  tracing:
-    randomSampling: "true"
-    compositionVerbosity: "full"
+# Telemetry configuration (optional - remove this section to disable tracing)
+# config:
+#   tracing:
+#     otlpEndpoint: "http://localhost:4317"
+#     randomSampling: "true"
 
 # MCP backends
 binds:
@@ -27,6 +27,7 @@ binds:
       - routes:
           - backends:
               - mcp:
+                  # Use stateful mode - ADK manages sessions properly
                   targets:
                     # External search services
                     - name: search-service
