@@ -502,6 +502,82 @@
           "limit": {"type": "integer", "description": "Max results", "default": 20}
         }
       }
+    },
+
+    {
+      "name": "research_and_fetch",
+      "version": "1.0.0",
+      "description": "Complete research tool: searches multiple sources, checks knowledge graph context, and fetches content from top results. Returns entities, categories, search results, and page content in one call.",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "context",
+              "operation": {
+                "pattern": {
+                  "scatterGather": {
+                    "targets": [
+                      {"tool": "entity_search", "server": "entity-service"},
+                      {"tool": "search_categories", "server": "category-service"},
+                      {"tool": "multi_source_search"}
+                    ],
+                    "aggregation": {
+                      "ops": [{"merge": true}]
+                    },
+                    "timeoutMs": 30000,
+                    "failFast": false
+                  }
+                }
+              },
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "fetch",
+              "operation": {"tool": {"name": "batch_fetch", "server": "fetch-service"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "urls": {"step": {"stepId": "context", "path": "$.results[*].url"}},
+                    "max_length_per_url": {"constant": 3000}
+                  }
+                }
+              }
+            },
+            {
+              "id": "output",
+              "operation": {
+                "pattern": {
+                  "schemaMap": {
+                    "mappings": {
+                      "relevant_entities": {"path": "$.context.entities"},
+                      "relevant_categories": {"path": "$.context.categories"},
+                      "search_results": {"path": "$.context.results"},
+                      "fetched_content": {"path": "$.fetch.results"}
+                    }
+                  }
+                }
+              },
+              "input": {
+                "construct": {
+                  "fields": {
+                    "context": {"step": {"stepId": "context", "path": "$"}},
+                    "fetch": {"step": {"stepId": "fetch", "path": "$"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Research topic to search for"},
+          "num_results": {"type": "integer", "description": "Max results per search source", "default": 5},
+          "limit": {"type": "integer", "description": "Max categories/entities to return", "default": 10}
+        },
+        "required": ["query"]
+      }
     }
   ]
 }

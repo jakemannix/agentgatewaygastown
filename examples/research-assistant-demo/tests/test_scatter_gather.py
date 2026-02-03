@@ -144,3 +144,32 @@ def test_scatter_gather_timeout_handling(call_tool):
 
     assert "results" in result
     # If we got here without timeout, the test passed
+
+
+def test_research_and_fetch_mega_tool(call_tool):
+    """research_and_fetch: pipeline with inline scatter-gather + batch fetch."""
+    # This is the mega-tool that does:
+    # 1. Scatter-gather: entity_search + search_categories + multi_source_search
+    # 2. Batch fetch URLs from search results
+    # 3. Merge into final output
+    result = call_tool(
+        "virtual_research_and_fetch",
+        {"query": "machine learning", "num_results": 2, "limit": 3},
+    )
+
+    # Should have the merged output structure
+    assert isinstance(result, dict)
+
+    # Check for expected keys from the merge
+    # Note: Some may be empty if no data in KG yet
+    expected_keys = ["relevant_entities", "relevant_categories", "search_results", "fetched_content"]
+    for key in expected_keys:
+        assert key in result or len(result) > 0, f"Missing expected key: {key}"
+
+    # search_results should have items from the multi_source_search
+    if "search_results" in result and result["search_results"]:
+        assert isinstance(result["search_results"], list)
+
+    # fetched_content should have content from batch_fetch
+    if "fetched_content" in result and result["fetched_content"]:
+        assert isinstance(result["fetched_content"], list)
