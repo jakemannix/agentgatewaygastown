@@ -64,31 +64,41 @@ def test_store_research_finding_creates_entity(call_tool):
     )
 
     # Should create an entity and return its details
+    # Entity service returns {"success": true, "entity": {...}}
     assert isinstance(result, dict)
-    assert "id" in result, f"Expected 'id' in result, got: {result.keys()}"
-    assert result["name"] == "Pipeline Test Finding"
-    assert result["entity_type"] == "paper"
+    assert "success" in result and result["success"], f"Expected success, got: {result}"
+    assert "entity" in result, f"Expected 'entity' in result, got: {result.keys()}"
+
+    entity = result["entity"]
+    assert "id" in entity, f"Expected 'id' in entity, got: {entity.keys()}"
+    assert entity["name"] == "Pipeline Test Finding"
+    assert entity["entity_type"] == "paper"
 
 
 
 def test_link_entities_creates_relation(call_tool):
     """link_entities forwards to entity-service create_relation."""
     # First create two entities
-    entity1 = call_tool(
+    # Entity service returns {"success": true, "entity": {...}}
+    result1 = call_tool(
         "virtual_store_research_finding",
         {"name": "Entity A", "entity_type": "concept", "description": "First entity"},
     )
-    entity2 = call_tool(
+    result2 = call_tool(
         "virtual_store_research_finding",
         {"name": "Entity B", "entity_type": "concept", "description": "Second entity"},
     )
 
+    entity1_id = result1["entity"]["id"]
+    entity2_id = result2["entity"]["id"]
+
     # Now link them
+    # Backend expects subject_id/object_id, not from_entity_id/to_entity_id
     result = call_tool(
         "virtual_link_entities",
         {
-            "from_entity_id": entity1["id"],
-            "to_entity_id": entity2["id"],
+            "subject_id": entity1_id,
+            "object_id": entity2_id,
             "predicate": "related_to",
         },
     )

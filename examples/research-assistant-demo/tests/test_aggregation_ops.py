@@ -59,12 +59,14 @@ def test_merge_combines_objects(call_tool):
     """Merge operation combines dict outputs from multiple targets."""
     # explore_entity_network uses merge to combine get_entity + search_relations
     # First create an entity
-    entity = call_tool(
+    # Entity service returns {"success": true, "entity": {...}}
+    create_result = call_tool(
         "virtual_store_research_finding",
         {"name": "Merge Test Entity", "entity_type": "concept", "description": "For merge test"},
     )
+    entity_id = create_result["entity"]["id"]
 
-    result = call_tool("virtual_explore_entity_network", {"entity_id": entity["id"]})
+    result = call_tool("virtual_explore_entity_network", {"entity_id": entity_id})
 
     # Result should be a merged dict from both tools
     assert isinstance(result, dict)

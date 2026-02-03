@@ -103,17 +103,19 @@ def test_empty_query_returns_empty_or_error(call_tool):
 
 
 def test_very_large_num_results_capped(call_tool):
-    """Very large num_results should be handled gracefully."""
-    result = call_tool(
-        "virtual_normalized_github",
-        {"query": "python", "num_results": 1000000},
-    )
+    """Very large num_results should be rejected by backend validation."""
+    # Backend enforces max num_results=30, so this should raise a validation error
+    with pytest.raises(Exception) as exc_info:
+        call_tool(
+            "virtual_normalized_github",
+            {"query": "python", "num_results": 1000000},
+        )
 
-    # Should return some results (backend may cap the limit)
-    assert "results" in result
-    assert isinstance(result["results"], list)
-    # Backend should have capped the results
-    assert len(result["results"]) < 1000
+    # Should get a validation error about the limit
+    error_msg = str(exc_info.value).lower()
+    assert "30" in error_msg or "less than" in error_msg or "validation" in error_msg, (
+        f"Expected validation error about limit, got: {exc_info.value}"
+    )
 
 
 

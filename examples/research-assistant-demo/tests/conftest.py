@@ -20,6 +20,12 @@ import pytest
 import pytest_asyncio
 
 
+class McpToolError(Exception):
+    """Raised when an MCP tool returns isError: true."""
+
+    pass
+
+
 # Path constants
 DEMO_DIR = Path(__file__).parent.parent
 REPO_ROOT = DEMO_DIR.parent.parent
@@ -204,7 +210,11 @@ class McpHttpClient:
         return self._parse_response(resp.text)
 
     def _parse_response(self, text: str) -> dict:
-        """Parse SSE response and extract result."""
+        """Parse SSE response and extract result.
+
+        Raises McpToolError for tool-level errors (isError: true in result).
+        Raises Exception for protocol-level errors (error in response).
+        """
         result = None
         for line in text.split("\n"):
             if line.startswith("data: "):
@@ -216,6 +226,17 @@ class McpHttpClient:
 
         if not result:
             return {}
+
+        # Check for tool-level errors (isError: true)
+        if result.get("isError"):
+            # Extract error message from content
+            error_msg = "Tool execution failed"
+            if "content" in result:
+                for item in result["content"]:
+                    if item.get("type") == "text":
+                        error_msg = item["text"]
+                        break
+            raise McpToolError(error_msg)
 
         # For tool calls, extract structuredContent or parse content text
         if "structuredContent" in result and result["structuredContent"]:

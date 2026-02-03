@@ -89,6 +89,7 @@ def test_scatter_gather_dedupe_by_url(call_tool):
 def test_explore_entity_network_merge(call_tool):
     """explore_entity_network merges get_entity + search_relations."""
     # First create an entity to explore
+    # Entity service returns {"success": true, "entity": {...}}
     create_result = call_tool(
         "virtual_store_research_finding",
         {
@@ -98,8 +99,9 @@ def test_explore_entity_network_merge(call_tool):
         },
     )
 
-    entity_id = create_result.get("id")
-    assert entity_id, f"Failed to create entity: {create_result}"
+    assert "entity" in create_result, f"Failed to create entity: {create_result}"
+    entity_id = create_result["entity"]["id"]
+    assert entity_id, f"Entity has no id: {create_result}"
 
     # Now explore its network
     result = call_tool("virtual_explore_entity_network", {"entity_id": entity_id})
