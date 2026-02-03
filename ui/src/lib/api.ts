@@ -851,12 +851,16 @@ export async function getBind(port: number): Promise<Bind | null> {
 // Registry API Functions
 // =============================================================================
 
+// Registry service URL - separate from gateway
+// In production, this would be configured via environment variable
+const REGISTRY_URL = process.env.NEXT_PUBLIC_REGISTRY_URL || "http://localhost:16000";
+
 /**
- * Fetches the current registry JSON
+ * Fetches the current registry JSON from the external registry service
  */
 export async function fetchRegistry(): Promise<Registry> {
   try {
-    const response = await fetch(`${API_URL}/registry`);
+    const response = await fetch(`${REGISTRY_URL}/registry`);
     if (!response.ok) {
       if (response.status === 500) {
         const txt = await response.text();
@@ -872,12 +876,12 @@ export async function fetchRegistry(): Promise<Registry> {
 }
 
 /**
- * Updates the registry JSON
+ * Updates the registry JSON via the external registry service
  */
 export async function updateRegistry(registry: Registry): Promise<void> {
   try {
-    const response = await fetch(`${API_URL}/registry`, {
-      method: "POST",
+    const response = await fetch(`${REGISTRY_URL}/registry`, {
+      method: "PUT",
       headers: {
         "Content-Type": "application/json",
       },
@@ -895,12 +899,15 @@ export async function updateRegistry(registry: Registry): Promise<void> {
 }
 
 /**
- * Fetches all tools from the registry
+ * Fetches all tools from the registry service
  */
 export async function fetchRegistryTools(): Promise<ToolDefinition[]> {
   try {
-    const registry = await fetchRegistry();
-    return registry.tools || [];
+    const response = await fetch(`${REGISTRY_URL}/tools`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tools: ${response.status}`);
+    }
+    return (await response.json()) as ToolDefinition[];
   } catch (error) {
     console.error("Error fetching registry tools:", error);
     throw error;
@@ -908,12 +915,18 @@ export async function fetchRegistryTools(): Promise<ToolDefinition[]> {
 }
 
 /**
- * Gets a specific tool by name from the registry
+ * Gets a specific tool by name from the registry service
  */
 export async function getRegistryTool(name: string): Promise<ToolDefinition | null> {
   try {
-    const registry = await fetchRegistry();
-    return registry.tools?.find((t) => t.name === name) || null;
+    const response = await fetch(`${REGISTRY_URL}/tools/${encodeURIComponent(name)}`);
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tool: ${response.status}`);
+    }
+    return (await response.json()) as ToolDefinition;
   } catch (error) {
     console.error("Error fetching registry tool:", error);
     throw error;
@@ -921,20 +934,36 @@ export async function getRegistryTool(name: string): Promise<ToolDefinition | nu
 }
 
 /**
- * Creates or updates a tool in the registry
+ * Creates or updates a tool in the registry service
  */
 export async function saveRegistryTool(tool: ToolDefinition): Promise<void> {
   try {
-    const registry = await fetchRegistry();
-    const existingIndex = registry.tools?.findIndex((t) => t.name === tool.name) ?? -1;
+    // Check if tool exists
+    const existing = await getRegistryTool(tool.name);
 
-    if (existingIndex >= 0) {
-      registry.tools[existingIndex] = tool;
+    if (existing) {
+      // Update existing tool
+      const response = await fetch(`${REGISTRY_URL}/tools/${encodeURIComponent(tool.name)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(tool),
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to update tool: ${response.status} - ${error}`);
+      }
     } else {
-      registry.tools = [...(registry.tools || []), tool];
+      // Create new tool
+      const response = await fetch(`${REGISTRY_URL}/tools`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(tool),
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to create tool: ${response.status} - ${error}`);
+      }
     }
-
-    await updateRegistry(registry);
   } catch (error) {
     console.error("Error saving registry tool:", error);
     throw error;
@@ -942,13 +971,17 @@ export async function saveRegistryTool(tool: ToolDefinition): Promise<void> {
 }
 
 /**
- * Deletes a tool from the registry
+ * Deletes a tool from the registry service
  */
 export async function deleteRegistryTool(name: string): Promise<void> {
   try {
-    const registry = await fetchRegistry();
-    registry.tools = registry.tools?.filter((t) => t.name !== name) || [];
-    await updateRegistry(registry);
+    const response = await fetch(`${REGISTRY_URL}/tools/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+    if (!response.ok && response.status !== 404) {
+      const error = await response.text();
+      throw new Error(`Failed to delete tool: ${response.status} - ${error}`);
+    }
   } catch (error) {
     console.error("Error deleting registry tool:", error);
     throw error;
