@@ -18,7 +18,8 @@ else
 fi
 
 # Also kill any orphaned processes on the ports
-for port in 8001 8002 8003 8004 8005 3000 9001; do
+# Include 9000 for manual testing, 8080 for web UI
+for port in 8001 8002 8003 8004 8005 3000 9000 9001 8080; do
     pid=$(lsof -t -i:$port 2>/dev/null || true)
     if [ -n "$pid" ]; then
         echo "Killing process on port $port (PID: $pid)"

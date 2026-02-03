@@ -133,14 +133,20 @@ Open [http://localhost:8080](http://localhost:8080) in your browser for an inter
 ### 5. Or Test via CLI
 
 ```bash
-# Simple chat request
+# Interactive CLI chat (recommended)
+uv run python chat_cli.py
+
+# Or via curl
 curl -X POST http://localhost:9001/chat \
   -H "Content-Type: application/json" \
   -d '{"message":"Research transformer alternatives for 2025-2026"}'
-
-# Check agent card
-curl http://localhost:9001/.well-known/agent.json
 ```
+
+The CLI provides:
+- Session management
+- Tool call visibility (shows which tools are called)
+- Error extraction from logs (shows actual API errors, not just "500")
+- Commands: `quit`, `exit`, `new` (new session)
 
 ### 6. Monitor & Debug
 
@@ -503,9 +509,15 @@ The agent supports multiple LLM providers with automatic detection:
 | 2 | OpenAI | `OPENAI_API_KEY` | gpt-4o |
 | 3 | Google | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | gemini-2.0-flash |
 
-Override with:
-- `LLM_PROVIDER`: Force specific provider
-- `LLM_MODEL`: Use specific model
+Override with `LLM_MODEL` in `.env`:
+
+```bash
+# Use a specific model (LiteLLM format: provider/model)
+LLM_MODEL=anthropic/claude-haiku-4-5-20251001  # Cheaper, faster
+LLM_MODEL=anthropic/claude-sonnet-4-20250514   # Default if ANTHROPIC_API_KEY set
+LLM_MODEL=openai/gpt-4o                        # OpenAI
+LLM_MODEL=gemini-2.0-flash                     # Google (no prefix needed)
+```
 
 ## Extending the Demo
 
@@ -641,7 +653,66 @@ research-assistant-demo/
 │   └── seed_data.py           # Database initialization
 ├── start_services.sh          # Start all services
 ├── stop_services.sh           # Stop all services
+├── chat_cli.py                # Interactive CLI chat client
+├── main.py                    # ADK FastAPI server entry point
 ├── pyproject.toml             # Python dependencies
 ├── .env.example               # Environment template
 └── README.md                  # This file
+```
+
+## Next Steps: Integration Tests
+
+The virtual tools and compositions should be tested without requiring an LLM. This allows:
+- **CI/CD integration**: Run tests as part of the build pipeline
+- **Regression testing**: Verify tool compositions work after gateway changes
+- **Fast feedback**: No API costs or rate limits during development
+
+### Planned Test Architecture
+
+```
+tests/
+├── conftest.py               # Pytest fixtures for services
+├── test_virtual_tools.py     # Test individual virtual tools
+├── test_scatter_gather.py    # Test parallel search compositions
+├── test_pipelines.py         # Test sequential pipelines
+└── test_cross_service.py     # Test distributed joins
+```
+
+### Test Approach
+
+1. **Start minimal services**: Only the MCP backends needed for the test
+2. **Start gateway**: With the research_registry.json
+3. **Call tools via MCP client**: Python `mcp` library or curl
+4. **Assert on responses**: Validate structure and data flow
+
+Example test:
+```python
+async def test_normalized_github_search(gateway_client):
+    """Test that github search results are normalized correctly."""
+    result = await gateway_client.call_tool(
+        "virtual_normalized_github",
+        {"query": "langchain", "num_results": 5}
+    )
+
+    assert "results" in result
+    assert len(result["results"]) <= 5
+    for item in result["results"]:
+        assert item["source"] == "github"
+        assert item["source_type"] == "repo"
+        assert "title" in item
+        assert "url" in item
+        assert "snippet" in item
+```
+
+### Running Tests (Once Implemented)
+
+```bash
+# Run all integration tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_scatter_gather.py -v
+
+# Run with coverage
+pytest tests/ --cov=. --cov-report=html
 ```
