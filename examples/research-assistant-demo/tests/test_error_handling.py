@@ -6,11 +6,11 @@ Tests graceful degradation, proper error messages, and edge cases.
 import pytest
 
 
-@pytest.mark.asyncio
-async def test_unknown_tool_returns_error(call_tool):
+
+def test_unknown_tool_returns_error(call_tool):
     """Unknown tool name returns proper error."""
     with pytest.raises(Exception) as exc_info:
-        await call_tool("nonexistent_tool_12345", {})
+        call_tool("nonexistent_tool_12345", {})
 
     error_msg = str(exc_info.value).lower()
     # Should mention the tool is unknown or not found
@@ -19,12 +19,12 @@ async def test_unknown_tool_returns_error(call_tool):
     )
 
 
-@pytest.mark.asyncio
-async def test_missing_required_param_returns_error(call_tool):
+
+def test_missing_required_param_returns_error(call_tool):
     """Missing required parameter returns validation error."""
     # normalized_github requires 'query' parameter
     with pytest.raises(Exception) as exc_info:
-        await call_tool("virtual_normalized_github", {})
+        call_tool("virtual_normalized_github", {})
 
     error_msg = str(exc_info.value).lower()
     # Should mention the missing parameter
@@ -33,12 +33,12 @@ async def test_missing_required_param_returns_error(call_tool):
     )
 
 
-@pytest.mark.asyncio
-async def test_invalid_param_type_returns_error(call_tool):
+
+def test_invalid_param_type_returns_error(call_tool):
     """Invalid parameter type returns validation error."""
     # num_results should be integer, not string
     with pytest.raises(Exception) as exc_info:
-        await call_tool(
+        call_tool(
             "virtual_normalized_github",
             {"query": "test", "num_results": "not_a_number"},
         )
@@ -47,12 +47,12 @@ async def test_invalid_param_type_returns_error(call_tool):
     assert exc_info.value is not None
 
 
-@pytest.mark.asyncio
-async def test_scatter_gather_continues_on_partial_failure(call_tool):
+
+def test_scatter_gather_continues_on_partial_failure(call_tool):
     """Scatter-gather with failFast=false continues despite partial failures."""
     # code_search targets github + huggingface
     # Even if one has issues, the other should return results
-    result = await call_tool("virtual_code_search", {"query": "python", "num_results": 3})
+    result = call_tool("virtual_code_search", {"query": "python", "num_results": 3})
 
     assert "results" in result
     # Should have at least some results
@@ -64,22 +64,22 @@ async def test_scatter_gather_continues_on_partial_failure(call_tool):
         assert len(sources) > 0
 
 
-@pytest.mark.asyncio
-async def test_pipeline_first_step_failure_propagates(call_tool):
+
+def test_pipeline_first_step_failure_propagates(call_tool):
     """Pipeline step failure should propagate as tool error."""
     # Use invalid input that will fail at first step
     with pytest.raises(Exception):
-        await call_tool(
+        call_tool(
             "virtual_fetch_and_extract",
             {"url": ""},  # Empty URL should fail
         )
 
 
-@pytest.mark.asyncio
-async def test_tool_call_with_extra_params_ignored(call_tool):
+
+def test_tool_call_with_extra_params_ignored(call_tool):
     """Extra parameters should be ignored, not cause errors."""
     # Call with an extra param that's not in the schema
-    result = await call_tool(
+    result = call_tool(
         "virtual_normalized_github",
         {"query": "test", "num_results": 3, "extra_unknown_param": "should_be_ignored"},
     )
@@ -88,11 +88,11 @@ async def test_tool_call_with_extra_params_ignored(call_tool):
     assert "results" in result
 
 
-@pytest.mark.asyncio
-async def test_empty_query_returns_empty_or_error(call_tool):
+
+def test_empty_query_returns_empty_or_error(call_tool):
     """Empty query string returns empty results or validation error."""
     try:
-        result = await call_tool("virtual_normalized_github", {"query": "", "num_results": 3})
+        result = call_tool("virtual_normalized_github", {"query": "", "num_results": 3})
         # If it succeeds, should have empty or minimal results
         assert "results" in result
         assert isinstance(result["results"], list)
@@ -101,10 +101,10 @@ async def test_empty_query_returns_empty_or_error(call_tool):
         pass
 
 
-@pytest.mark.asyncio
-async def test_very_large_num_results_capped(call_tool):
+
+def test_very_large_num_results_capped(call_tool):
     """Very large num_results should be handled gracefully."""
-    result = await call_tool(
+    result = call_tool(
         "virtual_normalized_github",
         {"query": "python", "num_results": 1000000},
     )
@@ -116,10 +116,10 @@ async def test_very_large_num_results_capped(call_tool):
     assert len(result["results"]) < 1000
 
 
-@pytest.mark.asyncio
-async def test_special_characters_in_query(call_tool):
+
+def test_special_characters_in_query(call_tool):
     """Special characters in query should be handled."""
-    result = await call_tool(
+    result = call_tool(
         "virtual_normalized_github",
         {"query": "test & query | with <special> chars", "num_results": 3},
     )
@@ -129,10 +129,10 @@ async def test_special_characters_in_query(call_tool):
     assert isinstance(result["results"], list)
 
 
-@pytest.mark.asyncio
-async def test_unicode_in_query(call_tool):
+
+def test_unicode_in_query(call_tool):
     """Unicode characters in query should be handled."""
-    result = await call_tool(
+    result = call_tool(
         "virtual_normalized_github",
         {"query": "transformer", "num_results": 3},
     )
@@ -141,11 +141,11 @@ async def test_unicode_in_query(call_tool):
     assert "results" in result
 
 
-@pytest.mark.asyncio
-async def test_scatter_gather_all_targets_fail(call_tool):
+
+def test_scatter_gather_all_targets_fail(call_tool):
     """When all scatter-gather targets fail, should return error or empty."""
     # Use a query designed to hit edge cases
-    result = await call_tool(
+    result = call_tool(
         "virtual_code_search",
         {"query": "xyzzy_nonexistent_query_99999", "num_results": 1},
     )
@@ -155,11 +155,11 @@ async def test_scatter_gather_all_targets_fail(call_tool):
     assert "results" in result or "error" in result
 
 
-@pytest.mark.asyncio
-async def test_entity_not_found_error(call_tool):
+
+def test_entity_not_found_error(call_tool):
     """Looking up non-existent entity returns proper error."""
     with pytest.raises(Exception) as exc_info:
-        await call_tool(
+        call_tool(
             "virtual_explore_entity_network",
             {"entity_id": "nonexistent-entity-id-12345"},
         )
@@ -168,11 +168,11 @@ async def test_entity_not_found_error(call_tool):
     assert exc_info.value is not None
 
 
-@pytest.mark.asyncio
-async def test_create_relation_missing_entities(call_tool):
+
+def test_create_relation_missing_entities(call_tool):
     """Creating relation with non-existent entities fails properly."""
     with pytest.raises(Exception) as exc_info:
-        await call_tool(
+        call_tool(
             "virtual_link_entities",
             {
                 "from_entity_id": "fake-id-1",

@@ -7,10 +7,10 @@ converting heterogeneous backend responses to a unified schema.
 import pytest
 
 
-@pytest.mark.asyncio
-async def test_normalized_github_schema(call_tool):
+
+def test_normalized_github_schema(call_tool):
     """GitHub results are normalized to common search result schema."""
-    result = await call_tool("virtual_normalized_github", {"query": "transformers", "num_results": 3})
+    result = call_tool("virtual_normalized_github", {"query": "transformers", "num_results": 3})
 
     assert "results" in result, f"Expected 'results' key, got: {result.keys()}"
     assert isinstance(result["results"], list), "results should be a list"
@@ -28,10 +28,10 @@ async def test_normalized_github_schema(call_tool):
         assert item["url"].startswith("https://github.com/"), f"Invalid GitHub URL: {item['url']}"
 
 
-@pytest.mark.asyncio
-async def test_normalized_huggingface_schema(call_tool):
+
+def test_normalized_huggingface_schema(call_tool):
     """HuggingFace results are normalized to common search result schema."""
-    result = await call_tool("virtual_normalized_huggingface", {"query": "llama", "num_results": 3})
+    result = call_tool("virtual_normalized_huggingface", {"query": "llama", "num_results": 3})
 
     assert "results" in result
     assert isinstance(result["results"], list)
@@ -48,10 +48,10 @@ async def test_normalized_huggingface_schema(call_tool):
         assert "huggingface.co" in item["url"], f"Invalid HuggingFace URL: {item['url']}"
 
 
-@pytest.mark.asyncio
-async def test_normalized_arxiv_schema(call_tool):
+
+def test_normalized_arxiv_schema(call_tool):
     """arXiv results are normalized to common search result schema."""
-    result = await call_tool("virtual_normalized_arxiv", {"query": "attention mechanism", "num_results": 3})
+    result = call_tool("virtual_normalized_arxiv", {"query": "attention mechanism", "num_results": 3})
 
     assert "results" in result
     assert isinstance(result["results"], list)
@@ -69,11 +69,11 @@ async def test_normalized_arxiv_schema(call_tool):
             assert "arxiv.org" in item["url"], f"Invalid arXiv URL: {item['url']}"
 
 
-@pytest.mark.asyncio
+
 @pytest.mark.skip(reason="Exa requires API key - enable when testing with real credentials")
-async def test_normalized_exa_schema(call_tool):
+def test_normalized_exa_schema(call_tool):
     """Exa results are normalized to common search result schema."""
-    result = await call_tool("virtual_normalized_exa", {"query": "machine learning", "num_results": 3})
+    result = call_tool("virtual_normalized_exa", {"query": "machine learning", "num_results": 3})
 
     assert "results" in result
     assert isinstance(result["results"], list)
@@ -87,10 +87,10 @@ async def test_normalized_exa_schema(call_tool):
         assert "snippet" in item
 
 
-@pytest.mark.asyncio
-async def test_arraymap_preserves_array_order(call_tool):
+
+def test_arraymap_preserves_array_order(call_tool):
     """ArrayMap should preserve the order of elements."""
-    result = await call_tool("virtual_normalized_github", {"query": "pytorch", "num_results": 5})
+    result = call_tool("virtual_normalized_github", {"query": "pytorch", "num_results": 5})
 
     # Just verify we get back an ordered list
     assert "results" in result
@@ -102,11 +102,11 @@ async def test_arraymap_preserves_array_order(call_tool):
         assert "title" in item, f"Item {i} missing title"
 
 
-@pytest.mark.asyncio
-async def test_arraymap_handles_empty_source_array(call_tool):
+
+def test_arraymap_handles_empty_source_array(call_tool):
     """ArrayMap should handle empty source array gracefully."""
     # Use a very specific query unlikely to match anything
-    result = await call_tool(
+    result = call_tool(
         "virtual_normalized_github",
         {"query": "xyzzy_nonexistent_repo_name_12345", "num_results": 3},
     )
@@ -116,11 +116,11 @@ async def test_arraymap_handles_empty_source_array(call_tool):
     assert isinstance(result["results"], list)
 
 
-@pytest.mark.asyncio
-async def test_arraymap_coalesce_fallback(call_tool):
+
+def test_arraymap_coalesce_fallback(call_tool):
     """Coalesce in arrayMap should fall back to secondary path when primary is missing."""
     # HuggingFace uses coalesce for snippet: first tries description, then pipeline_tag
-    result = await call_tool("virtual_normalized_huggingface", {"query": "bert", "num_results": 3})
+    result = call_tool("virtual_normalized_huggingface", {"query": "bert", "num_results": 3})
 
     assert "results" in result
     for item in result["results"]:

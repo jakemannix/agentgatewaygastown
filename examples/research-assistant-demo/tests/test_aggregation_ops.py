@@ -6,13 +6,13 @@ Aggregation ops: extract, flatten, dedupe, sort, limit, merge.
 import pytest
 
 
-@pytest.mark.asyncio
-async def test_extract_pulls_nested_array(call_tool):
+
+def test_extract_pulls_nested_array(call_tool):
     """Extract operation pulls $.results from each target's output."""
     # code_search uses extract + flatten
     # Each normalized tool returns {results: [...]}
     # Extract should pull out just the array
-    result = await call_tool("virtual_code_search", {"query": "pytorch", "num_results": 3})
+    result = call_tool("virtual_code_search", {"query": "pytorch", "num_results": 3})
 
     assert "results" in result
     # The results should be extracted from nested {results: [...]}
@@ -25,10 +25,10 @@ async def test_extract_pulls_nested_array(call_tool):
         assert "title" in item  # Normalized schema
 
 
-@pytest.mark.asyncio
-async def test_flatten_combines_arrays(call_tool):
+
+def test_flatten_combines_arrays(call_tool):
     """Flatten operation combines arrays from multiple sources."""
-    result = await call_tool("virtual_code_search", {"query": "tensorflow", "num_results": 5})
+    result = call_tool("virtual_code_search", {"query": "tensorflow", "num_results": 5})
 
     assert "results" in result
     # Should be a flat list, not nested arrays
@@ -39,10 +39,10 @@ async def test_flatten_combines_arrays(call_tool):
         assert not isinstance(item, list), "Found nested array - flatten not working"
 
 
-@pytest.mark.asyncio
-async def test_dedupe_removes_duplicates(call_tool):
+
+def test_dedupe_removes_duplicates(call_tool):
     """Dedupe operation removes items with duplicate URLs."""
-    result = await call_tool("virtual_code_search", {"query": "huggingface transformers", "num_results": 10})
+    result = call_tool("virtual_code_search", {"query": "huggingface transformers", "num_results": 10})
 
     assert "results" in result
     urls = [r["url"] for r in result["results"]]
@@ -54,17 +54,17 @@ async def test_dedupe_removes_duplicates(call_tool):
     assert len(urls) == len(unique_urls), f"Found {len(duplicates)} duplicates: {set(duplicates)}"
 
 
-@pytest.mark.asyncio
-async def test_merge_combines_objects(call_tool):
+
+def test_merge_combines_objects(call_tool):
     """Merge operation combines dict outputs from multiple targets."""
     # explore_entity_network uses merge to combine get_entity + search_relations
     # First create an entity
-    entity = await call_tool(
+    entity = call_tool(
         "virtual_store_research_finding",
         {"name": "Merge Test Entity", "entity_type": "concept", "description": "For merge test"},
     )
 
-    result = await call_tool("virtual_explore_entity_network", {"entity_id": entity["id"]})
+    result = call_tool("virtual_explore_entity_network", {"entity_id": entity["id"]})
 
     # Result should be a merged dict from both tools
     assert isinstance(result, dict)
@@ -80,11 +80,11 @@ async def test_merge_combines_objects(call_tool):
     )
 
 
-@pytest.mark.asyncio
-async def test_aggregation_handles_empty_results(call_tool):
+
+def test_aggregation_handles_empty_results(call_tool):
     """Aggregation should handle empty results from all sources."""
     # Query that returns no results
-    result = await call_tool(
+    result = call_tool(
         "virtual_code_search",
         {"query": "xyzzy_completely_nonexistent_12345", "num_results": 5},
     )
@@ -95,12 +95,12 @@ async def test_aggregation_handles_empty_results(call_tool):
     assert len(result["results"]) == 0
 
 
-@pytest.mark.asyncio
-async def test_aggregation_order_extract_flatten_dedupe(call_tool):
+
+def test_aggregation_order_extract_flatten_dedupe(call_tool):
     """Aggregation ops execute in order: extract -> flatten -> dedupe."""
     # This is tested implicitly by the scatter-gather tools
     # The ops array is: [extract($.results), flatten, dedupe($.url)]
-    result = await call_tool("virtual_academic_search", {"query": "transformers", "num_results": 5})
+    result = call_tool("virtual_academic_search", {"query": "transformers", "num_results": 5})
 
     assert "results" in result
     assert isinstance(result["results"], list)
@@ -118,11 +118,11 @@ async def test_aggregation_order_extract_flatten_dedupe(call_tool):
         assert "title" in item, "Extract didn't work"
 
 
-@pytest.mark.asyncio
-async def test_get_knowledge_merge_multiple_sources(call_tool):
+
+def test_get_knowledge_merge_multiple_sources(call_tool):
     """get_knowledge_for_topic merges three sources: entity, category, content."""
     # First populate some test data
-    await call_tool(
+    call_tool(
         "virtual_store_research_finding",
         {
             "name": "Aggregation Test Concept",
@@ -131,7 +131,7 @@ async def test_get_knowledge_merge_multiple_sources(call_tool):
         },
     )
 
-    result = await call_tool("virtual_get_knowledge_for_topic", {"query": "aggregation test"})
+    result = call_tool("virtual_get_knowledge_for_topic", {"query": "aggregation test"})
 
     # Should have merged results from entity_search, search_categories, search_content
     assert isinstance(result, dict)

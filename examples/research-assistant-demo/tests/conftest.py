@@ -5,18 +5,19 @@ Services and gateway are started as subprocesses.
 """
 
 import asyncio
+import json
 import os
 import socket
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Generator
+from typing import AsyncGenerator, Callable, Generator
 
+import httpx
 import pytest
 import pytest_asyncio
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
 
 
 # Path constants
@@ -70,9 +71,11 @@ class ServiceManager:
             self.procs.append(proc)
 
         # Wait for all services to be ready
-        for port, module in SERVICES:
+        for i, (port, module) in enumerate(SERVICES):
             if not wait_for_port(port):
-                pytest.fail(f"Service {module} on port {port} failed to start")
+                # Get stderr for debugging
+                stderr = self.procs[i].stderr.read().decode() if self.procs[i].stderr else "no stderr"
+                pytest.fail(f"Service {module} on port {port} failed to start. stderr: {stderr[:500]}")
 
     def stop(self) -> None:
         """Stop all backend services."""
@@ -115,7 +118,9 @@ class GatewayManager:
         )
 
         if not wait_for_port(GATEWAY_PORT):
-            pytest.fail(f"Gateway on port {GATEWAY_PORT} failed to start")
+            # Get stderr for debugging
+            stderr = self.proc.stderr.read().decode() if self.proc and self.proc.stderr else "no stderr"
+            pytest.fail(f"Gateway on port {GATEWAY_PORT} failed to start. stderr: {stderr[:500]}")
 
     def stop(self) -> None:
         """Stop the gateway."""
@@ -135,71 +140,138 @@ class GatewayManager:
         self.stop()
 
 
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create event loop for async tests."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+class McpHttpClient:
+    """Simple MCP client using httpx for testing."""
+
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+        self.session_id: str | None = None
+        self.client = httpx.Client(timeout=60.0)
+
+    def initialize(self) -> dict:
+        """Send MCP initialize request (no session header - server creates session)."""
+        payload = {
+            "jsonrpc": "2.0",
+            "id": str(uuid.uuid4()),
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "pytest", "version": "1.0.0"},
+            },
+        }
+
+        # Initialize request has NO session header
+        resp = self.client.post(
+            self.base_url,
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+        )
+        resp.raise_for_status()
+
+        # Get session ID from response header
+        self.session_id = resp.headers.get("mcp-session-id")
+        if not self.session_id:
+            raise Exception(f"No session ID in response. Headers: {dict(resp.headers)}")
+
+        return self._parse_response(resp.text)
+
+    def call_tool(self, name: str, arguments: dict) -> dict:
+        """Call a tool and return the result."""
+        if not self.session_id:
+            self.initialize()
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": str(uuid.uuid4()),
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        }
+
+        resp = self.client.post(
+            self.base_url,
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+                "mcp-session-id": self.session_id,
+            },
+        )
+        resp.raise_for_status()
+        return self._parse_response(resp.text)
+
+    def _parse_response(self, text: str) -> dict:
+        """Parse SSE response and extract result."""
+        result = None
+        for line in text.split("\n"):
+            if line.startswith("data: "):
+                data = json.loads(line[6:])
+                if "result" in data:
+                    result = data["result"]
+                elif "error" in data:
+                    raise Exception(f"MCP error: {data['error']}")
+
+        if not result:
+            return {}
+
+        # For tool calls, extract structuredContent or parse content text
+        if "structuredContent" in result and result["structuredContent"]:
+            return result["structuredContent"]
+        elif "content" in result and result["content"]:
+            # Try to parse the first text content as JSON
+            for item in result["content"]:
+                if item.get("type") == "text":
+                    try:
+                        return json.loads(item["text"])
+                    except json.JSONDecodeError:
+                        pass
+            return result
+        return result
+
+    def close(self):
+        """Close the client."""
+        self.client.close()
 
 
 @pytest.fixture(scope="session")
 def services() -> Generator[ServiceManager, None, None]:
     """Start backend MCP services for the test session."""
+    print("\n=== Starting backend services ===")
     with ServiceManager() as mgr:
+        print("=== Backend services started ===")
         yield mgr
+    print("=== Backend services stopped ===")
 
 
 @pytest.fixture(scope="session")
 def gateway(services: ServiceManager) -> Generator[GatewayManager, None, None]:
     """Start gateway for the test session (requires services)."""
+    print("\n=== Starting gateway ===")
     with GatewayManager() as mgr:
+        print("=== Gateway started ===")
         yield mgr
+    print("=== Gateway stopped ===")
 
 
-@pytest_asyncio.fixture
-async def mcp_client(gateway: GatewayManager) -> AsyncGenerator[ClientSession, None]:
-    """Create an MCP client session connected to the gateway."""
-    async with streamablehttp_client(GATEWAY_URL) as (read_stream, write_stream, _):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            yield session
+@pytest.fixture(scope="session")
+def mcp_client(gateway: GatewayManager) -> Generator[McpHttpClient, None, None]:
+    """Create an MCP client for the test session."""
+    client = McpHttpClient(GATEWAY_URL)
+    client.initialize()
+    print(f"\n=== MCP session established: {client.session_id} ===")
+    yield client
+    client.close()
 
 
-async def _call_tool_impl(session: ClientSession, name: str, arguments: dict) -> dict:
-    """Call a tool and return the result as a dict.
-
-    Args:
-        session: MCP client session
-        name: Tool name (with or without virtual_ prefix)
-        arguments: Tool arguments
-
-    Returns:
-        Tool result as a dictionary
-    """
-    import json
-
-    result = await session.call_tool(name, arguments)
-
-    # Extract content from result
-    if result.content and len(result.content) > 0:
-        content = result.content[0]
-        if hasattr(content, "text"):
-            return json.loads(content.text)
-
-    return {}
-
-
-@pytest_asyncio.fixture
-async def call_tool(mcp_client: ClientSession):
+@pytest.fixture
+def call_tool(mcp_client: McpHttpClient) -> Callable:
     """Provide a helper function to call tools.
 
     Usage in tests:
-        async def test_foo(call_tool):
-            result = await call_tool("virtual_tool_name", {"arg": "value"})
+        def test_foo(call_tool):
+            result = call_tool("virtual_tool_name", {"arg": "value"})
     """
-
-    async def _call(name: str, arguments: dict) -> dict:
-        return await _call_tool_impl(mcp_client, name, arguments)
-
-    return _call
+    return mcp_client.call_tool
