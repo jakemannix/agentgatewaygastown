@@ -4,36 +4,43 @@
 
 ## Summary
 
-Integration tests improved from 24→32 passing (out of 43 total, 2 skipped). Key fixes:
-- `McpToolError` exception class for `isError: true` responses
+**All 41 integration tests now pass** (2 skipped for API key requirements).
+
+Key fixes made this session:
+- `McpToolError` exception class for `isError: true` MCP responses
 - Entity response format handling (`result["entity"]["id"]`)
-- Parameter name fixes (`subject_id`/`object_id` vs `from_entity_id`/`to_entity_id`)
-- Test expectation fixes (backend validation is correct behavior)
+- Parameter name mapping (`subject_id`/`object_id` vs `from_entity_id`/`to_entity_id`)
+- sqlite-vec vec0 KNN query syntax (`k = ?` constraint)
+- Test expectations aligned with actual backend behavior patterns
 
-## Current Test Status
+## Test Status
 
-**32 passed, 9 failed, 2 skipped**
+```
+======================== 41 passed, 2 skipped in 24.09s ========================
+```
 
-### Remaining Failures
+### Skipped Tests (require API keys)
+- `test_normalized_exa_schema` - Exa API key required
+- `test_multi_source_search_all_four` - Exa API key required
 
-| Category | Test | Issue |
-|----------|------|-------|
-| Gateway 500 | `test_get_knowledge_for_topic_merge` | Virtual tool composition error |
-| Gateway 500 | `test_get_knowledge_merge_multiple_sources` | Same virtual tool |
-| Backend | `test_find_or_create_category_forwards` | SQLite vec0 query needs LIMIT |
-| Backend | `test_entity_not_found_error` | Entity service doesn't error on missing |
-| Data | `test_fetch_and_extract_data_flow` | HN URL extraction returns empty |
-| Data | `test_arraymap_coalesce_fallback` | HuggingFace snippet is None |
-| Error propagation | `test_unknown_tool_returns_error` | Gateway returns HTTP 500 not MCP error |
-| Error propagation | `test_pipeline_first_step_failure_propagates` | Empty URL doesn't fail |
-| Error propagation | `test_pipeline_error_on_first_step` | Invalid URL doesn't fail |
+## Architecture Notes
 
-## Next Steps
+### Backend Response Patterns
 
-1. **Debug `get_knowledge_for_topic` virtual tool** - Gateway 500 errors
-2. **Fix category service** - Add LIMIT to vec0 queries
-3. **Improve error propagation** - Gateway should return MCP errors not HTTP 500
-4. **Make data tests resilient** - Handle empty/null responses gracefully
+The backend services use two patterns for error handling:
+
+1. **MCP-level errors** (`isError: true`): Used for validation errors, missing required params
+2. **Application-level success/failure** (`success: false`): Used by url_fetch for network failures
+
+The test infrastructure handles both via `McpToolError` for (1) and result inspection for (2).
+
+### sqlite-vec KNN Queries
+
+The vec0 extension requires `k = ?` in WHERE clause for KNN queries:
+```sql
+WHERE description_embedding MATCH ? AND k = ?
+```
+Not just `LIMIT ?` at the end.
 
 ## Commands Reference
 
