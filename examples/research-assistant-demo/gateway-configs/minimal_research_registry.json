@@ -1,0 +1,353 @@
+{
+  "schemaVersion": "2.0",
+  "description": "Research Gateway: A unified interface for multi-source research with knowledge graph context. PRIMARY TOOL: 'research_and_fetch' performs parallel searches across 4 sources (Exa, arXiv, GitHub, HuggingFace), checks your knowledge graph for relevant entities/categories, and fetches page content - all in one call. Use 'multi_source_search' for search-only (no fetch) when you want to browse results first before fetching. Write tools let you build up the knowledge graph over time.",
+
+  "schemas": [
+    {
+      "name": "NormalizedSearchResult",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "title": {"type": "string"},
+          "url": {"type": "string"},
+          "snippet": {"type": "string"},
+          "source": {"type": "string", "enum": ["exa", "arxiv", "github", "huggingface"]},
+          "source_type": {"type": "string", "enum": ["web", "paper", "repo", "model"]}
+        },
+        "required": ["title", "url", "source"]
+      }
+    },
+    {
+      "name": "NormalizedSearchResponse",
+      "version": "1.0.0",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {"$ref": "#/schemas/NormalizedSearchResult"}
+          }
+        }
+      }
+    }
+  ],
+
+  "servers": [
+    {
+      "name": "search-service",
+      "version": "1.0.0",
+      "description": "External search APIs (Exa, arXiv, GitHub, HuggingFace)",
+      "provides": [
+        {"tool": "exa_search", "version": "1.0.0"},
+        {"tool": "arxiv_search", "version": "1.0.0"},
+        {"tool": "github_search", "version": "1.0.0"},
+        {"tool": "huggingface_search", "version": "1.0.0"}
+      ]
+    },
+    {
+      "name": "fetch-service",
+      "version": "1.0.0",
+      "description": "URL content fetching",
+      "provides": [
+        {"tool": "batch_fetch", "version": "1.0.0"}
+      ]
+    },
+    {
+      "name": "entity-service",
+      "version": "1.0.0",
+      "description": "Knowledge graph entities and relations",
+      "provides": [
+        {"tool": "entity_search", "version": "1.0.0"},
+        {"tool": "create_entity", "version": "1.0.0"},
+        {"tool": "create_relation", "version": "1.0.0"}
+      ]
+    },
+    {
+      "name": "category-service",
+      "version": "1.0.0",
+      "description": "Hierarchical category taxonomy",
+      "provides": [
+        {"tool": "search_categories", "version": "1.0.0"},
+        {"tool": "create_category", "version": "1.0.0"}
+      ]
+    },
+    {
+      "name": "tag-service",
+      "version": "1.0.0",
+      "description": "Content tagging",
+      "provides": [
+        {"tool": "tag_content", "version": "1.0.0"}
+      ]
+    }
+  ],
+
+  "tools": [
+    {
+      "name": "normalized_exa",
+      "version": "1.0.0",
+      "description": "Exa web search with normalized output. Single-source search - prefer 'multi_source_search' or 'research_and_fetch' for comprehensive results.",
+      "source": {"server": "search-service", "tool": "exa_search"},
+      "outputTransform": {
+        "mappings": {
+          "results": {
+            "arrayMap": {
+              "over": "$.results",
+              "each": {
+                "title": {"path": "$.title"},
+                "url": {"path": "$.url"},
+                "snippet": {"coalesce": {"paths": ["$.text", "$.highlight"]}},
+                "source": {"literal": {"stringValue": "exa"}},
+                "source_type": {"literal": {"stringValue": "web"}}
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": {"$ref": "#/schemas/NormalizedSearchResponse"}
+    },
+
+    {
+      "name": "normalized_arxiv",
+      "version": "1.0.0",
+      "description": "arXiv paper search with normalized output. Single-source search - prefer 'multi_source_search' or 'research_and_fetch' for comprehensive results.",
+      "source": {"server": "search-service", "tool": "arxiv_search"},
+      "outputTransform": {
+        "mappings": {
+          "results": {
+            "arrayMap": {
+              "over": "$.papers",
+              "each": {
+                "title": {"path": "$.title"},
+                "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"]}},
+                "snippet": {"path": "$.abstract"},
+                "source": {"literal": {"stringValue": "arxiv"}},
+                "source_type": {"literal": {"stringValue": "paper"}}
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": {"$ref": "#/schemas/NormalizedSearchResponse"}
+    },
+
+    {
+      "name": "normalized_github",
+      "version": "1.0.0",
+      "description": "GitHub repo search with normalized output. Single-source search - prefer 'multi_source_search' or 'research_and_fetch' for comprehensive results.",
+      "source": {"server": "search-service", "tool": "github_search"},
+      "outputTransform": {
+        "mappings": {
+          "results": {
+            "arrayMap": {
+              "over": "$.repos",
+              "each": {
+                "title": {"path": "$.full_name"},
+                "url": {"path": "$.html_url"},
+                "snippet": {"path": "$.description"},
+                "source": {"literal": {"stringValue": "github"}},
+                "source_type": {"literal": {"stringValue": "repo"}}
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": {"$ref": "#/schemas/NormalizedSearchResponse"}
+    },
+
+    {
+      "name": "normalized_huggingface",
+      "version": "1.0.0",
+      "description": "HuggingFace model/dataset/space search with normalized output. Single-source search - prefer 'multi_source_search' or 'research_and_fetch' for comprehensive results.",
+      "source": {"server": "search-service", "tool": "huggingface_search"},
+      "outputTransform": {
+        "mappings": {
+          "results": {
+            "arrayMap": {
+              "over": "$.models",
+              "each": {
+                "title": {"path": "$.id"},
+                "url": {"path": "$.url"},
+                "snippet": {"coalesce": {"paths": ["$.description", "$.pipeline_tag"]}},
+                "source": {"literal": {"stringValue": "huggingface"}},
+                "source_type": {"literal": {"stringValue": "model"}}
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": {"$ref": "#/schemas/NormalizedSearchResponse"}
+    },
+
+    {
+      "name": "multi_source_search",
+      "version": "1.0.0",
+      "description": "SEARCH WITHOUT FETCH. Searches all 4 sources (Exa web, arXiv papers, GitHub repos, HuggingFace models) in parallel and returns unified results with title/url/snippet/source. Use this for initial exploration when you want to see many results (e.g., num_results=20) before deciding what to fetch. Does NOT include knowledge graph context or page content - use 'research_and_fetch' for the full workflow.",
+      "spec": {
+        "scatterGather": {
+          "targets": [
+            {"tool": "normalized_exa"},
+            {"tool": "normalized_arxiv"},
+            {"tool": "normalized_github"},
+            {"tool": "normalized_huggingface"}
+          ],
+          "aggregation": {
+            "ops": [
+              {"extract": {"path": "$.results"}},
+              {"flatten": true},
+              {"dedupe": {"field": "$.url"}},
+              {"wrap": {"field": "results"}}
+            ]
+          },
+          "timeoutMs": 30000,
+          "failFast": false
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Search query"},
+          "num_results": {"type": "integer", "description": "Max results per source", "default": 5}
+        },
+        "required": ["query"]
+      },
+      "outputSchema": {"$ref": "#/schemas/NormalizedSearchResponse"}
+    },
+
+    {
+      "name": "research_and_fetch",
+      "version": "1.0.0",
+      "description": "PRIMARY RESEARCH TOOL. Executes a complete research workflow in one call: (1) searches your knowledge graph for relevant entities you've previously saved, (2) searches your category taxonomy for relevant classifications, (3) searches 4 external sources in parallel (Exa web, arXiv papers, GitHub repos, HuggingFace models), and (4) fetches actual page content from the top results. Returns all four result types merged together. Use this when you want comprehensive research with content. For lighter exploration (metadata only, no fetch), use 'multi_source_search' instead.",
+      "spec": {
+        "pipeline": {
+          "steps": [
+            {
+              "id": "context",
+              "operation": {
+                "pattern": {
+                  "scatterGather": {
+                    "targets": [
+                      {"tool": "entity_search", "server": "entity-service"},
+                      {"tool": "search_categories", "server": "category-service"},
+                      {"tool": "multi_source_search"}
+                    ],
+                    "aggregation": {"ops": [{"merge": true}]}, "timeoutMs": 30000, "failFast": false
+                  }
+                }
+              },
+              "input": {"input": {"path": "$"}}
+            },
+            {
+              "id": "fetch",
+              "operation": {"tool": {"name": "batch_fetch", "server": "fetch-service"}},
+              "input": {
+                "construct": {
+                  "fields": {
+                    "urls": {"step": {"stepId": "context", "path": "$.results[*].url"}},
+                    "max_length_per_url": {"constant": 3000}
+                  }
+                }
+              }
+            },
+            {
+              "id": "output",
+              "operation": {
+                "pattern": {
+                  "schemaMap": {
+                    "mappings": {
+                      "relevant_entities": {"path": "$.context.entities"},
+                      "relevant_categories": {"path": "$.context.categories"},
+                      "search_results": {"path": "$.context.results"},
+                      "fetched_content": {"path": "$.fetch.results"}
+                    }
+                  }
+                }
+              },
+              "input": {
+                "construct": {
+                  "fields": {
+                    "context": {"step": {"stepId": "context", "path": "$"}},
+                    "fetch": {"step": {"stepId": "fetch", "path": "$"}}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string", "description": "Research topic to search for"},
+          "num_results": {"type": "integer", "description": "Max results per search source", "default": 5},
+          "limit": {"type": "integer", "description": "Max categories/entities to return", "default": 10}
+        },
+        "required": ["query"]
+      }
+    },
+
+    {
+      "name": "create_entity",
+      "version": "1.0.0",
+      "description": "Save an entity to the knowledge graph for future retrieval. Entities appear in 'research_and_fetch' results when semantically relevant to queries. Types: paper, concept, tool, person, organization, dataset, model.",
+      "source": {"server": "entity-service", "tool": "create_entity"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "description": "Entity name"},
+          "entity_type": {"type": "string", "description": "Type: paper, concept, tool, person, organization"},
+          "description": {"type": "string", "description": "Detailed description"},
+          "properties": {"type": "object", "description": "Additional properties (url, authors, etc.)"}
+        },
+        "required": ["name", "entity_type", "description"]
+      }
+    },
+
+    {
+      "name": "create_relation",
+      "version": "1.0.0",
+      "description": "Link two entities in the knowledge graph. Use after creating entities to capture relationships like 'paper X cites paper Y' or 'tool A implements concept B'.",
+      "source": {"server": "entity-service", "tool": "create_relation"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "subject_id": {"type": "string", "description": "Source entity ID"},
+          "object_id": {"type": "string", "description": "Target entity ID"},
+          "predicate": {"type": "string", "description": "Relationship: extends, cites, implements, related_to, authored_by"}
+        },
+        "required": ["subject_id", "object_id", "predicate"]
+      }
+    },
+
+    {
+      "name": "create_category",
+      "version": "1.0.0",
+      "description": "Add a category to the taxonomy for organizing content. Categories appear in 'research_and_fetch' results when semantically relevant. Build hierarchies by setting parent_id.",
+      "source": {"server": "category-service", "tool": "create_category"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "description": "Category name"},
+          "description": {"type": "string", "description": "What belongs in this category"},
+          "parent_id": {"type": "string", "description": "Parent category ID (optional, null for root)"}
+        },
+        "required": ["name", "description"]
+      }
+    },
+
+    {
+      "name": "tag_content",
+      "version": "1.0.0",
+      "description": "Tag a URL/content with categories",
+      "source": {"server": "tag-service", "tool": "tag_content"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content_id": {"type": "string", "description": "Content ID (from register_content)"},
+          "category_id": {"type": "string", "description": "Category ID to tag with"}
+        },
+        "required": ["content_id", "category_id"]
+      }
+    }
+  ]
+}

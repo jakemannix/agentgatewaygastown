@@ -160,6 +160,28 @@ tmux attach -t research-demo
 ./stop_services.sh
 ```
 
+### 7. Claude Code Integration
+
+Add to your `.mcp.json` to use the gateway as an MCP server:
+
+```json
+{
+  "mcpServers": {
+    "research-gateway": {
+      "type": "sse",
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+```
+
+**Key tools for Claude Code:**
+- `research_and_fetch` - Primary mega-tool: searches 4 sources + KG context + fetches content
+- `multi_source_search` - Search-only (no fetch) for browsing results first
+- `create_entity`, `create_category`, `create_relation`, `tag_content` - Build up the knowledge graph
+
+**Tool visibility note:** Claude Code sees all tools (40+) because it doesn't set the `X-Agent-Name` / `X-Agent-Version` headers that enable gateway tool filtering. We rely on clear descriptions to guide tool selection. See `STATUS.md` for details on the filtering mechanism and a potential "default visibility" enhancement for anonymous callers.
+
 ## Virtual Tools Showcase
 
 ### Declarative Output Transformation

@@ -6,6 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Agentgateway is an open source data plane for agentic AI connectivity, written in Rust. It provides security, observability, and governance for agent-to-agent and agent-to-tool communication, supporting Agent2Agent (A2A) and Model Context Protocol (MCP).
 
+## Examples Status
+
+> **Warning:** The `examples/` directory contains demos in varying states of completeness:
+>
+> | Demo | Status | Notes |
+> |------|--------|-------|
+> | `research-assistant-demo/` | **Working** | Virtual composite tools tested, recommended for Claude Code |
+> | `basic/` | Working | Simple gateway configs, no agents |
+> | `pattern-demos/` | **Untested** | May have broken agents or stale configs |
+> | `ecommerce-demo/` | **Untested** | ADK integration incomplete, may not work |
+>
+> When exploring this repo, start with `research-assistant-demo/` - it has the most complete testing and documentation. Other demos may require fixes before they work.
+
 ## Build Commands
 
 **IMPORTANT: NEVER use `--release` or `make build` during iterative development/testing. Debug builds are much faster.**
