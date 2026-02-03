@@ -284,7 +284,7 @@ This eliminates:
 - The `default_target_name` special case for single-backend configs
 - String manipulation in `resource_name()` and `parse_resource_name()`
 
-## Integration Tests for Virtual Tools (IMPLEMENTED)
+## Integration Tests for Virtual Tools
 
 **Goal:** Test virtual tool compositions without requiring an LLM, enabling CI/CD integration and regression testing.
 
@@ -297,203 +297,59 @@ cd examples/research-assistant-demo
 uv run pytest tests/ -v
 ```
 
+Tests automatically start/stop all backend services and the gateway. Total runtime ~25 seconds.
+
+### Current Results (2026-02-02)
+
+**24 PASSED | 2 SKIPPED | 17 FAILED**
+
+The scatter-gather response format issue was fixed by:
+1. Adding `outputSchema` referencing `NormalizedSearchResponse` to scatter-gather tools
+2. Adding `{"wrap": {"field": "results"}}` to aggregation ops
+3. Adding validation in `scripts/validate-registry-schemas.py` to check consistency
+
+See `examples/research-assistant-demo/tests/README.md` for detailed breakdown.
+
+**Remaining Issues:**
+1. **Entity service format (4 tests):** Returns `{"success": true, "entity": {...}}`, tests expect `id` at top level
+2. **Error handling (6 tests):** Gateway returns error responses instead of raising exceptions
+3. **Backend errors (3 tests):** 500 errors from category service and other tools
+4. **Data-dependent (2 tests):** HN URL extraction, arrayMap coalesce
+5. **Backend validation (1 test):** Backend enforces max=30, returns error instead of capping
+
 ### Test Infrastructure
 
 Location: `examples/research-assistant-demo/tests/`
 
 ```
 tests/
-├── conftest.py                    # Pytest fixtures: start services, create MCP client
-├── test_arraymap_transforms.py    # ArrayMap field source tests
-├── test_scatter_gather.py         # Parallel execution + aggregation
-├── test_pipelines.py              # Sequential step execution
-├── test_aggregation_ops.py        # Extract, flatten, dedupe, sort, limit
-└── test_error_handling.py         # Partial failures, backend errors
+├── conftest.py                    # Pytest fixtures: start services, gateway, MCP client
+├── test_arraymap_transforms.py    # ArrayMap field source tests (5 pass, 1 fail)
+├── test_scatter_gather.py         # Parallel execution + aggregation (0 pass, 7 fail, 1 skip)
+├── test_pipelines.py              # Sequential step execution (2 pass, 5 fail)
+├── test_aggregation_ops.py        # Extract, flatten, dedupe, merge (0 pass, 7 fail)
+└── test_error_handling.py         # Error cases (4 pass, 9 fail)
 ```
 
 ### Test Categories
 
-#### 1. ArrayMap Transforms
-Test that `arrayMap` correctly transforms each element of an array.
+1. **ArrayMap Transforms** - Verify `arrayMap` correctly transforms array elements to normalized schema
+2. **Scatter-Gather** - Test parallel execution and result aggregation
+3. **Pipelines** - Test sequential step execution with data flow
+4. **Aggregation Ops** - Test extract, flatten, dedupe, merge operations
+5. **Error Handling** - Test graceful degradation and error messages
 
-```python
-async def test_arraymap_github_normalization(gateway):
-    """GitHub results are normalized to common schema."""
-    result = await gateway.call_tool("virtual_normalized_github", {
-        "query": "test", "num_results": 3
-    })
+### Test Fixtures (conftest.py)
 
-    assert "results" in result
-    for item in result["results"]:
-        # Verify normalized schema
-        assert item["source"] == "github"
-        assert item["source_type"] == "repo"
-        assert "title" in item
-        assert "url" in item
-        assert "snippet" in item
-        # Verify URL is properly extracted (not nested)
-        assert item["url"].startswith("https://github.com/")
-```
+- `ServiceManager` - Starts 5 backend MCP services (ports 8001-8005)
+- `GatewayManager` - Starts agentgateway binary (port 3000)
+- `McpHttpClient` - Synchronous HTTP client for MCP over SSE
+- `call_tool` fixture - Simple `call_tool(name, args)` helper for tests
 
-Similar tests for: `virtual_normalized_exa`, `virtual_normalized_arxiv`, `virtual_normalized_huggingface`
-
-#### 2. Scatter-Gather Compositions
-Test parallel execution and result aggregation.
-
-```python
-async def test_scatter_gather_code_search(gateway):
-    """virtual_code_search runs github + huggingface in parallel."""
-    result = await gateway.call_tool("virtual_code_search", {
-        "query": "transformer", "num_results": 3
-    })
-
-    # Should have results from both sources
-    sources = {r["source"] for r in result["results"]}
-    assert "github" in sources
-    assert "huggingface" in sources
-
-    # Results should be flattened (not nested arrays)
-    assert isinstance(result["results"], list)
-    assert all(isinstance(r, dict) for r in result["results"])
-
-async def test_scatter_gather_partial_failure(gateway):
-    """If one backend fails, others still return results."""
-    # Stop one backend, verify scatter-gather still works
-    # with results from remaining backends
-```
-
-#### 3. Aggregation Operations
-Test extract, flatten, dedupe, sort, limit.
-
-```python
-async def test_aggregation_dedupe(gateway):
-    """Dedupe removes duplicate URLs across sources."""
-    result = await gateway.call_tool("virtual_multi_source_search", {
-        "query": "langchain", "num_results": 20
-    })
-
-    urls = [r["url"] for r in result["results"]]
-    assert len(urls) == len(set(urls)), "Duplicate URLs found"
-
-async def test_aggregation_flatten(gateway):
-    """Results from multiple sources are flattened into single array."""
-    result = await gateway.call_tool("virtual_academic_search", {
-        "query": "attention mechanism", "num_results": 5
-    })
-
-    # Should be flat list, not nested
-    assert isinstance(result["results"], list)
-    assert not any(isinstance(r, list) for r in result["results"])
-```
-
-#### 4. Pipeline Compositions
-Test sequential step execution with data flow.
-
-```python
-async def test_pipeline_fetch_and_extract(gateway):
-    """Pipeline: url_fetch -> extract_urls."""
-    result = await gateway.call_tool("virtual_fetch_and_extract", {
-        "url": "https://example.com"
-    })
-
-    assert "content" in result or "extracted_urls" in result
-    # Verify step 2 received output from step 1
-
-async def test_pipeline_store_research_finding(gateway):
-    """Cross-service pipeline: entity-service -> tag-service."""
-    result = await gateway.call_tool("virtual_store_research_finding", {
-        "title": "Test Finding",
-        "url": "https://test.com",
-        "summary": "Test summary",
-        "tags": ["test"]
-    })
-
-    # Verify entity was created
-    assert "entity" in result
-    assert "id" in result["entity"]
-
-    # Verify content was registered with entity_id from step 1
-    assert "content" in result
-    assert result["content"]["metadata"]["entity_id"] == result["entity"]["id"]
-```
-
-#### 5. Error Handling
-Test graceful degradation.
-
-```python
-async def test_backend_timeout_handling(gateway):
-    """Slow backend doesn't block entire scatter-gather."""
-    # Configure one backend to be slow
-    # Verify other results still return
-
-async def test_invalid_tool_name(gateway):
-    """Unknown tool returns proper error."""
-    with pytest.raises(McpError) as exc:
-        await gateway.call_tool("nonexistent_tool", {})
-    assert "unknown tool" in str(exc.value).lower()
-
-async def test_missing_required_param(gateway):
-    """Missing required parameter returns proper error."""
-    with pytest.raises(McpError) as exc:
-        await gateway.call_tool("virtual_normalized_github", {})  # missing 'query'
-    assert "query" in str(exc.value).lower()
-```
-
-### Test Fixtures
-
-```python
-# conftest.py
-import pytest
-import asyncio
-import subprocess
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
-
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-@pytest.fixture(scope="session")
-async def services():
-    """Start backend MCP services."""
-    procs = []
-    for port, module in [
-        (8001, "mcp_tools.search_service"),
-        (8002, "mcp_tools.fetch_service"),
-        (8003, "mcp_tools.entity_service"),
-        (8004, "mcp_tools.category_service"),
-        (8005, "mcp_tools.tag_service"),
-    ]:
-        proc = subprocess.Popen(
-            ["uv", "run", "python", "-m", module, "--port", str(port)],
-            cwd="examples/research-assistant-demo"
-        )
-        procs.append(proc)
-
-    await asyncio.sleep(3)  # Wait for startup
-    yield
-
-    for proc in procs:
-        proc.terminate()
-
-@pytest.fixture(scope="session")
-async def gateway(services):
-    """Start gateway and return MCP client."""
-    proc = subprocess.Popen(
-        ["./target/debug/agentgateway", "-f",
-         "examples/research-assistant-demo/gateway-configs/config.yaml"]
-    )
-    await asyncio.sleep(2)
-
-    async with streamablehttp_client("http://localhost:3000/mcp") as (r, w, _):
-        async with ClientSession(r, w) as session:
-            await session.initialize()
-            yield session
-
-    proc.terminate()
-```
+Key implementation detail: The MCP session handshake requires:
+1. Initialize request with NO session header
+2. Extract `mcp-session-id` from response header
+3. Include session header in subsequent tool calls
 
 ### Running Tests
 

@@ -9,6 +9,8 @@ common mistakes like:
 1. Scatter-gather with heterogeneous output types and flatten aggregation
 2. Missing outputSchema declarations
 3. Tool references that don't exist
+4. outputSchema/outputTransform mismatches (e.g., schema expects object but transform produces array)
+5. Scatter-gather missing 'wrap' op when outputSchema expects an object
 
 This is NOT a full type checker - it's a heuristic validator that flags
 likely mistakes for human review.
@@ -38,15 +40,62 @@ class RegistryValidator:
         self.tool_output_schemas: dict[str, str | None] = {}
         self._resolve_output_schemas()
 
+    def _resolve_schema_ref(self, ref: str) -> dict | None:
+        """Resolve a $ref to the actual schema definition."""
+        if not ref:
+            return None
+        # Handle "#/schemas/Name" format
+        if ref.startswith("#/schemas/"):
+            schema_name = ref[len("#/schemas/"):]
+            return self.schemas.get(schema_name, {}).get("schema")
+        # Handle "#Name" or "#Name:Version" format
+        if ref.startswith("#"):
+            schema_name = ref[1:].split(":")[0]
+            # Try with and without /schemas/ prefix
+            if schema_name in self.schemas:
+                return self.schemas[schema_name].get("schema")
+            # Maybe it's a direct path
+            parts = schema_name.split("/")
+            if len(parts) >= 2 and parts[0] == "schemas":
+                return self.schemas.get(parts[1], {}).get("schema")
+        return None
+
+    def _get_schema_type(self, output_schema: dict | None) -> str | None:
+        """Get the root type of a schema (object, array, etc.)."""
+        if not output_schema:
+            return None
+        if isinstance(output_schema, dict):
+            if "$ref" in output_schema:
+                resolved = self._resolve_schema_ref(output_schema["$ref"])
+                if resolved:
+                    return resolved.get("type")
+            return output_schema.get("type")
+        return None
+
+    def _get_schema_properties(self, output_schema: dict | None) -> set[str]:
+        """Get the property names from an object schema."""
+        if not output_schema:
+            return set()
+        if isinstance(output_schema, dict):
+            if "$ref" in output_schema:
+                resolved = self._resolve_schema_ref(output_schema["$ref"])
+                if resolved:
+                    return set(resolved.get("properties", {}).keys())
+            return set(output_schema.get("properties", {}).keys())
+        return set()
+
     def _resolve_output_schemas(self):
         """Build a map of tool name -> output schema name."""
         for name, tool in self.tools.items():
             output_schema = tool.get("outputSchema")
             if output_schema:
                 if isinstance(output_schema, dict) and "$ref" in output_schema:
-                    # Parse "#SchemaName:Version" format
+                    # Parse "#SchemaName:Version" or "#/schemas/Name" format
                     ref = output_schema["$ref"]
-                    if ref.startswith("#"):
+                    if ref.startswith("#/schemas/"):
+                        schema_name = ref[len("#/schemas/"):]
+                        self.tool_output_schemas[name] = schema_name
+                    elif ref.startswith("#"):
                         schema_name = ref[1:].split(":")[0]
                         self.tool_output_schemas[name] = schema_name
                     else:
@@ -79,6 +128,7 @@ class RegistryValidator:
         self._validate_tool_references()
         self._validate_scatter_gather_schemas()
         self._validate_pipeline_schemas()
+        self._validate_output_schema_consistency()
         return len(self.errors) == 0
 
     def _validate_tool_references(self):
@@ -196,6 +246,102 @@ class RegistryValidator:
             if tool.get("outputSchema") and not output:
                 self.warnings.append(
                     f"tool '{name}': has outputSchema but pipeline has no output construct"
+                )
+
+    def _validate_output_schema_consistency(self):
+        """Check that outputSchema matches what outputTransform/aggregation produces."""
+        for name, tool in self.tools.items():
+            output_schema = tool.get("outputSchema")
+            if not output_schema:
+                continue
+
+            schema_type = self._get_schema_type(output_schema)
+            schema_properties = self._get_schema_properties(output_schema)
+
+            # Check outputTransform consistency
+            output_transform = tool.get("outputTransform")
+            if output_transform:
+                self._check_transform_matches_schema(
+                    name, output_transform, schema_type, schema_properties
+                )
+
+            # Check scatter-gather aggregation consistency
+            spec = tool.get("spec")
+            if spec and "scatterGather" in spec:
+                self._check_scatter_gather_matches_schema(
+                    name, spec["scatterGather"], schema_type, schema_properties
+                )
+
+    def _check_transform_matches_schema(
+        self,
+        tool_name: str,
+        transform: dict,
+        schema_type: str | None,
+        schema_properties: set[str],
+    ):
+        """Check that outputTransform produces output matching outputSchema."""
+        mappings = transform.get("mappings", {})
+        transform_fields = set(mappings.keys())
+
+        if schema_type == "object" and schema_properties:
+            # Check that transform produces the expected fields
+            missing_fields = schema_properties - transform_fields
+            extra_fields = transform_fields - schema_properties
+
+            if missing_fields:
+                self.warnings.append(
+                    f"tool '{tool_name}': outputTransform missing fields from outputSchema: {missing_fields}"
+                )
+            if extra_fields:
+                self.warnings.append(
+                    f"tool '{tool_name}': outputTransform produces fields not in outputSchema: {extra_fields}"
+                )
+
+        elif schema_type == "array":
+            # Transform produces an object but schema expects array
+            if mappings:
+                self.errors.append(
+                    f"tool '{tool_name}': outputSchema expects array but outputTransform produces object with fields: {transform_fields}"
+                )
+
+    def _check_scatter_gather_matches_schema(
+        self,
+        tool_name: str,
+        sg_spec: dict,
+        schema_type: str | None,
+        schema_properties: set[str],
+    ):
+        """Check that scatter-gather aggregation produces output matching outputSchema."""
+        aggregation = sg_spec.get("aggregation", {})
+        ops = aggregation.get("ops", [])
+
+        # Check if there's a wrap op
+        wrap_op = None
+        for op in ops:
+            if isinstance(op, dict) and "wrap" in op:
+                wrap_op = op["wrap"]
+                break
+
+        if schema_type == "object":
+            if not wrap_op:
+                # Schema expects object but no wrap - will produce flat array
+                self.errors.append(
+                    f"tool '{tool_name}': outputSchema expects object but scatter-gather has no 'wrap' aggregation op. "
+                    f"Add {{\"wrap\": {{\"field\": \"<fieldname>\"}}}} to aggregation.ops"
+                )
+            elif schema_properties:
+                # Check that wrap field matches a property in the schema
+                wrap_field = wrap_op.get("field")
+                if wrap_field and wrap_field not in schema_properties:
+                    self.errors.append(
+                        f"tool '{tool_name}': wrap field '{wrap_field}' not in outputSchema properties: {schema_properties}"
+                    )
+
+        elif schema_type == "array":
+            if wrap_op:
+                # Schema expects array but wrap will produce object
+                self.errors.append(
+                    f"tool '{tool_name}': outputSchema expects array but scatter-gather has 'wrap' op that produces object"
                 )
 
     def report(self) -> str:

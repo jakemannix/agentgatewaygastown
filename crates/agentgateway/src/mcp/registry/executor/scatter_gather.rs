@@ -70,7 +70,14 @@ impl ScatterGatherExecutor {
 		executor: &CompositionExecutor,
 	) -> Result<Value, ExecutionError> {
 		let target_name = match target {
-			ScatterTarget::Tool(name) => name.clone(),
+			ScatterTarget::Tool(tool_ref) => {
+				// Include server in name for tracing if present
+				if let Some(ref server) = tool_ref.server {
+					format!("{}@{}", tool_ref.tool, server)
+				} else {
+					tool_ref.tool.clone()
+				}
+			},
 			ScatterTarget::Pattern(_) => format!("pattern_{}", index),
 		};
 
@@ -111,7 +118,14 @@ impl ScatterGatherExecutor {
 		executor: &CompositionExecutor,
 	) -> Result<Value, ExecutionError> {
 		match target {
-			ScatterTarget::Tool(name) => executor.execute_tool(name, input, ctx).await,
+			ScatterTarget::Tool(tool_ref) => {
+				// TODO: Pass server to execute_tool for multi-server routing
+				// For now, use just the tool name - server routing will be handled
+				// at a higher level when we add server-aware tool resolution
+				executor
+					.execute_tool_on_server(&tool_ref.tool, tool_ref.server.as_deref(), input, ctx)
+					.await
+			},
 			ScatterTarget::Pattern(pattern) => {
 				let child_ctx = ctx.child(input.clone());
 				executor.execute_pattern(pattern, input, &child_ctx).await
@@ -131,10 +145,48 @@ impl ScatterGatherExecutor {
 				AggregationOp::Limit(limit) => Self::limit(&result, limit.count as usize)?,
 				AggregationOp::Concat(_) => result, // Already an array, no change
 				AggregationOp::Merge(_) => Self::merge(&mut values)?,
+				AggregationOp::Wrap(wrap) => Self::wrap(result, &wrap.field),
+				AggregationOp::Extract(extract) => Self::extract(&result, &extract.path)?,
 			};
 		}
 
 		Ok(result)
+	}
+
+	/// Wrap a value in an object with the specified field name
+	/// Turns any value into {"field": value}
+	fn wrap(value: Value, field: &str) -> Value {
+		let mut obj = serde_json::Map::new();
+		obj.insert(field.to_string(), value);
+		Value::Object(obj)
+	}
+
+	/// Extract a field from each element using JSONPath
+	/// Transforms [obj1, obj2, ...] into [obj1.path, obj2.path, ...]
+	fn extract(value: &Value, path: &str) -> Result<Value, ExecutionError> {
+		let arr = value.as_array().ok_or_else(|| ExecutionError::TypeError {
+			expected: "array".to_string(),
+			actual: value_type_name(value),
+		})?;
+
+		let jsonpath =
+			JsonPath::parse(path).map_err(|e| ExecutionError::JsonPathError(format!("{}: {}", path, e)))?;
+
+		let mut result = Vec::new();
+		for item in arr {
+			let query_result = jsonpath.query(item);
+			// If path matches multiple values, include all; if none, include null
+			let extracted: Vec<Value> = query_result.iter().map(|v| (*v).clone()).collect();
+			if extracted.is_empty() {
+				result.push(Value::Null);
+			} else if extracted.len() == 1 {
+				result.push(extracted.into_iter().next().unwrap());
+			} else {
+				result.push(Value::Array(extracted));
+			}
+		}
+
+		Ok(Value::Array(result))
 	}
 
 	/// Flatten nested arrays
@@ -271,7 +323,7 @@ mod tests {
 	use super::*;
 	use crate::mcp::registry::CompiledRegistry;
 	use crate::mcp::registry::executor::MockToolInvoker;
-	use crate::mcp::registry::patterns::{AggregationStrategy, DedupeOp, LimitOp, SortOp};
+	use crate::mcp::registry::patterns::{AggregationStrategy, DedupeOp, LimitOp, SortOp, ToolRef};
 	use crate::mcp::registry::types::Registry;
 	use serde_json::json;
 	use std::sync::Arc;
@@ -299,8 +351,8 @@ mod tests {
 
 		let spec = ScatterGatherSpec {
 			targets: vec![
-				ScatterTarget::Tool("search_a".to_string()),
-				ScatterTarget::Tool("search_b".to_string()),
+				ScatterTarget::Tool(ToolRef::new("search_a")),
+				ScatterTarget::Tool(ToolRef::new("search_b")),
 			],
 			aggregation: AggregationStrategy { ops: vec![] },
 			timeout_ms: None,
@@ -413,5 +465,171 @@ mod tests {
 		assert_eq!(result["a"], 1);
 		assert_eq!(result["b"], 2);
 		assert_eq!(result["c"], 3);
+	}
+
+	// =============================================================================
+	// MCP Compliance Tests - structuredContent must match outputSchema
+	// =============================================================================
+	//
+	// Per MCP spec:
+	// - Tools MUST return `content` (text representation)
+	// - Tools MAY return `structuredContent` (JSON matching outputSchema)
+	// - If a tool has `outputSchema`, `structuredContent` MUST match that schema
+	//
+	// Current behavior: scatter-gather returns flat array [item1, item2, ...]
+	// Expected behavior: if outputSchema is {"results": [...]}, result should be wrapped
+	// =============================================================================
+
+	/// Test that scatter-gather with wrap aggregation op produces wrapped output
+	///
+	/// Given:
+	/// - Two backend tools each returning `{"results": [item1, item2]}`
+	/// - Aggregation: extract($.results) -> flatten -> wrap("results")
+	///
+	/// Expected:
+	/// - Result is `{"results": [item1, item2, item3, item4]}` (wrapped in object)
+	///
+	/// This tests the new `wrap` aggregation operation that wraps an array
+	/// in an object with a specified field name, enabling MCP outputSchema compliance.
+	#[tokio::test]
+	async fn test_scatter_gather_wrap_aggregation_for_output_schema() {
+		// Setup mock backends that return normalized search results
+		let invoker = MockToolInvoker::new()
+			.with_response(
+				"normalized_github",
+				json!({"results": [
+					{"title": "repo1", "url": "https://github.com/a/1", "source": "github"},
+					{"title": "repo2", "url": "https://github.com/a/2", "source": "github"}
+				]}),
+			)
+			.with_response(
+				"normalized_huggingface",
+				json!({"results": [
+					{"title": "model1", "url": "https://huggingface.co/m/1", "source": "huggingface"},
+					{"title": "model2", "url": "https://huggingface.co/m/2", "source": "huggingface"}
+				]}),
+			);
+
+		let (ctx, executor) = setup_context_and_executor(invoker);
+
+		// Scatter-gather with wrap aggregation to match outputSchema
+		let spec = ScatterGatherSpec {
+			targets: vec![
+				ScatterTarget::Tool(ToolRef::new("normalized_github")),
+				ScatterTarget::Tool(ToolRef::new("normalized_huggingface")),
+			],
+			aggregation: AggregationStrategy {
+				ops: vec![
+					// Extract the results array from each response
+					AggregationOp::Extract(crate::mcp::registry::patterns::ExtractOp {
+						path: "$.results".to_string(),
+					}),
+					// Flatten into single array
+					AggregationOp::Flatten(true),
+					// Wrap the array in an object to match outputSchema
+					AggregationOp::Wrap(crate::mcp::registry::patterns::WrapOp {
+						field: "results".to_string(),
+					}),
+				],
+			},
+			timeout_ms: None,
+			fail_fast: false,
+		};
+
+		let result = ScatterGatherExecutor::execute(&spec, json!({"query": "test"}), &ctx, &executor)
+			.await
+			.expect("scatter-gather should succeed");
+
+		// Result should be wrapped in {"results": [...]} to match outputSchema
+		assert!(
+			result.is_object(),
+			"Result should be an object, not array. Got: {:?}",
+			result
+		);
+
+		let results_array = result
+			.get("results")
+			.expect("Result should have 'results' field");
+
+		assert!(
+			results_array.is_array(),
+			"results field should be an array"
+		);
+
+		let arr = results_array.as_array().unwrap();
+		assert_eq!(
+			arr.len(),
+			4,
+			"Should have 4 items (2 from each source)"
+		);
+
+		// Verify items from both sources are present
+		let sources: Vec<&str> = arr
+			.iter()
+			.filter_map(|item| item.get("source").and_then(|s| s.as_str()))
+			.collect();
+
+		assert!(
+			sources.contains(&"github"),
+			"Should contain github results"
+		);
+		assert!(
+			sources.contains(&"huggingface"),
+			"Should contain huggingface results"
+		);
+	}
+
+	/// Test that without wrap, scatter-gather returns flat array (current behavior)
+	///
+	/// This documents the current behavior that doesn't match outputSchema.
+	/// When outputSchema expects {"results": [...]}, the flat array breaks MCP compliance.
+	#[tokio::test]
+	async fn test_scatter_gather_without_wrap_returns_flat_array() {
+		let invoker = MockToolInvoker::new()
+			.with_response(
+				"search_a",
+				json!({"results": [{"id": 1}, {"id": 2}]}),
+			)
+			.with_response(
+				"search_b",
+				json!({"results": [{"id": 3}, {"id": 4}]}),
+			);
+
+		let (ctx, executor) = setup_context_and_executor(invoker);
+
+		// Scatter-gather WITHOUT wrap - current behavior
+		let spec = ScatterGatherSpec {
+			targets: vec![
+				ScatterTarget::Tool(ToolRef::new("search_a")),
+				ScatterTarget::Tool(ToolRef::new("search_b")),
+			],
+			aggregation: AggregationStrategy {
+				ops: vec![
+					AggregationOp::Extract(crate::mcp::registry::patterns::ExtractOp {
+						path: "$.results".to_string(),
+					}),
+					AggregationOp::Flatten(true),
+					// NOTE: No wrap op - this is the problem case
+				],
+			},
+			timeout_ms: None,
+			fail_fast: false,
+		};
+
+		let result = ScatterGatherExecutor::execute(&spec, json!({}), &ctx, &executor)
+			.await
+			.expect("scatter-gather should succeed");
+
+		// Current behavior: returns flat array, NOT wrapped object
+		// This breaks MCP compliance when outputSchema expects {"results": [...]}
+		assert!(
+			result.is_array(),
+			"Without wrap, result is flat array (breaks outputSchema compliance)"
+		);
+		assert_eq!(
+			result.as_array().unwrap().len(),
+			4,
+			"Should have 4 items total"
+		);
 	}
 }
