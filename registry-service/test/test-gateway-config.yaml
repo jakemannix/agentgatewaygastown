@@ -1,0 +1,29 @@
+# Test configuration for gateway MCP integration tests
+# Uses file:// registry with short refresh for testing
+
+registry:
+  source: file://./registry-service/data/test-registry.json
+  refreshInterval: 1s  # Short interval for testing
+
+binds:
+  - port: 3000
+    listeners:
+      - routes:
+          - policies:
+              cors:
+                allowOrigins:
+                  - "*"
+                allowHeaders:
+                  - mcp-protocol-version
+                  - content-type
+                  - cache-control
+                exposeHeaders:
+                  - "Mcp-Session-Id"
+            backends:
+              - mcp:
+                  targets:
+                    # Minimal stdio backend for testing (echo server)
+                    - name: echo
+                      stdio:
+                        cmd: cat
+                        args: []
