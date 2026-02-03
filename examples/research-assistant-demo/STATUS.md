@@ -4,54 +4,65 @@
 
 ## Summary
 
-**All 41 integration tests now pass** (2 skipped for API key requirements).
+**42 tests passing** (2 skipped for API key requirements).
 
-Key fixes made this session:
-- `McpToolError` exception class for `isError: true` MCP responses
-- Entity response format handling (`result["entity"]["id"]`)
-- Parameter name mapping (`subject_id`/`object_id` vs `from_entity_id`/`to_entity_id`)
-- sqlite-vec vec0 KNN query syntax (`k = ?` constraint)
-- Test expectations aligned with actual backend behavior patterns
+Major feature: **`research_and_fetch` mega-tool** - demonstrates advanced composition with inline scatter-gather inside a pipeline.
+
+## Mega-Tool: research_and_fetch
+
+A single tool that:
+1. **Scatter-gather** (parallel): entity_search + search_categories + multi_source_search
+2. **Batch fetch**: Get actual page content from search result URLs
+3. **Merge**: Combine into structured output
+
+**Output format:**
+```json
+{
+  "relevant_entities": [...],
+  "relevant_categories": [...],
+  "search_results": [
+    {"title": "...", "url": "...", "source": "exa|arxiv|github|huggingface", ...}
+  ],
+  "fetched_content": [
+    {"url": "...", "content": "...", "success": true}
+  ]
+}
+```
+
+**Key syntax learnings:**
+- Inline patterns: `"operation": {"pattern": {"scatterGather": {...}}}`
+- Constants: `"constant": 3000` (not `{"numberValue": 3000}`)
 
 ## Test Status
 
 ```
-======================== 41 passed, 2 skipped in 24.09s ========================
+======================== 42 passed, 2 skipped in 25.58s ========================
 ```
 
 ### Skipped Tests (require API keys)
-- `test_normalized_exa_schema` - Exa API key required
-- `test_multi_source_search_all_four` - Exa API key required
+- `test_normalized_exa_schema` - Exa API key required (but we have it in .env!)
+- `test_multi_source_search_all_four` - Marked skip for CI
 
-## Architecture Notes
+## Minimal Toolset for Claude Code
 
-### Backend Response Patterns
+For the research workflow:
 
-The backend services use two patterns for error handling:
+| Tool | Purpose |
+|------|---------|
+| `research_and_fetch` | Search + context + fetch in one call |
+| `create_entity` | Add to knowledge graph |
+| `create_category` | Add new category |
+| `create_relation` | Link entities |
+| `tag_content` | Tag content with categories |
 
-1. **MCP-level errors** (`isError: true`): Used for validation errors, missing required params
-2. **Application-level success/failure** (`success: false`): Used by url_fetch for network failures
-
-The test infrastructure handles both via `McpToolError` for (1) and result inspection for (2).
-
-### sqlite-vec KNN Queries
-
-The vec0 extension requires `k = ?` in WHERE clause for KNN queries:
-```sql
-WHERE description_embedding MATCH ? AND k = ?
-```
-Not just `LIMIT ?` at the end.
-
-## Commands Reference
+## Commands
 
 ```bash
-# Run Python integration tests
+# Run tests
 cd examples/research-assistant-demo
+source .env
 uv run pytest tests/ -v
 
-# Run single test
-uv run pytest tests/test_scatter_gather.py::test_code_search_combines_sources -v
-
-# Run Rust tests
-cargo test -p agentgateway
+# Test specific tool
+uv run pytest tests/test_scatter_gather.py::test_research_and_fetch_mega_tool -v -s
 ```
