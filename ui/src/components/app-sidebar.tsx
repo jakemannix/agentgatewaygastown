@@ -26,7 +26,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Home, Shield, Headphones, Server, Code, Settings, Route } from "lucide-react";
+import {
+  Loader2,
+  Home,
+  Shield,
+  Headphones,
+  Server,
+  Code,
+  Settings,
+  Route,
+  Wrench,
+} from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import { useWizard } from "@/lib/wizard-context";
 import { toast } from "sonner";
@@ -154,6 +164,17 @@ export function AppSidebar({ setActiveView }: AppSidebarProps) {
                 >
                   <Shield className="h-4 w-4" />
                   <span>Policies</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip="Virtual Tools"
+                  isActive={pathname?.startsWith("/tools")}
+                  onClick={() => navigateTo("/tools")}
+                  aria-label="Virtual Tools"
+                >
+                  <Wrench className="h-4 w-4" />
+                  <span>Tools</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,7 +11,7 @@ use http::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE};
 use http::{HeaderName, HeaderValue, Method};
 use hyper::body::Incoming;
 use include_dir::{Dir, include_dir};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;
 use tower::ServiceExt;
 use tower_http::cors::CorsLayer;
@@ -49,6 +50,7 @@ impl UiHandler {
 		let router = Router::new()
 			// Redirect to the UI
 			.route("/config", get(get_config).post(write_config))
+			.route("/registry", get(get_registry).post(write_registry))
 			.nest_service("/ui", ui_service)
 			.route("/", get(|| async { Redirect::permanent("/ui") }))
 			.layer(add_cors_layer())
@@ -125,6 +127,105 @@ async fn write_config(
 	Ok(Json(
 		serde_json::json!({"status": "success", "message": "Configuration written successfully"}),
 	))
+}
+
+/// Helper struct to extract registry config from local config YAML
+#[derive(Deserialize)]
+struct LocalConfigRegistry {
+	#[serde(default)]
+	registry: Option<RegistryConfigRef>,
+}
+
+#[derive(Deserialize)]
+struct RegistryConfigRef {
+	source: String,
+}
+
+/// Extract registry file path from the local config
+async fn get_registry_path(app: &App) -> Result<PathBuf, ErrorResponse> {
+	let config_source = app.cfg()?;
+	let config_str = config_source.read_to_string().await?;
+
+	let local_config: LocalConfigRegistry =
+		yamlviajson::from_str(&config_str).map_err(|e| ErrorResponse::Anyhow(e.into()))?;
+
+	let registry_config = local_config
+		.registry
+		.ok_or_else(|| ErrorResponse::String("No registry configured in local config".to_string()))?;
+
+	// Parse the source URI to extract file path
+	let source = &registry_config.source;
+	if source.starts_with("file://") {
+		let path_str = source.strip_prefix("file://").unwrap();
+		Ok(PathBuf::from(path_str))
+	} else {
+		Err(ErrorResponse::String(format!(
+			"Registry source must be a file:// URI for UI editing, got: {}",
+			source
+		)))
+	}
+}
+
+/// GET /registry - Fetch the current registry JSON
+async fn get_registry(State(app): State<App>) -> Result<Json<Value>, ErrorResponse> {
+	let registry_path = get_registry_path(&app).await?;
+
+	// Check if registry file exists
+	if !registry_path.exists() {
+		// Return empty registry if file doesn't exist
+		return Ok(Json(serde_json::json!({
+			"schemaVersion": "2.0",
+			"schemas": [],
+			"servers": [],
+			"agents": [],
+			"tools": []
+		})));
+	}
+
+	let content = fs_err::tokio::read_to_string(&registry_path)
+		.await
+		.map_err(|e| ErrorResponse::Anyhow(e.into()))?;
+
+	let registry: Value =
+		serde_json::from_str(&content).map_err(|e| ErrorResponse::Anyhow(e.into()))?;
+
+	Ok(Json(registry))
+}
+
+/// POST /registry - Update the registry JSON
+async fn write_registry(
+	State(app): State<App>,
+	Json(registry_json): Json<Value>,
+) -> Result<Json<Value>, ErrorResponse> {
+	let registry_path = get_registry_path(&app).await?;
+
+	// Validate that the JSON is a valid registry by attempting to parse it
+	// This ensures we don't write invalid data
+	let _: crate::mcp::registry::types::Registry = serde_json::from_value(registry_json.clone())
+		.map_err(|e| ErrorResponse::String(format!("Invalid registry format: {}", e)))?;
+
+	// Create parent directory if it doesn't exist
+	if let Some(parent) = registry_path.parent() {
+		if !parent.exists() {
+			fs_err::tokio::create_dir_all(parent)
+				.await
+				.map_err(|e| ErrorResponse::Anyhow(e.into()))?;
+		}
+	}
+
+	// Write the registry JSON with pretty formatting
+	let json_content = serde_json::to_string_pretty(&registry_json)
+		.map_err(|e| ErrorResponse::Anyhow(e.into()))?;
+
+	fs_err::tokio::write(&registry_path, json_content)
+		.await
+		.map_err(|e| ErrorResponse::Anyhow(e.into()))?;
+
+	Ok(Json(serde_json::json!({
+		"status": "success",
+		"message": "Registry written successfully",
+		"path": registry_path.display().to_string()
+	})))
 }
 
 pub fn add_cors_layer() -> CorsLayer {

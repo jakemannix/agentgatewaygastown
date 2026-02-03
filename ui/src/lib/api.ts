@@ -1,4 +1,5 @@
 import { Target, Listener, LocalConfig, Bind, Backend, Route, McpStatefulMode } from "./types";
+import { Registry, ToolDefinition } from "./registry-types";
 
 // Mapping utilities are centralized in configMapper
 import { configDumpToLocalConfig } from "./configMapper";
@@ -843,5 +844,113 @@ export async function getBind(port: number): Promise<Bind | null> {
   } catch (error) {
     console.error("Error getting bind:", error);
     return null;
+  }
+}
+
+// =============================================================================
+// Registry API Functions
+// =============================================================================
+
+/**
+ * Fetches the current registry JSON
+ */
+export async function fetchRegistry(): Promise<Registry> {
+  try {
+    const response = await fetch(`${API_URL}/registry`);
+    if (!response.ok) {
+      if (response.status === 500) {
+        const txt = await response.text();
+        throw new Error(`Failed to fetch registry: ${txt}`);
+      }
+      throw new Error(`Failed to fetch registry: ${response.status}`);
+    }
+    return (await response.json()) as Registry;
+  } catch (error) {
+    console.error("Error fetching registry:", error);
+    throw error;
+  }
+}
+
+/**
+ * Updates the registry JSON
+ */
+export async function updateRegistry(registry: Registry): Promise<void> {
+  try {
+    const response = await fetch(`${API_URL}/registry`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(registry),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to update registry: ${response.status} - ${error}`);
+    }
+  } catch (error) {
+    console.error("Error updating registry:", error);
+    throw error;
+  }
+}
+
+/**
+ * Fetches all tools from the registry
+ */
+export async function fetchRegistryTools(): Promise<ToolDefinition[]> {
+  try {
+    const registry = await fetchRegistry();
+    return registry.tools || [];
+  } catch (error) {
+    console.error("Error fetching registry tools:", error);
+    throw error;
+  }
+}
+
+/**
+ * Gets a specific tool by name from the registry
+ */
+export async function getRegistryTool(name: string): Promise<ToolDefinition | null> {
+  try {
+    const registry = await fetchRegistry();
+    return registry.tools?.find((t) => t.name === name) || null;
+  } catch (error) {
+    console.error("Error fetching registry tool:", error);
+    throw error;
+  }
+}
+
+/**
+ * Creates or updates a tool in the registry
+ */
+export async function saveRegistryTool(tool: ToolDefinition): Promise<void> {
+  try {
+    const registry = await fetchRegistry();
+    const existingIndex = registry.tools?.findIndex((t) => t.name === tool.name) ?? -1;
+
+    if (existingIndex >= 0) {
+      registry.tools[existingIndex] = tool;
+    } else {
+      registry.tools = [...(registry.tools || []), tool];
+    }
+
+    await updateRegistry(registry);
+  } catch (error) {
+    console.error("Error saving registry tool:", error);
+    throw error;
+  }
+}
+
+/**
+ * Deletes a tool from the registry
+ */
+export async function deleteRegistryTool(name: string): Promise<void> {
+  try {
+    const registry = await fetchRegistry();
+    registry.tools = registry.tools?.filter((t) => t.name !== name) || [];
+    await updateRegistry(registry);
+  } catch (error) {
+    console.error("Error deleting registry tool:", error);
+    throw error;
   }
 }
