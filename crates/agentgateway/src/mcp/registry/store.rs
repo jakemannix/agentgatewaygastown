@@ -6,6 +6,8 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use notify::{EventKind, RecursiveMode};
+use rmcp::model::ServerJsonRpcMessage;
+use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
 use super::client::RegistryClient;
@@ -21,6 +23,8 @@ pub struct RegistryStore {
 	current: Arc<ArcSwap<Option<Arc<CompiledRegistry>>>>,
 	/// Client for fetching updates (optional - None means static registry)
 	client: Option<RegistryClient>,
+	/// Broadcast channel for notifying clients when tools list changes
+	change_tx: broadcast::Sender<ServerJsonRpcMessage>,
 }
 
 impl Clone for RegistryStore {
@@ -28,6 +32,7 @@ impl Clone for RegistryStore {
 		Self {
 			current: Arc::clone(&self.current),
 			client: self.client.clone(),
+			change_tx: self.change_tx.clone(),
 		}
 	}
 }
@@ -41,9 +46,13 @@ impl Default for RegistryStore {
 impl RegistryStore {
 	/// Create a new empty registry store
 	pub fn new() -> Self {
+		// Create broadcast channel for tool change notifications
+		// Capacity of 16 should be enough for typical scenarios
+		let (change_tx, _) = broadcast::channel(16);
 		Self {
 			current: Arc::new(ArcSwap::new(Arc::new(None))),
 			client: None,
+			change_tx,
 		}
 	}
 
@@ -77,6 +86,9 @@ impl RegistryStore {
 		let compiled = CompiledRegistry::compile(registry)?;
 		self.current.store(Arc::new(Some(Arc::new(compiled))));
 		info!(target: "virtual_tools", "Registry updated successfully");
+
+		// Notify all connected clients that the tools list has changed
+		self.broadcast_tools_list_changed();
 		Ok(())
 	}
 
@@ -84,6 +96,30 @@ impl RegistryStore {
 	pub fn update_compiled(&self, compiled: CompiledRegistry) {
 		self.current.store(Arc::new(Some(Arc::new(compiled))));
 		info!(target: "virtual_tools", "Registry updated with compiled data");
+
+		// Notify all connected clients that the tools list has changed
+		self.broadcast_tools_list_changed();
+	}
+
+	/// Broadcast a tools/list_changed notification to all connected clients
+	fn broadcast_tools_list_changed(&self) {
+		use rmcp::model::{ServerNotification, ToolListChangedNotification};
+
+		let notification = ServerJsonRpcMessage::notification(ServerNotification::ToolListChangedNotification(
+			ToolListChangedNotification {
+				method: Default::default(),
+				extensions: Default::default(),
+			},
+		));
+
+		// Send to all receivers; ignore errors if no receivers are listening
+		let _ = self.change_tx.send(notification);
+		info!(target: "virtual_tools", "Broadcast notifications/tools/list_changed to clients");
+	}
+
+	/// Subscribe to tool change notifications
+	pub fn subscribe_changes(&self) -> broadcast::Receiver<ServerJsonRpcMessage> {
+		self.change_tx.subscribe()
 	}
 
 	/// Clear the registry

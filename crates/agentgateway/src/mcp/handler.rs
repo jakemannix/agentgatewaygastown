@@ -947,9 +947,36 @@ impl Relay {
 		&self,
 		ctx: IncomingRequestContext,
 	) -> Result<Response, UpstreamError> {
+		use futures::StreamExt;
+		use tokio_stream::wrappers::BroadcastStream;
+
 		let mut streams = Vec::new();
+		// Try to connect to backends, but tolerate failures (best-effort)
 		for (name, con) in self.upstreams.iter_named() {
-			streams.push((name, con.get_event_stream(&ctx).await?));
+			match con.get_event_stream(&ctx).await {
+				Ok(stream) => streams.push((name, stream)),
+				Err(e) => {
+					tracing::warn!(
+						target: "mcp",
+						backend = %name,
+						error = %e,
+						"Backend unavailable for SSE stream, continuing without it"
+					);
+				}
+			}
+		}
+
+		// Subscribe to registry change notifications and add as a stream
+		if let Some(registry) = &self.registry {
+			let receiver = registry.inner().subscribe_changes();
+			let registry_stream = BroadcastStream::new(receiver)
+				.filter_map(|result| async move {
+					// Convert broadcast Result to Option, ignoring lagged errors
+					result.ok()
+				})
+				.map(Ok)
+				.boxed();
+			streams.push(("gateway".into(), mergestream::Messages::from_boxed(registry_stream)));
 		}
 
 		let ms = mergestream::MergeStream::new_without_merge(streams);
@@ -965,6 +992,34 @@ impl Relay {
 		let mut streams = Vec::new();
 		for (name, con) in self.upstreams.iter_named() {
 			streams.push((name, con.generic_stream(r.clone(), &ctx).await?));
+		}
+
+		let ms = mergestream::MergeStream::new(streams, id.clone(), merge);
+		messages_to_response(id, ms)
+	}
+
+	/// Like send_fanout but tolerates individual backend failures.
+	/// Used for tools/list to return virtual tools even when backends are unavailable.
+	pub async fn send_fanout_best_effort(
+		&self,
+		r: JsonRpcRequest<ClientRequest>,
+		ctx: IncomingRequestContext,
+		merge: Box<MergeFn>,
+	) -> Result<Response, UpstreamError> {
+		let id = r.id.clone();
+		let mut streams = Vec::new();
+		for (name, con) in self.upstreams.iter_named() {
+			match con.generic_stream(r.clone(), &ctx).await {
+				Ok(stream) => streams.push((name, stream)),
+				Err(e) => {
+					tracing::warn!(
+						target: "mcp",
+						backend = %name,
+						error = %e,
+						"Backend unavailable, continuing with other backends"
+					);
+				}
+			}
 		}
 
 		let ms = mergestream::MergeStream::new(streams, id.clone(), merge);

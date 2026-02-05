@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "2.0",
+  "description": "Test registry for gateway MCP contract tests",
+  "schemas": [],
+  "servers": [],
+  "agents": [],
+  "tools": [
+    {
+      "name": "test_existing_tool",
+      "description": "Pre-existing test tool",
+      "version": "1.0.0",
+      "spec": {
+        "scatterGather": {
+          "targets": [
+            { "tool": "placeholder" }
+          ],
+          "aggregation": { "ops": [{ "merge": true }] }
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

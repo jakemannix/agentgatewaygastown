@@ -27,9 +27,9 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:3000';
-// Default to research-assistant-demo registry (requires gateway started with that config)
+// Default to test registry file (designed for these tests)
 const REGISTRY_FILE = process.env.REGISTRY_FILE ||
-  path.join(__dirname, '..', '..', 'examples', 'research-assistant-demo', 'gateway-configs', 'research_registry.json');
+  path.join(__dirname, '..', 'data', 'test-registry.json');
 
 // Check if gateway is running
 async function isGatewayRunning() {
@@ -82,15 +82,27 @@ function createEmptyRegistry() {
   };
 }
 
-// Create a simple test tool
+// Create a simple test tool (scatterGather composition - works without backends)
 function createTestTool(name) {
   return {
     name,
     description: `Test tool ${name}`,
     version: '1.0.0',
-    source: {
-      server: 'test-server',
-      tool: 'backend_tool',
+    // Use scatterGather composition - added as synthetic tool without needing backends
+    spec: {
+      scatterGather: {
+        targets: [
+          { tool: 'nonexistent_tool' },
+        ],
+        aggregation: { ops: [{ merge: true }] },
+      },
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Test query' },
+      },
+      required: ['query'],
     },
   };
 }

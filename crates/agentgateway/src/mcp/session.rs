@@ -263,9 +263,10 @@ impl Session {
 							self.set_caller_identity(identity);
 						}
 						let pv = ir.params.protocol_version.clone();
+						// Use best-effort fanout so gateway can initialize even if backends are unavailable
 						let res = self
 							.relay
-							.send_fanout(r, ctx, self.relay.merge_initialize(pv))
+							.send_fanout_best_effort(r, ctx, self.relay.merge_initialize(pv))
 							.await;
 						if let Some(sessions) = self.relay.get_sessions() {
 							let s = http::sessionpersistence::SessionState::MCP(
@@ -285,9 +286,10 @@ impl Session {
 						let caller_identity = self
 							.caller_identity()
 							.or_else(|| CallerIdentity::from_headers(ctx.headers()));
+						// Use best-effort fanout to return virtual tools even when backends unavailable
 						self
 							.relay
-							.send_fanout(
+							.send_fanout_best_effort(
 								r,
 								ctx,
 								self.relay.merge_tools_with_identity(cel.clone(), caller_identity),

@@ -2,7 +2,8 @@
 # Uses file:// registry with short refresh for testing
 
 registry:
-  source: file://./registry-service/data/test-registry.json
+  # Use $PWD or absolute path when running gateway
+  source: file:///home/user/agentgatewaygastown/registry-service/data/test-registry.json
   refreshInterval: 1s  # Short interval for testing
 
 binds:
@@ -22,8 +23,8 @@ binds:
             backends:
               - mcp:
                   targets:
-                    # Minimal stdio backend for testing (echo server)
-                    - name: echo
-                      stdio:
-                        cmd: cat
-                        args: []
+                    # HTTP backend that's not running - will fail quickly
+                    # This allows testing virtual tools without a real backend
+                    - name: dummy-backend
+                      mcp:
+                        host: http://localhost:19999/mcp
