@@ -736,13 +736,7 @@ impl Relay {
 
 	pub fn merge_initialize(&self, pv: ProtocolVersion) -> Box<MergeFn> {
 		Box::new(move |s| {
-			if s.len() == 1 {
-				let (_, ServerResult::InitializeResult(ir)) = s.into_iter().next().unwrap() else {
-					return Ok(Self::get_info(pv).into());
-				};
-				return Ok(ir.clone().into());
-			}
-
+			// Find the lowest protocol version among all backends
 			let lowest_version = s
 				.into_iter()
 				.flat_map(|(_, v)| match v {
@@ -751,7 +745,8 @@ impl Relay {
 				})
 				.min_by_key(|i| i.to_string())
 				.unwrap_or(pv);
-			// For now, we just send our own info. In the future, we should merge the results from each upstream.
+			// Always return gateway's own info with our declared capabilities
+			// (including listChanged: true for tools)
 			Ok(Self::get_info(lowest_version).into())
 		})
 	}
@@ -1001,7 +996,9 @@ impl Relay {
                 logging: None,
                 prompts: Some(PromptsCapability::default()),
                 resources: Some(ResourcesCapability::default()),
-                tools: Some(ToolsCapability::default()),
+                tools: Some(ToolsCapability {
+                    list_changed: Some(true),
+                }),
             },
             server_info: Implementation::from_build_env(),
             instructions: Some(
