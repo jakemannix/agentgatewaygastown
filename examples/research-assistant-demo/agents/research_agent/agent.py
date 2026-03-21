@@ -12,11 +12,19 @@ Following ADK conventions:
 - Uses `get_fast_api_app` for serving (see main.py)
 """
 
+import json
+import logging
 import os
+import time
+from typing import Any
 
 from google.adk import Agent
+from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_toolset import StreamableHTTPConnectionParams
+from google.adk.tools.tool_context import ToolContext
+
+logger = logging.getLogger("research_agent")
 
 # ==============================================================================
 # CONFIGURATION
@@ -102,6 +110,44 @@ When a user asks you to research a topic:
 """
 
 # ==============================================================================
+# TOOL CALL LOGGING
+# ==============================================================================
+
+# Store start times keyed by (tool_name, id(tool_context)) to handle concurrent calls
+_tool_start_times: dict[str, float] = {}
+
+
+def _truncate(value: Any, max_len: int = 500) -> str:
+    """Truncate a value for debug logging."""
+    s = json.dumps(value, default=str) if not isinstance(value, str) else value
+    if len(s) > max_len:
+        return s[:max_len] + f"... ({len(s)} chars)"
+    return s
+
+
+def before_tool(*, tool: BaseTool, args: dict[str, Any], tool_context: ToolContext, **_: Any) -> None:
+    """Log tool call start. In debug mode, also log arguments."""
+    key = f"{tool.name}:{id(tool_context)}"
+    _tool_start_times[key] = time.monotonic()
+    logger.info("tool_call_start  tool=%s", tool.name)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("tool_call_args   tool=%s args=%s", tool.name, _truncate(args))
+
+
+def after_tool(
+    *, tool: BaseTool, args: dict[str, Any], tool_context: ToolContext,
+    tool_response: dict | None = None, **_: Any,
+) -> None:
+    """Log tool call completion with timing. In debug mode, also log result."""
+    key = f"{tool.name}:{id(tool_context)}"
+    start = _tool_start_times.pop(key, None)
+    elapsed_ms = int((time.monotonic() - start) * 1000) if start else -1
+    logger.info("tool_call_done   tool=%s elapsed=%dms", tool.name, elapsed_ms)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("tool_call_result tool=%s result=%s", tool.name, _truncate(tool_response))
+
+
+# ==============================================================================
 # MCP TOOLSET
 # ==============================================================================
 
@@ -129,4 +175,6 @@ root_agent = Agent(
     description="Research assistant that helps discover and organize technical knowledge",
     instruction=SYSTEM_PROMPT,
     tools=[mcp_toolset],
+    before_tool_callback=before_tool,
+    after_tool_callback=after_tool,
 )

@@ -17,12 +17,24 @@ Environment variables:
     PORT: Server port (default: 9001)
 """
 
+import logging
 import os
+
 from dotenv import load_dotenv
 
 # Load .env BEFORE any other imports — override=True so project .env takes
 # precedence over shell-level exports (e.g. stale keys in ~/.zshrc)
 load_dotenv(override=True)
+
+# Configure agent logging before ADK imports (which trigger agent module load)
+# LOG_LEVEL env var controls verbosity: DEBUG shows tool inputs/outputs, INFO shows timing only
+_log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=logging.WARNING,  # default for all loggers
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logging.getLogger("research_agent").setLevel(getattr(logging, _log_level, logging.INFO))
 
 import uvicorn
 from fastapi import FastAPI
