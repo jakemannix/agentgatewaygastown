@@ -121,43 +121,85 @@ HF_TOKEN=hf_...              # Optional, for higher rate limits
 ### 3. Start Services
 
 ```bash
+# Full registry (40+ tools including raw backend tools)
 ./start_services.sh
+
+# Minimal registry (10 tools — recommended for getting started)
+./start_services.sh gateway-configs/minimal_config.yaml
 ```
 
-This starts all 5 microservices, the gateway, and the research agent in a tmux session.
+This starts all 5 microservices, the gateway, the research agent, and a web UI in a tmux session.
 
 ### 4. Use the Web UI
 
 Open [http://localhost:8080](http://localhost:8080) in your browser for an interactive chat interface.
 
-### 5. Or Test via CLI
+### 5. Or Test via CLI / curl
 
 ```bash
-# Interactive CLI chat (recommended)
+# Interactive CLI chat
 uv run python chat_cli.py
-
-# Or via curl
-curl -X POST http://localhost:9001/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Research transformer alternatives for 2025-2026"}'
 ```
 
-The CLI provides:
-- Session management
-- Tool call visibility (shows which tools are called)
-- Error extraction from logs (shows actual API errors, not just "500")
-- Commands: `quit`, `exit`, `new` (new session)
+Or test the ADK agent directly:
+
+```bash
+# Create a session
+SESSION=$(curl -s -X POST http://localhost:9001/apps/research_agent/users/test/sessions | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+# Send a message
+curl -s -X POST http://localhost:9001/run \
+  -H "Content-Type: application/json" \
+  -d "{\"app_name\":\"research_agent\",\"user_id\":\"test\",\"session_id\":\"$SESSION\",\"new_message\":{\"role\":\"user\",\"parts\":[{\"text\":\"Search for ColBERT information retrieval\"}]}}"
+```
 
 ### 6. Monitor & Debug
 
 ```bash
-# View all service logs
+# View all service logs in tmux
 tmux attach -t research-demo
+# Navigate windows: Ctrl+B, then 0/1/2/3 for services/gateway/agent/webui
 
-# Navigate windows: Ctrl+B, then 0/1/2 for services/gateway/agent
+# Check agent tool call logs (timing)
+grep 'research_agent' logs/agent.log
+
+# Check gateway composition logs
+grep 'composition' logs/gateway.log
 
 # Stop everything
 ./stop_services.sh
+```
+
+#### Agent Logging
+
+The agent logs tool calls with timing at INFO level and full inputs/outputs at DEBUG:
+
+```bash
+# Set in .env to control verbosity
+LOG_LEVEL=INFO    # Tool names + elapsed time (default)
+LOG_LEVEL=DEBUG   # Also shows tool arguments and results
+```
+
+Example output:
+```
+2026-03-20 22:44:19 research_agent INFO tool_call_start  tool=virtual_multi_source_search
+2026-03-20 22:44:20 research_agent INFO tool_call_done   tool=virtual_multi_source_search elapsed=696ms
+```
+
+#### Gateway Schema Validation
+
+The gateway validates virtual tool output transforms against their declared `outputSchema` at startup. If a transform can produce null where the schema requires a value, you'll see warnings:
+
+```
+WARN virtual_tools outputSchema requires non-null 'snippet' but transform can produce null
+  — add a coalesce "default" or change schema type to ["string", "null"]
+  tool=normalized_exa field=snippet
+```
+
+For runtime validation (per-request), start the gateway with debug logging:
+
+```bash
+RUST_LOG=info,virtual_tools=debug ./target/debug/agentgateway -f config.yaml
 ```
 
 ### 7. Claude Code Integration
@@ -190,37 +232,36 @@ Each search backend returns its **native API format**. The gateway uses `outputT
 
 ```json
 {
-  "name": "normalized_arxiv_search",
+  "name": "normalized_arxiv",
   "source": {"server": "search-service", "tool": "arxiv_search"},
   "outputTransform": {
     "mappings": {
-      "query": {"path": "$.query"},
-      "source": {"literal": {"stringValue": "arxiv"}},
-      "error": {"path": "$.error"},
-      "results": {"path": "$.papers[*]", "nested": {
-        "mappings": {
-          "source": {"literal": {"stringValue": "arxiv"}},
-          "title": {"path": "$.title"},
-          "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"]}},
-          "snippet": {"path": "$.abstract"},
-          "score": {"literal": {"numberValue": 1.0}},
-          "metadata": {
-            "nested": {"mappings": {"arxiv_id": {"path": "$.arxiv_id"}, ...}}
+      "results": {
+        "arrayMap": {
+          "over": "$.papers",
+          "each": {
+            "title": {"coalesce": {"paths": ["$.title"], "default": ""}},
+            "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"], "default": ""}},
+            "snippet": {"coalesce": {"paths": ["$.abstract"], "default": ""}},
+            "source": {"literal": {"stringValue": "arxiv"}},
+            "source_type": {"literal": {"stringValue": "paper"}}
           }
         }
-      }}
+      }
     }
-  }
+  },
+  "outputSchema": {"$ref": "#/schemas/NormalizedSearchResponse"}
 }
 ```
 
 **Available mapping types:**
 - `path`: JSONPath extraction (field renaming via target key)
 - `literal`: Constant values (`stringValue`, `numberValue`, `boolValue`)
-- `coalesce`: First non-null from multiple paths
+- `coalesce`: First non-null from multiple paths, with optional `"default"` fallback
 - `nested`: Recursive object construction
 - `template`: String interpolation with variables
 - `concat`: Concatenate multiple paths
+- `arrayMap`: Iterate over an array and apply mappings to each element
 
 ### Scatter-Gather: Parallel Multi-Source Search
 
@@ -232,29 +273,33 @@ The `multi_source_search` tool demonstrates parallel execution using normalized 
   "spec": {
     "scatterGather": {
       "targets": [
-        {"tool": "normalized_exa_search"},
-        {"tool": "normalized_arxiv_search"},
-        {"tool": "normalized_github_search"},
-        {"tool": "normalized_huggingface_search"}
+        {"tool": "normalized_exa"},
+        {"tool": "normalized_arxiv"},
+        {"tool": "normalized_github"},
+        {"tool": "normalized_huggingface"}
       ],
       "aggregation": {
         "ops": [
+          {"extract": {"path": "$.results"}},
           {"flatten": true},
-          {"sort": {"field": "$.score", "order": "desc"}},
-          {"limit": {"count": 40}}
+          {"dedupe": {"field": "$.url"}},
+          {"wrap": {"field": "results"}}
         ]
-      }
+      },
+      "timeoutMs": 30000,
+      "failFast": false
     }
-  }
+  },
+  "outputSchema": {"$ref": "#/schemas/NormalizedSearchResponse"}
 }
 ```
 
 **What it demonstrates:**
-- 4 external APIs called simultaneously
-- Each tool applies its `outputTransform` to normalize native responses
-- Results aggregated, sorted by relevance, limited to top 40
-- Single tool call from the agent's perspective
-- Error handling: failed sources return `error` field instead of results
+- 4 external APIs called simultaneously via normalized wrapper tools
+- Each wrapper applies `outputTransform` with `arrayMap` to normalize native responses
+- Results extracted from each wrapper's `results` array, flattened, deduplicated by URL
+- Wrapped back into `{"results": [...]}` to match the `NormalizedSearchResponse` schema
+- `failFast: false` — partial results returned even if some sources fail
 
 ### Pipeline: Sequential Processing
 
@@ -467,13 +512,13 @@ External search API integrations. Each tool returns its **native API format** - 
 | `github_search` | Code | GitHub API | `GitHubSearchResponse` | `GITHUB_TOKEN` optional |
 | `huggingface_search` | ML | HuggingFace API | `HuggingFaceSearchResponse` | `HF_TOKEN` optional |
 
-**Virtual wrapper tools** normalize these into a common `NormalizedSearchResponse` format:
-- `normalized_exa_search` - wraps `exa_search` with output transform
-- `normalized_arxiv_search` - wraps `arxiv_search` with output transform
-- `normalized_github_search` - wraps `github_search` with output transform
-- `normalized_huggingface_search` - wraps `huggingface_search` with output transform
+**Virtual wrapper tools** normalize these into a common `NormalizedSearchResponse` schema:
+- `normalized_exa` - wraps `exa_search` with `arrayMap` over `$.results`
+- `normalized_arxiv` - wraps `arxiv_search` with `arrayMap` over `$.papers`
+- `normalized_github` - wraps `github_search` with `arrayMap` over `$.repos`
+- `normalized_huggingface` - wraps `huggingface_search` with `arrayMap` over `$.models`
 
-Each wrapper uses JSONPath mappings to transform native fields (e.g., `$.papers[*].abstract` → `$.results[*].snippet`).
+Each wrapper uses `arrayMap` + `coalesce` (with `"default": ""` fallbacks) to transform native fields into the common `{title, url, snippet, source, source_type}` schema.
 
 ### Fetch Service (8002)
 
@@ -593,6 +638,34 @@ Add to `tools` array in `research_registry.json`:
 
 ## Troubleshooting
 
+### Agent returns HTTP 500
+
+Check `logs/agent.log` for the actual error. Common causes:
+
+**API key not loaded:**
+```
+AnthropicException - "Your credit balance is too low..."
+```
+The `.env` file's API key is being overridden by a shell-level export (e.g., from `~/.zshrc`). The `main.py` uses `load_dotenv(override=True)` to handle this, but if you see this error, verify your `.env` key is valid:
+```bash
+source .env && curl -s https://api.anthropic.com/v1/messages \
+  -H "x-api-key: $ANTHROPIC_API_KEY" -H "anthropic-version: 2023-06-01" \
+  -H "content-type: application/json" \
+  -d '{"model":"claude-haiku-4-5-20251001","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+**MCP session error:**
+```
+ConnectionError: Failed to create MCP session
+```
+The gateway wasn't ready when the agent tried to connect. Restart the services — the gateway needs a few seconds to start.
+
+**outputSchema validation:**
+```
+RuntimeError: Invalid structured content returned by tool virtual_multi_source_search: None is not of type 'string'
+```
+A tool's output transform is producing null where the `outputSchema` requires a string. Check the gateway startup log for warnings that tell you exactly which field needs a `coalesce` default. See "Gateway Schema Validation" above.
+
 ### Services not starting
 
 ```bash
@@ -612,18 +685,16 @@ curl http://localhost:8002/mcp
 # etc.
 
 # Check gateway logs
-tmux attach -t research-demo
-# Press Ctrl+B, then 1 for gateway window
+cat logs/gateway.log | grep -i 'error\|warn'
 ```
 
 ### No LLM configured
 
 ```bash
 # Check your .env file has at least one API key:
-cat .env | grep API_KEY
+grep API_KEY .env
 
 # Test LLM config
-cd examples/research-assistant-demo
 uv run python -c "from agents.shared.llm_config import print_llm_config; print_llm_config()"
 ```
 
@@ -651,32 +722,40 @@ Common errors:
 research-assistant-demo/
 ├── agents/
 │   ├── research_agent/
-│   │   ├── agent.py           # Agent definition with ADK Runner
+│   │   ├── agent.py           # Agent definition with tool call logging
 │   │   └── __main__.py        # A2A server entry point
 │   └── shared/
 │       ├── a2a_server.py      # A2A server base implementation
-│       └── llm_config.py      # LLM provider configuration
+│       └── llm_config.py      # LLM provider configuration (load_dotenv override)
 ├── web_ui/
 │   └── chat_app.py            # FastHTML web chat interface
 ├── mcp_tools/
-│   ├── search_service/        # External search APIs
-│   ├── fetch_service/         # URL fetching
-│   ├── entity_service/        # Knowledge graph
-│   ├── category_service/      # Taxonomy
+│   ├── search_service/        # External search APIs (Exa, arXiv, GitHub, HuggingFace)
+│   ├── fetch_service/         # URL fetching and content extraction
+│   ├── entity_service/        # Knowledge graph with vector search
+│   ├── category_service/      # Hierarchical taxonomy
 │   ├── tag_service/           # Content tagging
 │   └── shared/
 │       ├── db_utils.py        # SQLite helpers
 │       ├── embeddings.py      # Vector embedding utilities
 │       └── http_runner.py     # MCP server runner
 ├── gateway-configs/
-│   ├── config.yaml            # Gateway configuration
-│   └── research_registry.json # Virtual tools definitions
+│   ├── config.yaml                    # Full gateway config (40+ tools)
+│   ├── minimal_config.yaml            # Minimal config (10 tools, recommended)
+│   ├── research_registry.json         # Full virtual tools registry
+│   └── minimal_research_registry.json # Minimal registry (research_and_fetch + KG writes)
+├── docs/
+│   ├── tool-hierarchy.mmd     # Mermaid: tool dependency tree
+│   ├── tool-hierarchy.svg     # Rendered SVG
+│   ├── data-flow.mmd          # Mermaid: research_and_fetch data flow
+│   └── data-flow.svg          # Rendered SVG
 ├── data/
 │   └── seed_data.py           # Database initialization
-├── start_services.sh          # Start all services
+├── logs/                      # Runtime logs (created by start_services.sh)
+├── start_services.sh          # Start all services (accepts config file arg)
 ├── stop_services.sh           # Stop all services
 ├── chat_cli.py                # Interactive CLI chat client
-├── main.py                    # ADK FastAPI server entry point
+├── main.py                    # ADK FastAPI server (logging + dotenv setup)
 ├── pyproject.toml             # Python dependencies
 ├── .env.example               # Environment template
 └── README.md                  # This file
