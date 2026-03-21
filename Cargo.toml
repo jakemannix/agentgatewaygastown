@@ -95,6 +95,7 @@ indexmap = { version = "2.9", features = ["serde"] }
 insta = { version = "1.38", features = ["json", "redactions", "filters"] }
 ipnet = { version = "2.11", features = ["serde"] }
 itertools = "0.14"
+jsonschema = "0.28"
 jsonwebtoken = { version = "10.0", features = ["aws_lc_rs"] }
 lazy_static = "1.4"
 libc = "0.2"

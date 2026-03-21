@@ -72,6 +72,7 @@ indexmap = { workspace = true }
 ipnet.workspace = true
 itertools.workspace = true
 jemalloc_pprof = { workspace = true, optional = true }
+jsonschema.workspace = true
 jsonwebtoken.workspace = true
 lazy_static.workspace = true
 macro_rules_attribute.workspace = true

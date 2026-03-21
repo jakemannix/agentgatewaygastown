@@ -42,6 +42,15 @@ pub struct CompiledRegistry {
 	unknown_caller_policy: UnknownCallerPolicy,
 }
 
+/// Wrapper around jsonschema::Validator that implements Debug
+pub struct OutputValidator(jsonschema::Validator);
+
+impl std::fmt::Debug for OutputValidator {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str("OutputValidator(<compiled>)")
+	}
+}
+
 /// A compiled tool - either a source-based tool or a composition
 #[derive(Debug)]
 pub struct CompiledTool {
@@ -49,6 +58,8 @@ pub struct CompiledTool {
 	pub def: ToolDefinition,
 	/// Compiled form based on implementation type
 	pub compiled: CompiledImplementation,
+	/// Pre-compiled JSON Schema validator for output (if outputSchema is defined)
+	output_validator: Option<OutputValidator>,
 }
 
 /// Compiled implementation
@@ -600,10 +611,32 @@ impl CompiledTool {
 			},
 		};
 
-		Ok(Self {
+		// Pre-compile output schema validator if outputSchema is defined
+		let output_validator = resolved_def.output_schema.as_ref().and_then(|schema| {
+			match jsonschema::validator_for(schema) {
+				Ok(v) => Some(OutputValidator(v)),
+				Err(e) => {
+					tracing::warn!(
+						target: "virtual_tools",
+						tool = %def.name,
+						error = %e,
+						"failed to compile outputSchema validator — output validation will be skipped"
+					);
+					None
+				}
+			}
+		});
+
+		let tool = Self {
 			def: resolved_def,
 			compiled,
-		})
+			output_validator,
+		};
+
+		// Static analysis: check outputTransform fields against outputSchema
+		tool.check_transform_schema_compatibility();
+
+		Ok(tool)
 	}
 
 	/// Legacy: compile from VirtualToolDef
@@ -637,6 +670,152 @@ impl CompiledTool {
 		match &self.compiled {
 			CompiledImplementation::Composition(c) => Some(c),
 			_ => None,
+		}
+	}
+
+	/// Validate output against the tool's outputSchema at runtime.
+	/// Returns Ok(()) if valid or no schema. Returns Err with diagnostics if invalid.
+	/// Only call this in debug/development mode — static analysis at compile time
+	/// catches most issues without per-request cost.
+	pub fn validate_output(&self, output: &serde_json::Value) -> Result<(), Vec<String>> {
+		let Some(ref validator) = self.output_validator else {
+			return Ok(());
+		};
+
+		if let Err(error) = validator.0.validate(output) {
+			// Use iter_errors for detailed diagnostics on all violations
+			let diagnostics: Vec<String> = validator.0.iter_errors(output)
+				.map(|e| {
+					let path = e.instance_path.to_string();
+					let path_display = if path.is_empty() { "$".to_string() } else { path };
+					format!(
+						"at '{}': {} — fix: add a coalesce default or change outputSchema to allow null",
+						path_display, e
+					)
+				})
+				.collect();
+			if diagnostics.is_empty() {
+				return Err(vec![format!("{}", error)]);
+			}
+			return Err(diagnostics);
+		}
+		Ok(())
+	}
+
+	/// Static analysis at registry compile time: check if outputTransform fields
+	/// could produce null values that violate the outputSchema.
+	/// Logs warnings for each potential issue found.
+	fn check_transform_schema_compatibility(&self) {
+		let Some(ref schema) = self.def.output_schema else {
+			return; // No outputSchema = nothing to check
+		};
+
+		let output_transform = match &self.compiled {
+			CompiledImplementation::Source(s) => s.output_transform.as_ref(),
+			CompiledImplementation::Composition(c) => c.output_transform.as_ref(),
+		};
+
+		let Some(transform) = output_transform else {
+			return; // No transform = can't statically check
+		};
+
+		// Get the schema's required fields and their type constraints
+		let schema_props = schema.get("properties").and_then(|p| p.as_object());
+		let Some(props) = schema_props else {
+			return;
+		};
+
+		// Check if the schema is for an array of items (e.g., NormalizedSearchResponse.results)
+		// Walk into "results.items.properties" for arrayMap transforms
+		let items_props = props
+			.get("results")
+			.and_then(|r| r.get("items"))
+			.and_then(|i| i.get("properties"))
+			.and_then(|p| p.as_object());
+
+		let items_required: Vec<&str> = props
+			.get("results")
+			.and_then(|r| r.get("items"))
+			.and_then(|i| i.get("required"))
+			.and_then(|r| r.as_array())
+			.map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+			.unwrap_or_default();
+
+		// Check each field in the transform against its schema constraint
+		for (field_name, field_source) in &transform.fields {
+			// Check top-level fields
+			if let Some(field_schema) = props.get(field_name.as_str()) {
+				Self::check_field_nullability(&self.def.name, field_name, field_source, field_schema);
+			}
+
+			// Check arrayMap inner fields
+			if let CompiledFieldSource::ArrayMap { each, .. } = field_source {
+				if let Some(item_props) = items_props {
+					for (inner_name, inner_source) in &each.fields {
+						if let Some(inner_schema) = item_props.get(inner_name.as_str()) {
+							let requires_non_null = Self::schema_requires_non_null(inner_schema)
+								|| items_required.contains(&inner_name.as_str());
+							if requires_non_null && Self::source_can_produce_null(inner_source) {
+								tracing::warn!(
+									target: "virtual_tools",
+									tool = %self.def.name,
+									field = %inner_name,
+									"outputSchema requires non-null '{}' but transform can produce null \
+									 — add a coalesce \"default\" or change schema type to [\"string\", \"null\"]",
+									inner_name
+								);
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	/// Check if a schema property requires a non-null value
+	fn schema_requires_non_null(schema: &serde_json::Value) -> bool {
+		if let Some(type_val) = schema.get("type") {
+			// "type": "string" requires non-null
+			// "type": ["string", "null"] allows null
+			match type_val {
+				serde_json::Value::String(s) => s != "null",
+				serde_json::Value::Array(arr) => !arr.iter().any(|v| v.as_str() == Some("null")),
+				_ => false,
+			}
+		} else {
+			false
+		}
+	}
+
+	/// Check if a compiled field source can produce null values
+	fn source_can_produce_null(source: &CompiledFieldSource) -> bool {
+		match source {
+			CompiledFieldSource::Path { .. } => true, // Any path extraction can return null
+			CompiledFieldSource::Coalesce { default, .. } => default.is_none(), // Null if no default
+			CompiledFieldSource::Literal(v) => v.is_null(),
+			CompiledFieldSource::Template { .. } => false, // Templates produce strings
+			CompiledFieldSource::Concat { .. } => false, // Concat produces strings
+			CompiledFieldSource::ArrayMap { .. } => false, // ArrayMap produces arrays
+			CompiledFieldSource::Nested(_) => true, // Could be null
+		}
+	}
+
+	/// Check a single field for nullability mismatch and log a warning
+	fn check_field_nullability(
+		tool_name: &str,
+		field_name: &str,
+		source: &CompiledFieldSource,
+		schema: &serde_json::Value,
+	) {
+		if Self::schema_requires_non_null(schema) && Self::source_can_produce_null(source) {
+			tracing::warn!(
+				target: "virtual_tools",
+				tool = %tool_name,
+				field = %field_name,
+				"outputSchema requires non-null '{}' but transform can produce null \
+				 — add a coalesce \"default\" or change schema type to [\"string\", \"null\"]",
+				field_name
+			);
 		}
 	}
 

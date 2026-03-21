@@ -1214,6 +1214,18 @@ fn transform_call_tool_result(
 		"successfully transformed output"
 	);
 
+	// Runtime output validation (debug mode only)
+	if tracing::enabled!(target: "virtual_tools", tracing::Level::DEBUG) {
+		if let Err(violations) = tool.validate_output(&transformed) {
+			tracing::warn!(
+				target: "virtual_tools",
+				tool = %tool.def.name,
+				violations = ?violations,
+				"runtime outputSchema validation failed — response may be rejected by MCP client"
+			);
+		}
+	}
+
 	// Create new result with both text content and structuredContent
 	let new_content = vec![Annotated {
 		raw: RawContent::Text(RawTextContent {

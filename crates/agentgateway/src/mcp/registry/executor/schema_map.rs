@@ -248,6 +248,7 @@ mod tests {
 						"$.web_url".to_string(),
 						"$.fallback".to_string(),
 					],
+					default: None,
 				}),
 			)]),
 		};
@@ -370,7 +371,7 @@ mod tests {
 						(
 							"url".to_string(),
 							FieldSource::Coalesce(CoalesceSource {
-								paths: vec!["$.pdf_url".to_string(), "$.abs_url".to_string()],
+								paths: vec!["$.pdf_url".to_string(), "$.abs_url".to_string()], default: None,
 							}),
 						),
 						(

@@ -470,6 +470,25 @@ impl Session {
 									UpstreamError::InvalidRequest(format!("Composition execution failed: {}", e))
 								})?;
 
+								// Runtime output validation (debug mode only)
+								if tracing::enabled!(target: "virtual_tools", tracing::Level::DEBUG) {
+									// Re-acquire registry since it was moved into the executor
+									if let Some(reg_ref) = self.relay.registry() {
+										if let Some(reg) = reg_ref.get_arc() {
+											if let Some(tool) = reg.get_tool(&comp_name) {
+												if let Err(violations) = tool.validate_output(&result) {
+													tracing::warn!(
+														target: "virtual_tools",
+														composition = %comp_name,
+														violations = ?violations,
+														"runtime outputSchema validation failed — response may be rejected by MCP client"
+													);
+												}
+											}
+										}
+									}
+								}
+
 								// Build a successful MCP CallToolResult response
 								// If the tool has an outputSchema, populate structuredContent
 								// for ADK compatibility (ADK expects structuredContent when
