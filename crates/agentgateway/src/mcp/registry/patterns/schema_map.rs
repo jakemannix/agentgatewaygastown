@@ -96,7 +96,7 @@ impl FieldSource {
 
 	/// Create a coalesce source
 	pub fn coalesce(paths: Vec<String>) -> Self {
-		FieldSource::Coalesce(CoalesceSource { paths })
+		FieldSource::Coalesce(CoalesceSource { paths, default: None })
 	}
 }
 
@@ -135,6 +135,9 @@ impl LiteralValue {
 pub struct CoalesceSource {
 	/// JSONPaths to try in order
 	pub paths: Vec<String>,
+	/// Fallback value if all paths are null
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub default: Option<String>,
 }
 
 /// Template source - string interpolation

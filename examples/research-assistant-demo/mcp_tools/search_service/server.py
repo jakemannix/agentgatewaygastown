@@ -308,9 +308,9 @@ async def github_search(
             if search_type == "repositories":
                 repos = [
                     GitHubRepo(
-                        full_name=r.get("full_name", ""),
-                        html_url=r.get("html_url", ""),
-                        description=r.get("description"),
+                        full_name=r.get("full_name") or "",
+                        html_url=r.get("html_url") or "",
+                        description=r.get("description") or "",
                         stargazers_count=r.get("stargazers_count", 0),
                         forks_count=r.get("forks_count", 0),
                         language=r.get("language"),
@@ -328,10 +328,10 @@ async def github_search(
             else:
                 code_results = [
                     GitHubCodeResult(
-                        name=r.get("name", ""),
-                        path=r.get("path", ""),
-                        html_url=r.get("html_url", ""),
-                        repository_full_name=r.get("repository", {}).get("full_name", ""),
+                        name=r.get("name") or "",
+                        path=r.get("path") or "",
+                        html_url=r.get("html_url") or "",
+                        repository_full_name=(r.get("repository") or {}).get("full_name") or "",
                     )
                     for r in data.get("items", [])
                 ]
@@ -442,12 +442,12 @@ async def huggingface_search(
             if search_type == "models":
                 models = [
                     HuggingFaceModel(
-                        id=item.get("id", ""),
-                        url=f"https://huggingface.co/{item.get('id', '')}",
-                        description=item.get("description") or item.get("pipeline_tag"),
+                        id=item.get("id") or "",
+                        url=f"https://huggingface.co/{item.get('id') or ''}",
+                        description=item.get("description") or item.get("pipeline_tag") or "",
                         downloads=item.get("downloads", 0),
                         likes=item.get("likes", 0),
-                        pipeline_tag=item.get("pipeline_tag"),
+                        pipeline_tag=item.get("pipeline_tag") or "",
                         tags=item.get("tags", [])[:5],
                         library_name=item.get("library_name"),
                     )
@@ -460,9 +460,9 @@ async def huggingface_search(
             elif search_type == "datasets":
                 datasets = [
                     HuggingFaceDataset(
-                        id=item.get("id", ""),
-                        url=f"https://huggingface.co/datasets/{item.get('id', '')}",
-                        description=item.get("description"),
+                        id=item.get("id") or "",
+                        url=f"https://huggingface.co/datasets/{item.get('id') or ''}",
+                        description=item.get("description") or "",
                         downloads=item.get("downloads", 0),
                         likes=item.get("likes", 0),
                         tags=item.get("tags", [])[:5],
@@ -476,9 +476,9 @@ async def huggingface_search(
             else:  # spaces
                 spaces = [
                     HuggingFaceSpace(
-                        id=item.get("id", ""),
-                        url=f"https://huggingface.co/spaces/{item.get('id', '')}",
-                        description=item.get("description"),
+                        id=item.get("id") or "",
+                        url=f"https://huggingface.co/spaces/{item.get('id') or ''}",
+                        description=item.get("description") or "",
                         likes=item.get("likes", 0),
                         sdk=item.get("sdk"),
                     )

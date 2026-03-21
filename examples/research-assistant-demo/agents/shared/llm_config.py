@@ -19,8 +19,9 @@ from typing import Literal
 
 from dotenv import load_dotenv
 
-# Load .env file if present
-load_dotenv()
+# Load .env file if present — override=True so .env takes precedence over
+# shell-level exports (e.g. from ~/.zshrc)
+load_dotenv(override=True)
 
 
 @dataclass

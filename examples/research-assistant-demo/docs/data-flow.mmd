@@ -1,0 +1,44 @@
+flowchart LR
+    classDef agent fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#e3f2fd
+    classDef composition fill:#e65100,stroke:#ffb74d,stroke-width:2px,color:#fff3e0
+    classDef virtual fill:#6a1b9a,stroke:#ce93d8,stroke-width:2px,color:#f3e5f5
+    classDef mcptool fill:#00695c,stroke:#80cbc4,stroke-width:2px,color:#e0f2f1
+    classDef service fill:#37474f,stroke:#90a4ae,stroke-width:2px,color:#eceff1
+
+    Q["query: 'ColBERT'<br/>num_results: 5"]:::agent
+
+    subgraph "Step 1: context (scatter-gather + merge)"
+        direction TB
+        ES["entity_search<br/>→ {entities: [...]}"]:::mcptool
+        SC["search_categories<br/>→ {categories: [...]}"]:::mcptool
+        subgraph "multi_source_search (nested composition)"
+            direction LR
+            EXA["exa_search → arrayMap"]:::virtual
+            ARX["arxiv_search → arrayMap"]:::virtual
+            GH["github_search → arrayMap"]:::virtual
+            HF["huggingface_search → arrayMap"]:::virtual
+        end
+        AGG["extract $.results → flatten<br/>→ dedupe on $.url → wrap as {results}"]:::composition
+        EXA & ARX & GH & HF --> AGG
+        AGG --> MSR["{results: [...normalized...]}"]:::service
+        MERGE["merge all 3 →<br/>{entities, categories, results, query, ...}"]:::composition
+        ES & SC & MSR --> MERGE
+    end
+
+    Q --> ES & SC & EXA & ARX & GH & HF
+
+    subgraph "Step 2: fetch"
+        URLS["extract $.results[*].url<br/>from merged context"]:::composition
+        BF["batch_fetch(urls, max_length=3000)<br/>→ {results: [{url, content}, ...]}"]:::mcptool
+        URLS --> BF
+    end
+    MERGE --> URLS
+
+    subgraph "Step 3: output (schemaMap)"
+        MAP["schemaMap:<br/>relevant_entities ← $.context.entities<br/>relevant_categories ← $.context.categories<br/>search_results ← $.context.results<br/>fetched_content ← $.fetch.results"]:::virtual
+    end
+    MERGE -->|"as $.context"| MAP
+    BF -->|"as $.fetch"| MAP
+
+    FINAL["{<br/>  relevant_entities: [...],<br/>  relevant_categories: [...],<br/>  search_results: [...],<br/>  fetched_content: [...]<br/>}"]:::service
+    MAP --> FINAL

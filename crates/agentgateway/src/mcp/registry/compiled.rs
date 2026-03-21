@@ -103,6 +103,7 @@ pub enum CompiledFieldSource {
 	Coalesce {
 		paths: Vec<JsonPath>,
 		originals: Vec<String>,
+		default: Option<String>,
 	},
 	/// Template interpolation
 	Template {
@@ -888,7 +889,7 @@ impl CompiledFieldSource {
 					paths.push(jsonpath);
 					originals.push(path.clone());
 				}
-				Ok(CompiledFieldSource::Coalesce { paths, originals })
+				Ok(CompiledFieldSource::Coalesce { paths, originals, default: c.default.clone() })
 			},
 			FieldSource::Template(t) => {
 				let mut vars = HashMap::new();
@@ -948,7 +949,7 @@ impl CompiledFieldSource {
 				})
 			},
 			CompiledFieldSource::Literal(value) => Ok(value.clone()),
-			CompiledFieldSource::Coalesce { paths, .. } => {
+			CompiledFieldSource::Coalesce { paths, default, .. } => {
 				for path in paths {
 					let nodes = path.query(input);
 					if let Some(first) = nodes.iter().next() {
@@ -957,7 +958,10 @@ impl CompiledFieldSource {
 						}
 					}
 				}
-				Ok(serde_json::Value::Null)
+				Ok(match default {
+					Some(d) => serde_json::Value::String(d.clone()),
+					None => serde_json::Value::Null,
+				})
 			},
 			CompiledFieldSource::Template { template, vars } => {
 				let mut result = template.clone();

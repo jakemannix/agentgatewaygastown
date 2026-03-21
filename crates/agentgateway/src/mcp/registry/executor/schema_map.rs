@@ -29,7 +29,7 @@ impl SchemaMapExecutor {
 		match source {
 			FieldSource::Path(path) => Self::extract_path(path, input),
 			FieldSource::Literal(lit) => Ok(lit.to_json_value()),
-			FieldSource::Coalesce(c) => Self::coalesce(&c.paths, input),
+			FieldSource::Coalesce(c) => Self::coalesce(&c.paths, c.default.as_deref(), input),
 			FieldSource::Template(t) => Self::template(&t.template, &t.vars, input),
 			FieldSource::Concat(c) => Self::concat(&c.paths, c.separator.as_deref(), input),
 			FieldSource::Nested(nested) => {
@@ -97,15 +97,18 @@ impl SchemaMapExecutor {
 		})
 	}
 
-	/// Coalesce: return first non-null value from paths
-	fn coalesce(paths: &[String], input: &Value) -> Result<Value, ExecutionError> {
+	/// Coalesce: return first non-null value from paths, with optional default
+	fn coalesce(paths: &[String], default: Option<&str>, input: &Value) -> Result<Value, ExecutionError> {
 		for path in paths {
 			let value = Self::extract_path(path, input)?;
 			if !value.is_null() {
 				return Ok(value);
 			}
 		}
-		Ok(Value::Null)
+		Ok(match default {
+			Some(d) => Value::String(d.to_string()),
+			None => Value::Null,
+		})
 	}
 
 	/// Template: string interpolation

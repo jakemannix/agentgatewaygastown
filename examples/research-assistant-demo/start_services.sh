@@ -1,6 +1,16 @@
 #!/bin/bash
 # Start all services for the Research Assistant demo
 #
+# Usage: ./start_services.sh [config_file]
+#
+# Arguments:
+#   config_file  Optional path to gateway config (relative to project root)
+#                Default: examples/research-assistant-demo/gateway-configs/config.yaml
+#
+# Examples:
+#   ./start_services.sh                                    # Use default config
+#   ./start_services.sh gateway-configs/minimal_config.yaml  # Use minimal config (relative to demo dir)
+#
 # This script starts:
 # - 5 MCP backend services (search, fetch, entity, category, tag)
 # - The AgentGateway
@@ -18,6 +28,24 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# Parse config file argument
+if [ -n "$1" ]; then
+    # If argument is provided, check if it's relative to demo dir or project root
+    if [ -f "$SCRIPT_DIR/$1" ]; then
+        GATEWAY_CONFIG="examples/research-assistant-demo/$1"
+    elif [ -f "$PROJECT_ROOT/$1" ]; then
+        GATEWAY_CONFIG="$1"
+    else
+        echo -e "${RED}Error: Config file not found: $1${NC}"
+        echo "Looked in:"
+        echo "  - $SCRIPT_DIR/$1"
+        echo "  - $PROJECT_ROOT/$1"
+        exit 1
+    fi
+else
+    GATEWAY_CONFIG="examples/research-assistant-demo/gateway-configs/config.yaml"
+fi
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Research Assistant Demo - Starting Services${NC}"
@@ -99,7 +127,7 @@ sleep 1
 
 # Create new window for gateway
 tmux new-window -t research-demo -n gateway
-tmux send-keys -t research-demo "cd '$PROJECT_ROOT' && echo 'Starting AgentGateway on :3000...' && sleep 3 && ./target/debug/agentgateway -f examples/research-assistant-demo/gateway-configs/config.yaml 2>&1 | tee '$SCRIPT_DIR/logs/gateway.log'" C-m
+tmux send-keys -t research-demo "cd '$PROJECT_ROOT' && echo 'Starting AgentGateway on :3000 with $GATEWAY_CONFIG...' && sleep 3 && ./target/debug/agentgateway -f $GATEWAY_CONFIG 2>&1 | tee '$SCRIPT_DIR/logs/gateway.log'" C-m
 
 # Create new window for agent (using ADK's get_fast_api_app pattern)
 tmux new-window -t research-demo -n agent
@@ -112,6 +140,8 @@ tmux send-keys -t research-demo "cd '$SCRIPT_DIR' && echo 'Starting Web UI on :8
 echo -e "\n${GREEN}========================================${NC}"
 echo -e "${GREEN}Services Starting!${NC}"
 echo -e "${GREEN}========================================${NC}"
+echo ""
+echo -e "Gateway config: ${YELLOW}$GATEWAY_CONFIG${NC}"
 echo ""
 echo "Services:"
 echo "  - Search Service:   http://localhost:8001/mcp"

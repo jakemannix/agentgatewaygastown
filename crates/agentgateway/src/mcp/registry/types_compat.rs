@@ -559,7 +559,7 @@ impl From<proto::LiteralValue> for LiteralValue {
 
 impl From<proto::CoalesceSource> for CoalesceSource {
 	fn from(p: proto::CoalesceSource) -> Self {
-		CoalesceSource { paths: p.paths }
+		CoalesceSource { paths: p.paths, default: None }
 	}
 }
 

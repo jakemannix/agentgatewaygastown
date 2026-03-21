@@ -1,0 +1,86 @@
+graph TD
+    classDef agent fill:#1565c0,stroke:#90caf9,stroke-width:2px,color:#e3f2fd
+    classDef composition fill:#e65100,stroke:#ffb74d,stroke-width:2px,color:#fff3e0
+    classDef virtual fill:#6a1b9a,stroke:#ce93d8,stroke-width:2px,color:#f3e5f5
+    classDef mcptool fill:#00695c,stroke:#80cbc4,stroke-width:2px,color:#e0f2f1
+    classDef service fill:#37474f,stroke:#90a4ae,stroke-width:2px,color:#eceff1
+    classDef external fill:#b71c1c,stroke:#ef9a9a,stroke-width:1px,stroke-dasharray: 5 5,color:#fce4ec
+
+    Agent["🤖 Research Agent<br/>(Claude Haiku via ADK)"]:::agent
+
+    %% Compositional virtual tools
+    RAF["research_and_fetch<br/><i>pipeline: 3 steps</i>"]:::composition
+    MSS["multi_source_search<br/><i>scatter-gather: 4 targets</i>"]:::composition
+
+    %% Simple virtual tools (passthrough or transform)
+    NE["normalized_exa<br/><i>outputTransform: arrayMap</i>"]:::virtual
+    NA["normalized_arxiv<br/><i>outputTransform: arrayMap</i>"]:::virtual
+    NG["normalized_github<br/><i>outputTransform: arrayMap</i>"]:::virtual
+    NH["normalized_huggingface<br/><i>outputTransform: arrayMap</i>"]:::virtual
+    CE["create_entity"]:::virtual
+    CR["create_relation"]:::virtual
+    CC["create_category"]:::virtual
+    TC["tag_content"]:::virtual
+
+    %% Agent calls top-level tools
+    Agent --> RAF
+    Agent --> MSS
+    Agent --> CE
+    Agent --> CR
+    Agent --> CC
+    Agent --> TC
+
+    %% research_and_fetch pipeline
+    subgraph "research_and_fetch pipeline"
+        direction TB
+        CTX["Step 1: context<br/><i>scatter-gather + merge</i>"]:::composition
+        FETCH["Step 2: fetch<br/><i>batch_fetch</i>"]:::mcptool
+        OUT["Step 3: output<br/><i>schemaMap reshape</i>"]:::virtual
+        CTX -->|"$.results[*].url"| FETCH
+        FETCH --> OUT
+    end
+    RAF --> CTX
+
+    %% context step scatter-gather targets
+    CTX --> ES["entity_search"]:::mcptool
+    CTX --> SC["search_categories"]:::mcptool
+    CTX --> MSS2["multi_source_search"]:::composition
+
+    %% multi_source_search targets
+    MSS --> NE
+    MSS --> NA
+    MSS --> NG
+    MSS --> NH
+    MSS2 --> NE
+    MSS2 --> NA
+    MSS2 --> NG
+    MSS2 --> NH
+
+    %% Normalized tools → base MCP tools
+    NE --> EXA["exa_search"]:::mcptool
+    NA --> ARX["arxiv_search"]:::mcptool
+    NG --> GH["github_search"]:::mcptool
+    NH --> HF["huggingface_search"]:::mcptool
+
+    %% Base MCP tools → backend services
+    EXA --> SS["search-service<br/><i>:8001</i>"]:::service
+    ARX --> SS
+    GH --> SS
+    HF --> SS
+    FETCH --> FS["fetch-service<br/><i>:8002</i>"]:::service
+    ES --> ENS["entity-service<br/><i>:8003</i>"]:::service
+    SC --> CS["category-service<br/><i>:8004</i>"]:::service
+    CE --> ENS
+    CR --> ENS
+    CC --> CS
+    TC --> TS["tag-service<br/><i>:8005</i>"]:::service
+
+    %% Services → external APIs / storage
+    SS -->|httpx| EXA_API["api.exa.ai"]:::external
+    SS -->|httpx| ARX_API["export.arxiv.org"]:::external
+    SS -->|httpx| GH_API["api.github.com"]:::external
+    SS -->|httpx| HF_API["huggingface.co/api"]:::external
+    FS -->|httpx| WEB["Target URLs"]:::external
+    ENS -->|sqlite-vec| EDB[("entities.db")]:::external
+    CS -->|sqlite-vec| CDB[("categories.db")]:::external
+    TS -->|sqlite| TDB[("tags.db")]:::external

@@ -96,7 +96,7 @@
               "each": {
                 "title": {"path": "$.title"},
                 "url": {"path": "$.url"},
-                "snippet": {"coalesce": {"paths": ["$.text", "$.highlight"]}},
+                "snippet": {"coalesce": {"paths": ["$.text", "$.highlight"], "default": ""}},
                 "source": {"literal": {"stringValue": "exa"}},
                 "source_type": {"literal": {"stringValue": "web"}}
               }
@@ -119,8 +119,8 @@
               "over": "$.papers",
               "each": {
                 "title": {"path": "$.title"},
-                "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"]}},
-                "snippet": {"path": "$.abstract"},
+                "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"], "default": ""}},
+                "snippet": {"coalesce": {"paths": ["$.abstract"], "default": ""}},
                 "source": {"literal": {"stringValue": "arxiv"}},
                 "source_type": {"literal": {"stringValue": "paper"}}
               }
@@ -168,7 +168,7 @@
               "each": {
                 "title": {"path": "$.id"},
                 "url": {"path": "$.url"},
-                "snippet": {"coalesce": {"paths": ["$.description", "$.pipeline_tag"]}},
+                "snippet": {"coalesce": {"paths": ["$.description", "$.pipeline_tag"], "default": ""}},
                 "source": {"literal": {"stringValue": "huggingface"}},
                 "source_type": {"literal": {"stringValue": "model"}}
               }

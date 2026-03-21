@@ -18,6 +18,12 @@ Environment variables:
 """
 
 import os
+from dotenv import load_dotenv
+
+# Load .env BEFORE any other imports — override=True so project .env takes
+# precedence over shell-level exports (e.g. stale keys in ~/.zshrc)
+load_dotenv(override=True)
+
 import uvicorn
 from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
