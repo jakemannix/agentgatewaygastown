@@ -145,8 +145,8 @@
             "arrayMap": {
               "over": "$.results",
               "each": {
-                "title": {"path": "$.title"},
-                "url": {"path": "$.url"},
+                "title": {"coalesce": {"paths": ["$.title"], "default": ""}},
+                "url": {"coalesce": {"paths": ["$.url"], "default": ""}},
                 "snippet": {"coalesce": {"paths": ["$.text", "$.highlight"], "default": ""}},
                 "source": {"literal": {"stringValue": "exa"}},
                 "source_type": {"literal": {"stringValue": "web"}}
@@ -172,9 +172,9 @@
             "arrayMap": {
               "over": "$.papers",
               "each": {
-                "title": {"path": "$.title"},
+                "title": {"coalesce": {"paths": ["$.title"], "default": ""}},
                 "url": {"coalesce": {"paths": ["$.pdf_url", "$.abs_url"], "default": ""}},
-                "snippet": {"path": "$.abstract"},
+                "snippet": {"coalesce": {"paths": ["$.abstract"], "default": ""}},
                 "source": {"literal": {"stringValue": "arxiv"}},
                 "source_type": {"literal": {"stringValue": "paper"}}
               }
@@ -199,9 +199,9 @@
             "arrayMap": {
               "over": "$.repos",
               "each": {
-                "title": {"path": "$.full_name"},
-                "url": {"path": "$.html_url"},
-                "snippet": {"path": "$.description"},
+                "title": {"coalesce": {"paths": ["$.full_name"], "default": ""}},
+                "url": {"coalesce": {"paths": ["$.html_url"], "default": ""}},
+                "snippet": {"coalesce": {"paths": ["$.description"], "default": ""}},
                 "source": {"literal": {"stringValue": "github"}},
                 "source_type": {"literal": {"stringValue": "repo"}}
               }
@@ -226,8 +226,8 @@
             "arrayMap": {
               "over": "$.models",
               "each": {
-                "title": {"path": "$.id"},
-                "url": {"path": "$.url"},
+                "title": {"coalesce": {"paths": ["$.id"], "default": ""}},
+                "url": {"coalesce": {"paths": ["$.url"], "default": ""}},
                 "snippet": {"coalesce": {"paths": ["$.description", "$.pipeline_tag"], "default": ""}},
                 "source": {"literal": {"stringValue": "huggingface"}},
                 "source_type": {"literal": {"stringValue": "model"}}
