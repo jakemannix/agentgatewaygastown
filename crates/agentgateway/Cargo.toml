@@ -206,3 +206,7 @@ mismatched_lifetime_syntaxes = "allow"
 [[bench]]
 name = "bench_tests"
 harness = false
+
+[[bench]]
+name = "executor_benchmarks"
+harness = false

@@ -46,10 +46,10 @@ pub use compiled::{
 pub use error::RegistryError;
 pub use patterns::{
 	AggregationOp, AggregationStrategy, CoalesceSource, ConcatSource, DataBinding, DedupeOp,
-	FieldPredicate, FieldSource, FilterSpec, InputBinding, LimitOp, LiteralValue, MapEachInner,
-	MapEachSpec, PatternSpec, PipelineSpec, PipelineStep, PredicateValue, ScatterGatherSpec,
-	ScatterTarget, SchemaMapSpec, SortOp, StepBinding, StepOperation, TemplateSource, ToolCall,
-	ToolRef,
+	ExtractOp, FieldPredicate, FieldSource, FilterSpec, InputBinding, LimitOp, LiteralValue,
+	MapEachInner, MapEachSpec, PatternSpec, PipelineSpec, PipelineStep, PredicateValue,
+	ScatterGatherSpec, ScatterTarget, SchemaMapSpec, SortOp, StepBinding, StepOperation,
+	TemplateSource, ToolCall, ToolRef, WrapOp,
 };
 pub use store::{RegistryStore, RegistryStoreRef};
 pub use types::{
