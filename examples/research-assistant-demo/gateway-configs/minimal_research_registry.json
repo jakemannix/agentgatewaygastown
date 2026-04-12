@@ -39,7 +39,44 @@
       "version": "1.0.0",
       "description": "External search APIs (Exa, arXiv, GitHub, HuggingFace)",
       "provides": [
-        {"tool": "exa_search", "version": "1.0.0"},
+        {
+          "tool": "exa_search",
+          "version": "1.0.0",
+          "description": "Advanced web search with full control over filters, domains, dates, and content options. Best for: When you need specific filters like date ranges, domain restrictions, or category filters. Not recommended for: Simple searches - use web_search_exa instead. Returns: Search results with optional highlights, summaries, and subpage content.",
+          "inputSchema": {
+            "type": "object",
+            "required": ["query"],
+            "properties": {
+              "query": {"type": "string", "description": "Search query - can be a question, statement, or keywords"},
+              "numResults": {"type": "number", "description": "Number of results (must be a number, 1-100, default: 10)"},
+              "type": {"type": "string", "enum": ["auto", "fast", "neural"], "description": "Search type - 'auto': balanced (default), 'fast': quick results, 'neural': semantic search"},
+              "category": {"type": "string", "enum": ["company", "research paper", "news", "pdf", "github", "personal site", "people", "financial report"], "description": "Filter results to a specific category"},
+              "includeDomains": {"type": "array", "items": {"type": "string"}, "description": "Only include results from these domains"},
+              "excludeDomains": {"type": "array", "items": {"type": "string"}, "description": "Exclude results from these domains"},
+              "startPublishedDate": {"type": "string", "description": "Only include results published after this date (ISO 8601)"},
+              "endPublishedDate": {"type": "string", "description": "Only include results published before this date (ISO 8601)"},
+              "startCrawlDate": {"type": "string", "description": "Only include results crawled after this date (ISO 8601)"},
+              "endCrawlDate": {"type": "string", "description": "Only include results crawled before this date (ISO 8601)"},
+              "includeText": {"type": "array", "items": {"type": "string"}, "description": "Only include results containing ALL of these text strings"},
+              "excludeText": {"type": "array", "items": {"type": "string"}, "description": "Exclude results containing ANY of these text strings"},
+              "userLocation": {"type": "string", "description": "ISO country code for geo-targeted results"},
+              "moderation": {"type": "boolean", "description": "Filter out unsafe/inappropriate content"},
+              "additionalQueries": {"type": "array", "items": {"type": "string"}, "description": "Additional query variations to expand search coverage"},
+              "textMaxCharacters": {"type": "number", "description": "Max characters for text extraction per result"},
+              "contextMaxCharacters": {"type": "number", "description": "Max characters for context string"},
+              "enableSummary": {"type": "boolean", "description": "Enable summary generation for results"},
+              "summaryQuery": {"type": "string", "description": "Focus query for summary generation"},
+              "enableHighlights": {"type": "boolean", "description": "Enable highlights extraction"},
+              "highlightsNumSentences": {"type": "number", "description": "Number of sentences per highlight"},
+              "highlightsPerUrl": {"type": "number", "description": "Number of highlights per URL"},
+              "highlightsQuery": {"type": "string", "description": "Query for highlight relevance"},
+              "maxAgeHours": {"type": "number", "description": "Maximum age of cached content in hours"},
+              "livecrawlTimeout": {"type": "number", "description": "Timeout in milliseconds for fetching fresh content"},
+              "subpages": {"type": "number", "description": "Number of subpages to crawl from each result (1-10)"},
+              "subpageTarget": {"type": "array", "items": {"type": "string"}, "description": "Keywords to target when selecting subpages"}
+            }
+          }
+        },
         {"tool": "arxiv_search", "version": "1.0.0"},
         {"tool": "github_search", "version": "1.0.0"},
         {"tool": "huggingface_search", "version": "1.0.0"}
@@ -84,9 +121,9 @@
 
   "tools": [
     {
-      "name": "normalized_exa",
+      "name": "web_research",
       "version": "1.0.0",
-      "description": "Exa web search with normalized output. Single-source search - prefer 'multi_source_search' or 'research_and_fetch' for comprehensive results.",
+      "description": "Search the web for research topics. Returns normalized results with title, url, snippet, and source.",
       "source": {"server": "search-service", "tool": "exa_search"},
       "outputTransform": {
         "mappings": {
@@ -186,7 +223,7 @@
       "spec": {
         "scatterGather": {
           "targets": [
-            {"tool": "normalized_exa"},
+            {"tool": "web_research"},
             {"tool": "normalized_arxiv"},
             {"tool": "normalized_github"},
             {"tool": "normalized_huggingface"}
@@ -347,6 +384,23 @@
           "category_id": {"type": "string", "description": "Category ID to tag with"}
         },
         "required": ["content_id", "category_id"]
+      }
+    },
+
+    {
+      "name": "store_research_finding",
+      "version": "1.0.0",
+      "description": "Store a research finding in the knowledge graph. Creates an entity that will be surfaced by 'research_and_fetch' in future queries when semantically relevant. Use this after discovering important papers, tools, concepts, or people.",
+      "source": {"server": "entity-service", "tool": "create_entity"},
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string", "description": "Name of the finding/concept"},
+          "entity_type": {"type": "string", "description": "Type: paper, concept, tool, person, organization, dataset, model"},
+          "description": {"type": "string", "description": "Detailed description of the finding"},
+          "properties": {"type": "object", "description": "Additional properties (url, authors, year, etc.)"}
+        },
+        "required": ["name", "entity_type", "description"]
       }
     }
   ]

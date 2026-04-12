@@ -42,7 +42,7 @@ A single tool that:
 ```
 
 ### Skipped Tests (require API keys)
-- `test_normalized_exa_schema` - Exa API key required (but we have it in .env!)
+- `test_web_research_schema` - Exa API key required (but we have it in .env!)
 - `test_multi_source_search_all_four` - Marked skip for CI
 
 ## Claude Code Integration

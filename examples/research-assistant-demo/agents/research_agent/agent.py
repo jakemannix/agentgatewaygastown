@@ -59,46 +59,53 @@ SYSTEM_PROMPT = """You are a Research Assistant specialized in helping users exp
 You have access to powerful research tools that work across multiple sources:
 
 ### Search Tools
-- **virtual_multi_source_search**: Search web (Exa), arXiv papers, GitHub repos, and HuggingFace in parallel
-- **virtual_academic_search**: Focused search on arXiv papers and HuggingFace models/datasets
-- **virtual_code_search**: Focused search on GitHub repos and HuggingFace for implementations
+- **virtual_multi_source_search**: PRIMARY SEARCH TOOL. Searches all 4 sources (Exa web, arXiv, GitHub, HuggingFace) in parallel and returns unified results. Fast (~1s). Always use this for research queries.
+
+### Single-Source Search (when you need just one source)
+- **virtual_web_research**: Web search via Exa
+- **virtual_normalized_arxiv**: arXiv paper search
+- **virtual_normalized_github**: GitHub repo search
+- **virtual_normalized_huggingface**: HuggingFace model/dataset search
 
 ### Content Tools
-- **virtual_fetch_and_extract**: Fetch a URL and extract all links from it
+- **fetch-service_url_fetch**: Fetch a single URL and extract its content
+- **fetch-service_batch_fetch**: Fetch multiple URLs at once
+- **fetch-service_extract_urls**: Extract all links from a page
 
 ### Knowledge Management
-- **virtual_store_research_finding**: Save a discovery to the knowledge graph with entity + tags
-- **virtual_link_entities**: Create relationships between concepts in your knowledge
-- **virtual_get_knowledge_for_topic**: Query what you already know about a topic
-- **virtual_explore_entity_network**: See how an entity connects to others
+- **virtual_store_research_finding**: Save a finding (paper, concept, tool, person, etc.) to the knowledge graph. Stored findings are surfaced by future searches when semantically relevant.
+- **virtual_create_relation**: Link two entities (e.g., "paper X cites paper Y", "tool A implements concept B")
+- **entity-service_entity_search**: Search your existing knowledge graph for relevant entities
+- **entity-service_search_relations**: Explore how entities connect to each other
 
 ### Organization
-- **virtual_find_or_create_category**: Find matching categories or create new ones
-- **virtual_browse_taxonomy**: Explore the category hierarchy
+- **virtual_create_category**: Add a category to the taxonomy for organizing content
+- **virtual_tag_content**: Tag content with categories
+- **category-service_search_categories**: Find existing categories
+- **category-service_get_category_tree**: Browse the category hierarchy
 
 ## Research Workflow
 
 When a user asks you to research a topic:
 
-1. **Understand the request**: Clarify what aspects they're interested in (papers, code, both?)
+1. **Search**: Use virtual_multi_source_search to get results from all 4 sources fast.
 
-2. **Search broadly first**: Use virtual_multi_source_search to get an overview
+2. **Store findings**: ALWAYS follow up search with virtual_store_research_finding to save the important discoveries (papers, tools, concepts, people) to the knowledge graph. Do this for each noteworthy result — this is the core value of the assistant.
 
-3. **Go deep on promising leads**: Use virtual_fetch_and_extract on interesting URLs
+3. **Build connections**:
+   - Link related concepts with virtual_create_relation ("extends", "cites", "implements")
+   - Create categories with virtual_create_category to build a taxonomy
 
-4. **Organize findings**:
-   - Store important discoveries with virtual_store_research_finding
-   - Create appropriate categories with virtual_find_or_create_category
-   - Link related concepts with virtual_link_entities
+4. **Fetch if needed**: If the user wants to read the actual content of specific results, use fetch-service_url_fetch on individual URLs.
 
-5. **Synthesize**: Summarize what you found and how it connects
+5. **Synthesize**: Summarize what you found and how it connects.
 
 ## Best Practices
 
+- Default workflow: virtual_multi_source_search → virtual_store_research_finding for important results → virtual_create_relation to connect them
 - When searching for ML/AI topics, include year qualifiers (e.g., "transformers 2025 2026")
-- For implementation questions, prefer virtual_code_search
-- For academic/theoretical questions, prefer virtual_academic_search
-- Always check existing knowledge with virtual_get_knowledge_for_topic before starting new research
+- Use individual normalized searches (virtual_normalized_arxiv, etc.) when you only need one source
+- Check existing knowledge with entity-service_entity_search before starting new research
 - Create meaningful relationships between entities (uses predicates like "extends", "cites", "implements", "related_to")
 
 ## Communication Style
@@ -117,6 +124,16 @@ When a user asks you to research a topic:
 _tool_start_times: dict[str, float] = {}
 
 
+# ANSI color codes for terminal output
+import re
+
+DARK_RED = "\033[31m"
+DARK_BLUE = "\033[34m"
+RESET = "\033[0m"
+
+_SOURCES = ("exa", "arxiv", "github", "huggingface")
+
+
 def _truncate(value: Any, max_len: int = 500) -> str:
     """Truncate a value for debug logging."""
     s = json.dumps(value, default=str) if not isinstance(value, str) else value
@@ -125,13 +142,27 @@ def _truncate(value: Any, max_len: int = 500) -> str:
     return s
 
 
+def _color_tool(name: str) -> str:
+    """Wrap tool name in dark red ANSI escape."""
+    return f"{DARK_RED}{name}{RESET}"
+
+
+def _color_sources(s: str) -> str:
+    """Highlight source names in dark blue, handling both raw and escaped JSON."""
+    for src in _SOURCES:
+        s = s.replace(f'\\"source\\":\\"{src}\\"', f'\\"source\\":\\"{DARK_BLUE}{src}{RESET}\\"')
+        s = s.replace(f'"source":"{src}"', f'"source":"{DARK_BLUE}{src}{RESET}"')
+        s = s.replace(f'"source": "{src}"', f'"source": "{DARK_BLUE}{src}{RESET}"')
+    return s
+
+
 def before_tool(*, tool: BaseTool, args: dict[str, Any], tool_context: ToolContext, **_: Any) -> None:
     """Log tool call start. In debug mode, also log arguments."""
     key = f"{tool.name}:{id(tool_context)}"
     _tool_start_times[key] = time.monotonic()
-    logger.info("tool_call_start  tool=%s", tool.name)
+    logger.info("tool_call_start  tool=%s", _color_tool(tool.name))
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("tool_call_args   tool=%s args=%s", tool.name, _truncate(args))
+        logger.debug("tool_call_args   tool=%s args=%s", _color_tool(tool.name), _truncate(args))
 
 
 def after_tool(
@@ -142,9 +173,10 @@ def after_tool(
     key = f"{tool.name}:{id(tool_context)}"
     start = _tool_start_times.pop(key, None)
     elapsed_ms = int((time.monotonic() - start) * 1000) if start else -1
-    logger.info("tool_call_done   tool=%s elapsed=%dms", tool.name, elapsed_ms)
+    logger.info("tool_call_done   tool=%s elapsed=%dms", _color_tool(tool.name), elapsed_ms)
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("tool_call_result tool=%s result=%s", tool.name, _truncate(tool_response))
+        result_str = _color_sources(_truncate(tool_response))
+        logger.debug("tool_call_result tool=%s result=%s", _color_tool(tool.name), result_str)
 
 
 # ==============================================================================

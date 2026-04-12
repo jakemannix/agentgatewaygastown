@@ -193,7 +193,7 @@ The gateway validates virtual tool output transforms against their declared `out
 ```
 WARN virtual_tools outputSchema requires non-null 'snippet' but transform can produce null
   — add a coalesce "default" or change schema type to ["string", "null"]
-  tool=normalized_exa field=snippet
+  tool=web_research field=snippet
 ```
 
 For runtime validation (per-request), start the gateway with debug logging:
@@ -273,7 +273,7 @@ The `multi_source_search` tool demonstrates parallel execution using normalized 
   "spec": {
     "scatterGather": {
       "targets": [
-        {"tool": "normalized_exa"},
+        {"tool": "web_research"},
         {"tool": "normalized_arxiv"},
         {"tool": "normalized_github"},
         {"tool": "normalized_huggingface"}
@@ -513,7 +513,7 @@ External search API integrations. Each tool returns its **native API format** - 
 | `huggingface_search` | ML | HuggingFace API | `HuggingFaceSearchResponse` | `HF_TOKEN` optional |
 
 **Virtual wrapper tools** normalize these into a common `NormalizedSearchResponse` schema:
-- `normalized_exa` - wraps `exa_search` with `arrayMap` over `$.results`
+- `web_research` - wraps `exa_search` with `arrayMap` over `$.results`
 - `normalized_arxiv` - wraps `arxiv_search` with `arrayMap` over `$.papers`
 - `normalized_github` - wraps `github_search` with `arrayMap` over `$.repos`
 - `normalized_huggingface` - wraps `huggingface_search` with `arrayMap` over `$.models`
@@ -826,7 +826,7 @@ The tests automatically start the backend services and gateway as session-scoped
 ### Skipped Tests
 
 Some tests are skipped by default because they require API keys:
-- `test_normalized_exa_schema` - Requires `EXA_API_KEY`
+- `test_web_research_schema` - Requires `EXA_API_KEY`
 - `test_multi_source_search_all_four` - Requires all 4 search API keys
 
 To run these tests, ensure the API keys are set in your environment.

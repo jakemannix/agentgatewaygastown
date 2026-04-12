@@ -80,7 +80,7 @@ The scatter-gather response format issue was fixed by adding `outputSchema` and 
 
 | Test | Reason |
 |------|--------|
-| `test_normalized_exa_schema` | Requires Exa API key |
+| `test_web_research_schema` | Requires Exa API key |
 | `test_multi_source_search_all_four` | Requires Exa API key |
 
 ### Failing Tests (17)

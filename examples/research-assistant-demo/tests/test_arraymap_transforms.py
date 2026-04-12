@@ -71,9 +71,9 @@ def test_normalized_arxiv_schema(call_tool):
 
 
 @pytest.mark.skip(reason="Exa requires API key - enable when testing with real credentials")
-def test_normalized_exa_schema(call_tool):
+def test_web_research_schema(call_tool):
     """Exa results are normalized to common search result schema."""
-    result = call_tool("virtual_normalized_exa", {"query": "machine learning", "num_results": 3})
+    result = call_tool("virtual_web_research", {"query": "machine learning", "num_results": 3})
 
     assert "results" in result
     assert isinstance(result["results"], list)
