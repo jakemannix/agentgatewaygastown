@@ -399,3 +399,40 @@ async def github_search(query: str, num_results: int = 10) -> dict:
 ```
 
 This allows testing the gateway's composition logic without hitting real APIs.
+
+## Doctrack
+
+This project maintains a knowledge graph in `.doctrack/` (Obsidian vault).
+
+### BEFORE writing any code
+
+You MUST read relevant documentation before planning or implementing changes:
+
+1. Read `.doctrack/_project.md` for project structure and module map
+2. Search the vault for features related to the code you'll touch:
+   - Use `mcp__obsidian__search_notes` with the module/feature name
+   - Read the matching feature note and its component notes
+3. Check `concepts/` for cross-cutting patterns that may affect your approach
+4. Check `decisions/` for past choices and rejected alternatives — do NOT re-propose
+   approaches that were already considered and rejected
+
+This context prevents duplicate work, respects architectural decisions, and ensures
+your changes align with existing patterns.
+
+### AFTER modifying code files
+
+You MUST update the knowledge graph to reflect your changes:
+
+1. Update the feature note if the feature's architecture, dependencies, or API changed
+2. Update or create component notes for any classes/modules you modified or added
+3. Create a decision note if you made a non-trivial design choice — include
+   alternatives you considered and why you rejected them
+4. Update interfaces if contracts between modules changed
+5. Create a concept note if you introduced a new cross-cutting pattern
+6. Update `_project.md` file registry if you added new source files
+
+### Vault connection
+
+- Vault path: `.doctrack/`
+- MCP servers: configured in `.mcp.json` (obsidian server for vault I/O, doctrack server for code-doc index)
+- If MCP tools are unavailable: read/write `.doctrack/` files directly from filesystem

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "research-gateway": {
+      "type": "http",
+      "url": "http://localhost:3000/mcp"
+    },
+    "obsidian": {
+      "command": "npx",
+      "args": ["@bitbonsai/mcpvault@latest", "/Users/jake/src/open_src/agentgatewaygastown/.doctrack"]
+    },
+    "doctrack": {
+      "command": "doctrack-mcp",
+      "env": {
+        "DOCTRACK_ROOT": "/Users/jake/src/open_src/agentgatewaygastown"
+      }
+    }
+  }
+}
