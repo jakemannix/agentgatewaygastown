@@ -1,0 +1,203 @@
+name: Release
+
+# 4-tier trigger model for the AnyAlignment fork. See:
+#   https://github.com/yetanotheruseless/anyalignment-deploy/blob/main/infra/oss-forks.md
+#
+# | Trigger                       | Build | Push | Tag                              |
+# |-------------------------------|-------|------|----------------------------------|
+# | pull_request                  |  yes  |  no  | (none, CI signal only)           |
+# | push to non-main branch       |  yes  |  yes | branch-<sanitized>-<short-sha>   |
+# | push to main                  |  yes  |  yes | main-<short-sha>                 |
+# | push of tag v*.*.*            |  yes  |  yes | vX.Y.Z (immutable)               |
+#
+# Multi-arch native build: amd64 on ubuntu-latest, arm64 on ubuntu-24.04-arm.
+# Both arches build per-tier; for push tiers a manifest job stitches the
+# per-arch digests into a single multi-arch tag.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  DOCKERFILE: Dockerfile.release
+
+jobs:
+  # Compute the base tag for this run. The base tag becomes the multi-arch
+  # tag pushed by the manifest job; per-arch jobs append `-amd64` / `-arm64`.
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      base_tag: ${{ steps.tag.outputs.base_tag }}
+      should_push: ${{ steps.tag.outputs.should_push }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Compute base tag
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          short_sha="${SHA:0:7}"
+          should_push=false
+          base_tag=""
+          version=""
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            # PR: build-only, no push. Use a non-pushed placeholder tag so
+            # docker build-push-action has something to label internally.
+            base_tag="pr-${{ github.event.pull_request.number }}-${short_sha}"
+            should_push=false
+            version="$base_tag"
+          elif [[ "$REF" == refs/tags/v*.*.* ]]; then
+            base_tag="${REF_NAME}"
+            should_push=true
+            version="${REF_NAME#v}"
+          elif [[ "$REF" == "refs/heads/main" ]]; then
+            base_tag="main-${short_sha}"
+            should_push=true
+            version="$base_tag"
+          elif [[ "$REF" == refs/heads/* ]]; then
+            # Sanitize branch name for Docker tag legality:
+            # tags accept [A-Za-z0-9._-] and must not start with . or -.
+            raw="${REF_NAME}"
+            sanitized="$(printf '%s' "$raw" | tr '/' '-' | sed 's/[^A-Za-z0-9._-]/-/g')"
+            sanitized="$(printf '%s' "$sanitized" | sed 's/^[.-]\+//')"
+            if [[ -z "$sanitized" ]]; then
+              sanitized="branch"
+            fi
+            base_tag="branch-${sanitized}-${short_sha}"
+            should_push=true
+            version="$base_tag"
+          else
+            echo "Unhandled ref: $REF" >&2
+            exit 1
+          fi
+
+          echo "base_tag=$base_tag"      | tee -a "$GITHUB_OUTPUT"
+          echo "should_push=$should_push" | tee -a "$GITHUB_OUTPUT"
+          echo "version=$version"        | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        # Reuse the upstream prep-runner cleanup. Big Rust workspace + Docker
+        # layers will exhaust the default 14 GB partition without it.
+        uses: ./.github/actions/prep-runner
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Distinct cache per arch; rust-cache keys off Cargo.lock by default.
+          shared-key: release-${{ matrix.arch }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: needs.resolve.outputs.should_push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (per-arch tag + OCI labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # We pin the per-arch tag explicitly; do not let metadata-action
+          # auto-derive tags from refs.
+          tags: |
+            type=raw,value=${{ needs.resolve.outputs.base_tag }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.resolve.outputs.version }}
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.title=agentgateway
+            org.opencontainers.image.description=AnyAlignment fork of agentgateway. See https://github.com/yetanotheruseless/anyalignment-deploy/blob/main/infra/oss-forks.md
+
+      - name: Build and (maybe) push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          platforms: ${{ matrix.platform }}
+          push: ${{ needs.resolve.outputs.should_push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.resolve.outputs.version }}
+            GIT_REVISION=${{ github.sha }}
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+  manifest:
+    needs: [resolve, build]
+    if: needs.resolve.outputs.should_push == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create multi-arch manifest
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          BASE_TAG: ${{ needs.resolve.outputs.base_tag }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            -t "${IMAGE}:${BASE_TAG}" \
+            "${IMAGE}:${BASE_TAG}-amd64" \
+            "${IMAGE}:${BASE_TAG}-arm64"
+
+      - name: Inspect manifest
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          BASE_TAG: ${{ needs.resolve.outputs.base_tag }}
+        run: |
+          docker buildx imagetools inspect "${IMAGE}:${BASE_TAG}"
