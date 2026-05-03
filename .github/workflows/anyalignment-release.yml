@@ -1,4 +1,4 @@
-name: Release
+name: AnyAlignment Release
 
 # 4-tier trigger model for the AnyAlignment fork. See:
 #   https://github.com/yetanotheruseless/anyalignment-deploy/blob/main/infra/oss-forks.md
