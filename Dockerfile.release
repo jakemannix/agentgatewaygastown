@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1.7
+#
+# AnyAlignment release image for agentgateway.
+#
+# Differences from the repo's primary Dockerfile:
+#   * Built natively per-arch (no cross-compile sysroots), so runs on
+#     `ubuntu-latest` and `ubuntu-24.04-arm` matrix runners.
+#   * Final stage is `debian:bookworm-slim`, per the AnyAlignment OSS-fork
+#     publishing convention (anyalignment-deploy/infra/oss-forks.md).
+#   * OCI source labels point at this fork; the workflow overrides them
+#     via docker/metadata-action so the values stay in one place.
+#
+# This file is consumed by .github/workflows/release.yml. Local users
+# who want the full upstream build (UI, musl variant, etc.) should keep
+# using `make docker` against the primary Dockerfile.
+
+ARG RUST_VERSION=1.90
+ARG DEBIAN_VERSION=bookworm
+
+# ---------- builder ----------
+FROM rust:${RUST_VERSION}-${DEBIAN_VERSION} AS builder
+
+ARG VERSION=unknown
+ARG GIT_REVISION=unknown
+
+ENV CARGO_TERM_COLOR=always \
+    CARGO_INCREMENTAL=0 \
+    RUST_BACKTRACE=1
+
+WORKDIR /src
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       pkg-config \
+       libssl-dev \
+       protobuf-compiler \
+       cmake \
+       clang \
+       lld \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the entire workspace. Cargo's workspace resolution needs all member
+# manifests, so a partial copy + cargo-chef-style trick is brittle here.
+# We rely on BuildKit's RUN --mount=type=cache for the heavy caching.
+COPY . .
+
+ENV VERSION=${VERSION} \
+    GIT_REVISION=${GIT_REVISION}
+
+RUN --mount=type=cache,id=agentgateway-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=agentgateway-cargo-git,target=/usr/local/cargo/git \
+    --mount=type=cache,id=agentgateway-target,target=/src/target \
+    cargo build --release --bin agentgateway \
+ && cp /src/target/release/agentgateway /usr/local/bin/agentgateway \
+ && strip /usr/local/bin/agentgateway || true
+
+# ---------- runtime ----------
+FROM debian:${DEBIAN_VERSION}-slim AS runtime
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       ca-certificates \
+       libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --create-home --uid 10001 agentgateway
+
+COPY --from=builder /usr/local/bin/agentgateway /usr/local/bin/agentgateway
+
+USER agentgateway
+WORKDIR /home/agentgateway
+
+ENTRYPOINT ["/usr/local/bin/agentgateway"]
