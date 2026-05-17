@@ -56,7 +56,7 @@ This document captures the current state of the eCommerce demo to enable continu
 
 ### 1. Start MCP Backend Services
 ```bash
-cd /Users/jake/src/open_src/agentgatewaygastown/examples/ecommerce-demo
+cd /Users/jake/src/open_src/yetanotheruseless/agentgateway/examples/ecommerce-demo
 
 # Start all 5 services (from repo root, or use start_services.sh)
 .venv/bin/python -m mcp_tools.catalog_service.server > /tmp/catalog.log 2>&1 &
@@ -68,13 +68,13 @@ cd /Users/jake/src/open_src/agentgatewaygastown/examples/ecommerce-demo
 
 ### 2. Start Gateway (from repo root)
 ```bash
-cd /Users/jake/src/open_src/agentgatewaygastown
+cd /Users/jake/src/open_src/yetanotheruseless/agentgateway
 ./target/release/agentgateway -f examples/ecommerce-demo/gateway-configs/config.yaml > /tmp/gateway.log 2>&1 &
 ```
 
 ### 3. Start Agents
 ```bash
-cd /Users/jake/src/open_src/agentgatewaygastown/examples/ecommerce-demo
+cd /Users/jake/src/open_src/yetanotheruseless/agentgateway/examples/ecommerce-demo
 .venv/bin/python -m agents.customer_agent > /tmp/customer_agent.log 2>&1 &
 .venv/bin/python -m agents.merchandiser_agent > /tmp/merchandiser_agent.log 2>&1 &
 ```
@@ -89,7 +89,7 @@ done
 
 ### Stop Everything
 ```bash
-cd /Users/jake/src/open_src/agentgatewaygastown/examples/ecommerce-demo
+cd /Users/jake/src/open_src/yetanotheruseless/agentgateway/examples/ecommerce-demo
 ./stop_services.sh
 # Or manually:
 for port in 8001 8002 8003 8004 8005 3000 9001 9002 8080 8081 15000 15020 15021; do

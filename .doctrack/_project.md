@@ -15,7 +15,7 @@ tags:
 
 Open source data plane for agentic AI connectivity, written in Rust. Provides security, observability, and governance for agent-to-agent and agent-to-tool communication, supporting A2A and MCP protocols.
 
-This is a fork (`agentgatewaygastown`) used as a prototype/testbed for virtual tool composition, registry patterns, and research-assistant demo work.
+This is a fork (originally `jakemannix/agentgatewaygastown`, transferred + renamed to `yetanotheruseless/agentgateway` on 2026-05-03) used as a prototype/testbed for virtual tool composition, registry patterns, and research-assistant demo work.
 
 ## Crate Architecture
 

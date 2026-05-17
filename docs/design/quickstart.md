@@ -12,7 +12,7 @@ Get the eCommerce demo running with virtual tools and compositions.
 
 ```bash
 # Clone and enter the repo
-cd agentgatewaygastown
+cd agentgateway
 
 # Build UI (required for gateway)
 cd ui && npm install && npm run build && cd ..
