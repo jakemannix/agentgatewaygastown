@@ -6,12 +6,12 @@
     },
     "obsidian": {
       "command": "npx",
-      "args": ["@bitbonsai/mcpvault@latest", "/Users/jake/src/open_src/agentgatewaygastown/.doctrack"]
+      "args": ["@bitbonsai/mcpvault@latest", "/Users/jake/src/open_src/yetanotheruseless/agentgateway/.doctrack"]
     },
     "doctrack": {
       "command": "doctrack-mcp",
       "env": {
-        "DOCTRACK_ROOT": "/Users/jake/src/open_src/agentgatewaygastown"
+        "DOCTRACK_ROOT": "/Users/jake/src/open_src/yetanotheruseless/agentgateway"
       }
     }
   }

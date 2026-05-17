@@ -92,7 +92,7 @@ schemas, and servers. The data plane consumes compiled snapshots from the
 registry and caches them. The registry is not in the hot path.
 
 The current file-based registry in the agentgateway prototype
-(github.com/jakemannix/agentgatewaygastown, a temporary fork) is a proof of 
+(github.com/yetanotheruseless/agentgateway, a temporary fork — originally `jakemannix/agentgatewaygastown`, transferred + renamed 2026-05-03) is a proof of 
 concept. The spec defines the API contract; the file is one dummy backing store.
 
 ### Data Plane

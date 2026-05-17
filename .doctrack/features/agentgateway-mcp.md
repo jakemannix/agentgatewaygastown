@@ -28,7 +28,7 @@ tags:
 ## Purpose
 The Model Context Protocol (MCP) handling module is the core of agentgateway. It manages MCP client sessions, routes tool/prompt/resource requests to upstream MCP backends, and implements the virtual tools registry with composition patterns.
 
-This is the most actively developed module in this fork — the virtual tool composition system (registry, patterns, executor) is the primary focus of the `agentgatewaygastown` prototype.
+This is the most actively developed module in this fork — the virtual tool composition system (registry, patterns, executor) is the primary focus of the prototype (originally `jakemannix/agentgatewaygastown`, now `yetanotheruseless/agentgateway`).
 
 ## Architecture
 
